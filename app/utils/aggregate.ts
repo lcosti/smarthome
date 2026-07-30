@@ -157,9 +157,7 @@ export function buildEntries(items: ItemLike[], context: AggregateContext): List
   const loners: ItemLike[] = []
 
   for (const item of items) {
-    const ingredient = item.ingredient_id
-      ? chaseMerge(item.ingredient_id, context.ingredients) as IngredientWithUnit | null
-      : null
+    const ingredient = chaseMerge(item.ingredient_id, context.ingredients)
     if (!ingredient) {
       loners.push(item)
       continue

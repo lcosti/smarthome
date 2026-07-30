@@ -74,10 +74,10 @@ function preferred<T extends { id: string, created_at: string }>(a: T, b: T): T 
  * Returns null when the chain leads somewhere this device has not got, or runs
  * longer than a person could plausibly have merged, which also breaks any cycle.
  */
-export function chaseMerge(
+export function chaseMerge<T extends IngredientLike>(
   id: string | null,
-  ingredients: Map<string, IngredientLike>
-): IngredientLike | null {
+  ingredients: Map<string, T>
+): T | null {
   let current = id ? ingredients.get(id) : undefined
   for (let depth = 0; current && depth <= MAX_MERGE_DEPTH; depth++) {
     if (!current.merged_into) return current.deleted_at ? null : current
@@ -89,9 +89,9 @@ export function chaseMerge(
   return null
 }
 
-/** Every live ingredient, merges already followed, keyed by normalised name. */
-function liveIngredients(ingredients: Map<string, IngredientLike>): IngredientLike[] {
-  const seen = new Map<string, IngredientLike>()
+/** Every live ingredient, merges already followed. */
+function liveIngredients<T extends IngredientLike>(ingredients: Map<string, T>): T[] {
+  const seen = new Map<string, T>()
   for (const row of ingredients.values()) {
     const resolved = chaseMerge(row.id, ingredients)
     if (resolved) seen.set(resolved.id, resolved)
@@ -108,17 +108,17 @@ function liveIngredients(ingredients: Map<string, IngredientLike>): IngredientLi
  * kind of wrong that makes people stop trusting the app. Prefix matching belongs
  * in the suggestion list, where a person is choosing.
  */
-export function resolveIngredient(
+export function resolveIngredient<T extends IngredientLike>(
   name: string,
-  ingredients: Map<string, IngredientLike>,
+  ingredients: Map<string, T>,
   aliases: AliasLike[] = []
-): IngredientLike | null {
+): T | null {
   const key = normaliseIngredientName(name)
   if (!key) return null
 
   const live = liveIngredients(ingredients)
 
-  let best: IngredientLike | null = null
+  let best: T | null = null
   for (const row of live) {
     if (normaliseIngredientName(row.name) !== key) continue
     best = best ? preferred(best, row) : row
@@ -134,8 +134,8 @@ export function resolveIngredient(
   return best
 }
 
-export interface Suggestion {
-  ingredient: IngredientLike
+export interface Suggestion<T extends IngredientLike = IngredientLike> {
+  ingredient: T
   /** The alias that matched, when it was not the canonical name. */
   matchedAlias: string | null
 }
@@ -147,12 +147,12 @@ export interface Suggestion {
  * the thing they almost certainly mean is the one under their thumb. One entry per
  * ingredient however many of its aliases match.
  */
-export function suggestIngredients(
+export function suggestIngredients<T extends IngredientLike>(
   query: string,
-  ingredients: Map<string, IngredientLike>,
+  ingredients: Map<string, T>,
   aliases: AliasLike[] = [],
   limit = 6
-): Suggestion[] {
+): Suggestion<T>[] {
   const key = normaliseIngredientName(query)
   if (!key) return []
 
@@ -164,8 +164,8 @@ export function suggestIngredients(
     return null
   }
 
-  const best = new Map<string, { rank: number, suggestion: Suggestion }>()
-  const offer = (ingredient: IngredientLike, score: number, matchedAlias: string | null) => {
+  const best = new Map<string, { rank: number, suggestion: Suggestion<T> }>()
+  const offer = (ingredient: T, score: number, matchedAlias: string | null) => {
     const held = best.get(ingredient.id)
     if (held && held.rank <= score) return
     best.set(ingredient.id, { rank: score, suggestion: { ingredient, matchedAlias } })

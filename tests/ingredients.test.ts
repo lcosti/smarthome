@@ -154,6 +154,28 @@ describe('resolveIngredient', () => {
     expect(resolveIngredient('saffron', mapOf([tomatoes]))).toBeNull()
   })
 
+  describe('the invariant that dictates the order of a merge', () => {
+    // Recording an alias is refused when the text already resolves to a different
+    // ingredient, which is right — it would be a quiet hijacking. The consequence
+    // is that a merge cannot record the loser's name as an alias of the winner
+    // until the loser has actually been retired, or its own name still resolves to
+    // itself and the alias is declined. mergeIngredients relies on both halves.
+    const loser = ingredient('loser', 'Toms')
+    const winner = ingredient('winner', 'Chopped tomatoes')
+
+    it('resolves a live ingredient own name to itself', () => {
+      expect(resolveIngredient('Toms', mapOf([loser, winner]))?.id).toBe('loser')
+    })
+
+    it('stops resolving that name once the row is merged away', () => {
+      const retired = ingredient('loser', 'Toms', {
+        merged_into: 'winner',
+        deleted_at: '2026-07-02T00:00:00.000Z'
+      })
+      expect(resolveIngredient('Toms', mapOf([retired, winner]))).toBeNull()
+    })
+  })
+
   describe('when two devices created the same ingredient offline', () => {
     const older = ingredient('bbbb', 'Tomatoes', { created_at: '2026-07-01T00:00:00.000Z' })
     const newer = ingredient('aaaa', 'Tomatoes', { created_at: '2026-07-05T00:00:00.000Z' })
