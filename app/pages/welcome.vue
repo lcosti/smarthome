@@ -48,8 +48,13 @@ async function submit() {
 
   store.householdId = data
   writeIdentity({ householdId: data, userId })
-  await store.sync()
   await navigateTo('/')
+
+  // Deliberately not awaited, and deliberately after the navigation. The first
+  // sync of a new household takes a moment, and navigating once it resolves
+  // means anyone who taps through to Recipes or Plan in the meantime gets
+  // dragged back to the list under their thumb.
+  void store.sync()
 }
 </script>
 

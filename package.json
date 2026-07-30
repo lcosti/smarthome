@@ -12,6 +12,7 @@
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
     "acceptance": "node scripts/acceptance.mjs",
+    "acceptance:phase2": "node scripts/acceptance-phase2.mjs",
     "icons": "node scripts/generate-icons.mjs",
     "db:types": "supabase gen types typescript --local > shared/types/database.types.ts"
   },

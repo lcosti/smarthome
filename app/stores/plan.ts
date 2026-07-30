@@ -47,11 +47,15 @@ export const usePlanStore = defineStore('plan', () => {
     return liveEntries.value.filter(e => e.date === date && e.meal === DINNER)
   }
 
+  /** The seven date keys of the week starting on the given Monday. */
+  function weekDatesFrom(weekStart: string): string[] {
+    const [year, month, day] = weekStart.split('-').map(Number)
+    return weekDates(new Date(year!, month! - 1, day!))
+  }
+
   /** The seven nights of a week, empty ones included — the shape the page renders. */
   function week(weekStart: string): PlannedNight[] {
-    const [year, month, day] = weekStart.split('-').map(Number)
-    const monday = new Date(year!, month! - 1, day!)
-    return weekDates(monday).map(date => ({
+    return weekDatesFrom(weekStart).map(date => ({
       date,
       entries: entriesOn(date).map(entry => ({
         entry,
@@ -63,6 +67,26 @@ export const usePlanStore = defineStore('plan', () => {
 
   function isDerived(entryId: string) {
     return derivedEntryIds.value.has(entryId)
+  }
+
+  /**
+   * Whether deriving this week could change anything.
+   *
+   * Not simply "are any nights planned": taking the last night off a week leaves
+   * its ingredients on the list, and that is the moment you most need to derive.
+   * Gating on planned nights alone would strand them there.
+   */
+  function hasWorkFor(weekStart: string): boolean {
+    const dates = new Set(weekDatesFrom(weekStart))
+    for (const entry of liveEntries.value) {
+      if (dates.has(entry.date)) return true
+    }
+    for (const item of sync.rowsOf('shopping_list_items').values()) {
+      if (item.deleted_at || item.source !== 'plan' || !item.plan_entry_id) continue
+      const entry = allEntries.value.get(item.plan_entry_id)
+      if (entry && dates.has(entry.date)) return true
+    }
+    return false
   }
 
   async function addEntry(date: string, recipeId: string, servings?: number) {
@@ -167,6 +191,7 @@ export const usePlanStore = defineStore('plan', () => {
     week,
     entriesOn,
     isDerived,
+    hasWorkFor,
     addEntry,
     setNight,
     updateEntry,

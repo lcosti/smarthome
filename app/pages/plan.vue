@@ -19,7 +19,9 @@ const weekStart = computed(() => isoDate(monday.value))
 const nights = computed(() => plan.week(weekStart.value))
 const today = todayIso()
 
-const plannedCount = computed(() => nights.value.filter(n => n.entries.length).length)
+// Stays enabled after the last night comes off, because that is exactly when the
+// list still holds ingredients nobody is going to cook.
+const canDerive = computed(() => plan.hasWorkFor(weekStart.value))
 
 function openNight(date: string) {
   editingDate.value = date
@@ -110,7 +112,7 @@ async function derive() {
           size="xl"
           block
           icon="i-lucide-shopping-cart"
-          :disabled="!plannedCount"
+          :disabled="!canDerive"
           :loading="deriving"
           @click="derive"
         >
@@ -118,7 +120,7 @@ async function derive() {
         </UButton>
 
         <p
-          v-if="!plannedCount"
+          v-if="!canDerive"
           class="mt-2 text-center text-sm text-dimmed"
         >
           Plan a night first, then this puts its ingredients on the list.
