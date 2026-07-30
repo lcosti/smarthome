@@ -18,13 +18,23 @@ import { readFile, stat } from 'node:fs/promises'
 import { extname, join, normalize } from 'node:path'
 import { chromium } from 'playwright'
 
-process.loadEnvFile('.env')
+// Keys live in .env locally; CI exports them instead and has no .env at all.
+try {
+  process.loadEnvFile('.env')
+} catch {
+  // Fall back to whatever is already exported.
+}
 
 const PORT = 3000
 const ORIGIN = `http://localhost:${PORT}`
 const ROOT = '.output/public'
-const API = process.env.SUPABASE_URL
+const API = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54321'
 const SECRET = process.env.SUPABASE_SECRET_KEY
+
+if (!SECRET) {
+  console.error('SUPABASE_SECRET_KEY is not set. Add it to .env — run `pnpm supabase status` for the local stack\'s keys.')
+  process.exit(1)
+}
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json',
