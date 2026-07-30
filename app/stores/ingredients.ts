@@ -289,6 +289,12 @@ export const useIngredientsStore = defineStore('ingredients', () => {
   }
 
   return {
+    /**
+     * Every ingredient row, merged-away ones included. Grouping needs them: a
+     * list item may still name an ingredient that has since been folded into
+     * another, and following that pointer is what heals it.
+     */
+    allRows: all,
     ingredients,
     aliases,
     purchaseUnits,

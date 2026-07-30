@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useListStore } from '../stores/list'
 import { useSyncStore } from '../stores/sync'
+import type { ListEntry } from '../utils/aggregate'
+import type { ItemRow } from '../utils/db'
 
 const store = useListStore()
 const sync = useSyncStore()
@@ -9,6 +11,8 @@ const toast = useToast()
 const draft = ref('')
 const editingId = ref<string | null>(null)
 const editorOpen = ref(false)
+const groupEntry = ref<ListEntry<ItemRow> | null>(null)
+const groupOpen = ref(false)
 const showDone = ref(false)
 
 async function add() {
@@ -34,6 +38,19 @@ async function add() {
 function edit(id: string) {
   editingId.value = id
   editorOpen.value = true
+}
+
+/**
+ * One row behind the line means edit it. Several means show what they are first —
+ * a summed quantity is not a thing that can be edited, only the rows under it.
+ */
+function openEntry(entry: ListEntry<ItemRow>) {
+  if (entry.items.length === 1) {
+    edit(entry.items[0]!.id)
+    return
+  }
+  groupEntry.value = entry
+  groupOpen.value = true
 }
 
 function aisleNameFor(id: string | null) {
@@ -155,13 +172,13 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
             {{ group.name }}
           </h2>
           <ul class="rounded-lg border border-default bg-elevated/30">
-            <ItemRow
-              v-for="item in group.items"
-              :key="item.id"
-              :item="item"
-              :source-label="store.sourceLabelFor(item)"
-              @toggle="store.toggleItem(item.id)"
-              @edit="edit(item.id)"
+            <ListEntryRow
+              v-for="entry in group.entries"
+              :key="entry.key"
+              :entry="entry"
+              :source-label="store.sourceLabelForEntry(entry)"
+              @toggle="store.toggleEntry(entry)"
+              @edit="openEntry(entry)"
             />
           </ul>
         </section>
@@ -213,6 +230,12 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
     <ItemEditor
       v-model:open="editorOpen"
       :item-id="editingId"
+    />
+
+    <ItemGroupSheet
+      v-model:open="groupOpen"
+      :entry="groupEntry"
+      @edit="edit"
     />
   </div>
 </template>

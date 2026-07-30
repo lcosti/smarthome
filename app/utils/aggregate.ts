@@ -52,15 +52,20 @@ export interface AggregateContext {
   purchaseUnits: PurchaseUnitLike[]
 }
 
-/** One line on the list, standing for one or more rows. */
-export interface ListEntry {
+/**
+ * One line on the list, standing for one or more rows.
+ *
+ * Generic in the row type so that callers get their own rows back — the whole
+ * ItemRow, not just the handful of fields this file reads.
+ */
+export interface ListEntry<T extends ItemLike = ItemLike> {
   /** Stable across renders: the ingredient when grouped, otherwise the row id. */
   key: string
   name: string
   /** What to show where the quantity goes, or null for none. */
   quantityLabel: string | null
   /** The rows this line stands for, oldest first. Never empty. */
-  items: ItemLike[]
+  items: T[]
   /** Set only when this line is a group of rows sharing an ingredient. */
   ingredient: IngredientWithUnit | null
 }
@@ -142,8 +147,8 @@ function groupLabel(
  * so the group covers only what is still to buy, and a total never counts
  * something already in the trolley.
  */
-export function buildEntries(items: ItemLike[], context: AggregateContext): ListEntry[] {
-  const single = (item: ItemLike): ListEntry => ({
+export function buildEntries<T extends ItemLike>(items: T[], context: AggregateContext): ListEntry<T>[] {
+  const single = (item: T): ListEntry<T> => ({
     key: item.id,
     name: item.name,
     // Verbatim, as before Phase 3. One row needs no arithmetic, and rewriting
@@ -153,8 +158,8 @@ export function buildEntries(items: ItemLike[], context: AggregateContext): List
     ingredient: null
   })
 
-  const buckets = new Map<string, { ingredient: IngredientWithUnit, items: ItemLike[] }>()
-  const loners: ItemLike[] = []
+  const buckets = new Map<string, { ingredient: IngredientWithUnit, items: T[] }>()
+  const loners: T[] = []
 
   for (const item of items) {
     const ingredient = chaseMerge(item.ingredient_id, context.ingredients)
@@ -167,7 +172,7 @@ export function buildEntries(items: ItemLike[], context: AggregateContext): List
     else buckets.set(ingredient.id, { ingredient, items: [item] })
   }
 
-  const entries: ListEntry[] = loners.map(single)
+  const entries: ListEntry<T>[] = loners.map(single)
 
   for (const { ingredient, items: grouped } of buckets.values()) {
     // One row is still one row: showing it under its canonical name would rename

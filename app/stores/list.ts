@@ -1,13 +1,15 @@
 import { defineStore } from 'pinia'
+import type { AggregateContext, ListEntry } from '../utils/aggregate'
+import { buildEntries } from '../utils/aggregate'
 import type { AisleRow, ItemRow } from '../utils/db'
 import { plainCopy } from '../utils/sync'
-import { useIngredientsStore } from './ingredients'
+import { asBaseUnit, useIngredientsStore } from './ingredients'
 import { nowIso, useSyncStore } from './sync'
 
 export interface AisleGroup {
   id: string
   name: string
-  items: ItemRow[]
+  entries: ListEntry<ItemRow>[]
 }
 
 function normaliseName(name: string) {
@@ -35,10 +37,21 @@ export const useListStore = defineStore('list', () => {
       .sort((a, b) => (b.checked_at ?? '').localeCompare(a.checked_at ?? ''))
   )
 
+  /** What buildEntries needs to add quantities up, in the shapes it reads. */
+  const aggregateContext = computed<AggregateContext>(() => ({
+    ingredients: new Map(
+      [...ingredients.allRows.values()].map(row => [row.id, { ...row, base_unit: asBaseUnit(row.base_unit) }])
+    ),
+    purchaseUnits: ingredients.purchaseUnits
+  }))
+
   /**
-   * Unchecked items grouped in the order the shop is walked. Anything whose aisle
-   * is unset or has since been deleted falls into a trailing "Other" group, so no
-   * item can ever become invisible.
+   * Unchecked items grouped in the order the shop is walked, then collapsed into
+   * the lines to show. Anything whose aisle is unset or has since been deleted
+   * falls into a trailing "Other" group, so no item can ever become invisible.
+   *
+   * Collapsing happens per aisle, after bucketing, so an ingredient somebody
+   * deliberately filed in two places stays in both.
    */
   const groups = computed<AisleGroup[]>(() => {
     const unchecked = liveItems.value.filter(i => !i.checked)
@@ -56,14 +69,18 @@ export const useListStore = defineStore('list', () => {
       else byAisle.set(aisle.id, [item])
     }
 
-    const byCreated = (a: ItemRow, b: ItemRow) => a.created_at.localeCompare(b.created_at)
+    const context = aggregateContext.value
     const result: AisleGroup[] = []
 
     for (const aisle of sortedAisles.value) {
       const bucket = byAisle.get(aisle.id)
-      if (bucket?.length) result.push({ id: aisle.id, name: aisle.name, items: bucket.sort(byCreated) })
+      if (bucket?.length) {
+        result.push({ id: aisle.id, name: aisle.name, entries: buildEntries(bucket, context) })
+      }
     }
-    if (other.length) result.push({ id: 'other', name: 'Other', items: other.sort(byCreated) })
+    if (other.length) {
+      result.push({ id: 'other', name: 'Other', entries: buildEntries(other, context) })
+    }
 
     return result
   })
@@ -93,6 +110,19 @@ export const useListStore = defineStore('list', () => {
     const entry = sync.rowsOf('meal_plan_entries').get(item.plan_entry_id)
     if (!entry) return null
     return sync.rowsOf('recipes').get(entry.recipe_id)?.name ?? null
+  }
+
+  /**
+   * The recipes behind a grouped line: "Chilli · Pasta bake". Deduplicated,
+   * because the same recipe on two nights is one reason, not two.
+   */
+  function sourceLabelForEntry(entry: ListEntry<ItemRow>): string | null {
+    const names = new Set<string>()
+    for (const item of entry.items) {
+      const label = sourceLabelFor(item)
+      if (label) names.add(label)
+    }
+    return names.size ? [...names].join(' · ') : null
   }
 
   /**
@@ -136,6 +166,24 @@ export const useListStore = defineStore('list', () => {
       checked,
       checked_at: checked ? nowIso() : null
     })
+  }
+
+  /**
+   * Tick a whole line off, however many rows are behind it.
+   *
+   * One write per row rather than anything cleverer, because each is the same
+   * idempotent upsert ticking one item already is, and a group is two or three
+   * rows in practice. If the drain halts halfway, another device sees a smaller
+   * remaining total, which is coherent, and it settles on the next drain.
+   */
+  async function toggleEntry(entry: ListEntry<ItemRow>) {
+    const checked = !entry.items.every(i => i.checked)
+    const at = checked ? nowIso() : null
+    for (const item of entry.items) {
+      const current = items.value.get(item.id)
+      if (!current || current.checked === checked) continue
+      await sync.commit('shopping_list_items', { ...plainCopy(current), checked, checked_at: at })
+    }
   }
 
   async function updateItem(id: string, patch: Partial<Pick<ItemRow, 'name' | 'quantity' | 'aisle_id'>>) {
@@ -206,8 +254,10 @@ export const useListStore = defineStore('list', () => {
     groups,
     rememberedAisle,
     sourceLabelFor,
+    sourceLabelForEntry,
     addItem,
     toggleItem,
+    toggleEntry,
     updateItem,
     deleteItem,
     clearChecked,
