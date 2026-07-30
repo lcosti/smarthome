@@ -72,6 +72,105 @@ export type Database = {
           },
         ]
       }
+      attendance: {
+        Row: {
+          created_at: string
+          date: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          meal: string
+          person_id: string
+          present: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          meal?: string
+          person_id: string
+          present: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          meal?: string
+          person_id?: string
+          present?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dietary_constraints: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          kind: string
+          person_id: string
+          tag: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          kind: string
+          person_id: string
+          tag: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          kind?: string
+          person_id?: string
+          tag?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dietary_constraints_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dietary_constraints_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       households: {
         Row: {
           created_at: string
@@ -303,25 +402,31 @@ export type Database = {
           auth_user_id: string | null
           created_at: string
           date_of_birth: string | null
+          deleted_at: string | null
           household_id: string
           id: string
           name: string
+          updated_at: string
         }
         Insert: {
           auth_user_id?: string | null
           created_at?: string
           date_of_birth?: string | null
+          deleted_at?: string | null
           household_id: string
           id?: string
           name: string
+          updated_at?: string
         }
         Update: {
           auth_user_id?: string | null
           created_at?: string
           date_of_birth?: string | null
+          deleted_at?: string | null
           household_id?: string
           id?: string
           name?: string
+          updated_at?: string
         }
         Relationships: [
           {
