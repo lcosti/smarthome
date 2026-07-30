@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useIngredientsStore } from '../stores/ingredients'
 import { useListStore } from '../stores/list'
 import { useRecipesStore } from '../stores/recipes'
 
@@ -7,6 +8,7 @@ const { lineId } = defineProps<{ lineId: string | null }>()
 
 const store = useRecipesStore()
 const list = useListStore()
+const ingredients = useIngredientsStore()
 
 const name = ref('')
 const quantity = ref('')
@@ -24,11 +26,26 @@ watch(open, (isOpen) => {
 
 async function save() {
   if (!lineId || !name.value.trim()) return
+  const trimmed = name.value.trim()
+  const trimmedQuantity = quantity.value.trim() || null
+  // The opportunistic path for a library written before any of this existed: a
+  // line canonicalises itself the first time somebody opens it. The quantity is
+  // to hand here, so it can also say how the ingredient is measured.
+  const ingredientId = await ingredients.linkFor(trimmed, { quantity: trimmedQuantity })
   await store.updateIngredient(lineId, {
-    name: name.value.trim(),
-    quantity: quantity.value.trim() || null,
-    aisle_id: aisleId.value
+    name: trimmed,
+    quantity: trimmedQuantity,
+    aisle_id: aisleId.value,
+    ingredient_id: ingredientId ?? line.value?.ingredient_id ?? null
   })
+  // Filing a line under an aisle files the ingredient itself, so nobody has to
+  // say where tomatoes live twice.
+  if (ingredientId && aisleId.value) {
+    const current = ingredients.ingredientById(ingredientId)
+    if (current && !current.aisle_id) {
+      await ingredients.updateIngredient(current.id, { aisle_id: aisleId.value })
+    }
+  }
   open.value = false
 }
 

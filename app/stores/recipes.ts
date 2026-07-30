@@ -102,6 +102,7 @@ export const useRecipesStore = defineStore('recipes', () => {
     name: string
     quantity?: string | null
     aisle_id?: string | null
+    ingredient_id?: string | null
   }) {
     const name = input.name.trim()
     if (!name || !sync.householdId) return
@@ -115,7 +116,7 @@ export const useRecipesStore = defineStore('recipes', () => {
       quantity: input.quantity ?? null,
       // Undefined means "work it out"; an explicit null means "no aisle".
       aisle_id: input.aisle_id === undefined ? rememberedAisle(name) : input.aisle_id,
-      ingredient_id: null,
+      ingredient_id: input.ingredient_id ?? null,
       sort_order: highest + 1,
       deleted_at: null,
       created_at: timestamp,
@@ -125,7 +126,7 @@ export const useRecipesStore = defineStore('recipes', () => {
 
   async function updateIngredient(
     id: string,
-    patch: Partial<Pick<RecipeIngredientRow, 'name' | 'quantity' | 'aisle_id'>>
+    patch: Partial<Pick<RecipeIngredientRow, 'name' | 'quantity' | 'aisle_id' | 'ingredient_id'>>
   ) {
     const current = allLines.value.get(id)
     if (!current) return

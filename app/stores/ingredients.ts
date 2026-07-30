@@ -71,7 +71,7 @@ export const useIngredientsStore = defineStore('ingredients', () => {
     return resolveIngredient(name, all.value, aliases.value) ?? undefined
   }
 
-  function suggest(query: string, limit = 6): Suggestion[] {
+  function suggest(query: string, limit = 6): Suggestion<IngredientRow>[] {
     return suggestIngredients(query, all.value, aliases.value, limit)
   }
 
@@ -140,6 +140,41 @@ export const useIngredientsStore = defineStore('ingredients', () => {
       created_at: existing?.created_at ?? timestamp,
       updated_at: timestamp
     })
+  }
+
+  /**
+   * The ingredient id to stamp on something somebody has just typed.
+   *
+   * The one place the three entry points agree, so that a recipe line, a line
+   * edit and an ad-hoc list item all canonicalise the same way.
+   *
+   * When they picked a suggestion, what they typed becomes an alias — that is how
+   * the app learns "tinned tomatoes" without anybody being asked to teach it. When
+   * they just pressed enter, `create` decides whether an unknown name is worth a
+   * canonical row: yes from a recipe, where it is an ingredient by definition, and
+   * no from the shopping list, where "bin bags" is not.
+   */
+  async function linkFor(typed: string, options: {
+    chosen?: IngredientRow | null
+    quantity?: string | null
+    aisleId?: string | null
+    create?: boolean
+  } = {}): Promise<string | null> {
+    const name = typed.trim()
+    if (!name) return null
+
+    if (options.chosen) {
+      await recordAlias(options.chosen.id, name)
+      return options.chosen.id
+    }
+
+    if (options.create === false) return resolve(name)?.id ?? null
+
+    const ingredient = await ensureIngredient(name, {
+      quantity: options.quantity,
+      aisleId: options.aisleId
+    })
+    return ingredient?.id ?? null
   }
 
   async function updateIngredient(
@@ -264,6 +299,7 @@ export const useIngredientsStore = defineStore('ingredients', () => {
     suggest,
     ensureIngredient,
     recordAlias,
+    linkFor,
     updateIngredient,
     deleteIngredient,
     removeAlias,

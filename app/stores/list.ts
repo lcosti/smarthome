@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import type { AisleRow, ItemRow } from '../utils/db'
 import { plainCopy } from '../utils/sync'
+import { useIngredientsStore } from './ingredients'
 import { nowIso, useSyncStore } from './sync'
 
 export interface AisleGroup {
@@ -15,6 +16,7 @@ function normaliseName(name: string) {
 
 export const useListStore = defineStore('list', () => {
   const sync = useSyncStore()
+  const ingredients = useIngredientsStore()
 
   const items = computed(() => sync.rowsOf('shopping_list_items'))
   const aisles = computed(() => sync.rowsOf('aisles'))
@@ -101,19 +103,24 @@ export const useListStore = defineStore('list', () => {
   async function addItem(rawName: string): Promise<ItemRow | null> {
     const name = rawName.trim()
     if (!name || !sync.householdId) return null
+    // Resolved if the household already knows this name, but never created: the
+    // canonical list is for things recipes are made of, and "bin bags" is not one.
+    // Resolving is still worth it — milk typed onto the list should join the milk
+    // the plan already asked for rather than sit beside it.
+    const ingredient = ingredients.resolve(name)
     const timestamp = nowIso()
     return sync.commit('shopping_list_items', {
       id: crypto.randomUUID(),
       household_id: sync.householdId,
       name,
       quantity: null,
-      aisle_id: rememberedAisle(name),
+      aisle_id: ingredient?.aisle_id ?? rememberedAisle(name),
       checked: false,
       checked_at: null,
       source: 'adhoc',
       plan_entry_id: null,
       recipe_ingredient_id: null,
-      ingredient_id: null,
+      ingredient_id: ingredient?.id ?? null,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp
