@@ -113,6 +113,7 @@ export const useListStore = defineStore('list', () => {
       source: 'adhoc',
       plan_entry_id: null,
       recipe_ingredient_id: null,
+      ingredient_id: null,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp

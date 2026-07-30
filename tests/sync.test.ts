@@ -3,8 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AppDatabase,
   SYNC_TABLE_NAMES,
+  type IngredientAliasRow,
+  type IngredientRow,
   type ItemRow,
   type PlanEntryRow,
+  type PurchaseUnitRow,
   type RecipeIngredientRow,
   type RecipeRow,
   type SyncTable,
@@ -70,7 +73,50 @@ function line(overrides: Partial<RecipeIngredientRow> = {}): RecipeIngredientRow
     name: 'Chopped tomatoes',
     quantity: '2 tins',
     aisle_id: null,
+    ingredient_id: null,
     sort_order: 1,
+    deleted_at: null,
+    created_at: STAMP,
+    updated_at: STAMP,
+    ...overrides
+  }
+}
+
+function ingredient(overrides: Partial<IngredientRow> = {}): IngredientRow {
+  return {
+    id: 'f0000000-0000-0000-0000-000000000001',
+    household_id: HOUSEHOLD,
+    name: 'Chopped tomatoes',
+    base_unit: 'g',
+    aisle_id: null,
+    merged_into: null,
+    deleted_at: null,
+    created_at: STAMP,
+    updated_at: STAMP,
+    ...overrides
+  }
+}
+
+function ingredientAlias(overrides: Partial<IngredientAliasRow> = {}): IngredientAliasRow {
+  return {
+    id: 'a1000000-0000-0000-0000-000000000001',
+    household_id: HOUSEHOLD,
+    ingredient_id: 'f0000000-0000-0000-0000-000000000001',
+    alias: 'tinned tomatoes',
+    deleted_at: null,
+    created_at: STAMP,
+    updated_at: STAMP,
+    ...overrides
+  }
+}
+
+function purchaseUnit(overrides: Partial<PurchaseUnitRow> = {}): PurchaseUnitRow {
+  return {
+    id: 'a2000000-0000-0000-0000-000000000001',
+    household_id: HOUSEHOLD,
+    ingredient_id: 'f0000000-0000-0000-0000-000000000001',
+    name: 'tin',
+    amount: 400,
     deleted_at: null,
     created_at: STAMP,
     updated_at: STAMP,
@@ -356,6 +402,9 @@ describe('the synced table registry', () => {
       id: 'a-1', household_id: HOUSEHOLD, name: 'Chilled', sort_order: 1,
       deleted_at: null, created_at: STAMP, updated_at: STAMP
     })
+    await db.cacheFor('ingredients').put(ingredient({ id: 'n-1' }))
+    await db.cacheFor('ingredient_aliases').put(ingredientAlias({ id: 'x-1' }))
+    await db.cacheFor('ingredient_purchase_units').put(purchaseUnit({ id: 'u-1' }))
     await db.cacheFor('recipes').put(recipe({ id: 'r-1' }))
     await db.cacheFor('recipe_ingredients').put(line({ id: 'l-1' }))
     await db.cacheFor('meal_plan_entries').put(planEntry({ id: 'p-1' }))
@@ -377,6 +426,9 @@ describe('the synced table registry', () => {
 
   it('round-trips a row of every type through the queue', async () => {
     const server = fakeServer()
+    await enqueueMutation(db, 'ingredients', ingredient({ id: 'n-1' }))
+    await enqueueMutation(db, 'ingredient_aliases', ingredientAlias({ id: 'x-1' }))
+    await enqueueMutation(db, 'ingredient_purchase_units', purchaseUnit({ id: 'u-1' }))
     await enqueueMutation(db, 'recipes', recipe({ id: 'r-1' }))
     await enqueueMutation(db, 'recipe_ingredients', line({ id: 'l-1' }))
     await enqueueMutation(db, 'meal_plan_entries', planEntry({ id: 'p-1' }))
@@ -384,8 +436,9 @@ describe('the synced table registry', () => {
 
     const result = await drainQueue(db, server.upsert)
 
-    expect(result.synced).toBe(4)
+    expect(result.synced).toBe(7)
     expect(server.calls.map(c => c.table)).toEqual([
+      'ingredients', 'ingredient_aliases', 'ingredient_purchase_units',
       'recipes', 'recipe_ingredients', 'meal_plan_entries', 'shopping_list_items'
     ])
   })
@@ -396,11 +449,14 @@ describe('the synced table registry', () => {
     // key. The queue is global and strictly FIFO, so writing them in that order
     // on the device is what guarantees it.
     const server = fakeServer()
+    await enqueueMutation(db, 'ingredients', ingredient({ id: 'n-1' }))
     await enqueueMutation(db, 'recipes', recipe({ id: 'r-1' }))
-    await enqueueMutation(db, 'recipe_ingredients', line({ id: 'l-1', recipe_id: 'r-1' }))
+    await enqueueMutation(db, 'recipe_ingredients', line({
+      id: 'l-1', recipe_id: 'r-1', ingredient_id: 'n-1'
+    }))
     await enqueueMutation(db, 'meal_plan_entries', planEntry({ id: 'p-1', recipe_id: 'r-1' }))
     await enqueueMutation(db, 'shopping_list_items', item({
-      id: 'i-1', source: 'plan', plan_entry_id: 'p-1', recipe_ingredient_id: 'l-1'
+      id: 'i-1', source: 'plan', plan_entry_id: 'p-1', recipe_ingredient_id: 'l-1', ingredient_id: 'n-1'
     }))
 
     await drainQueue(db, server.upsert)
@@ -409,6 +465,9 @@ describe('the synced table registry', () => {
     expect(order.indexOf('r-1')).toBeLessThan(order.indexOf('l-1'))
     expect(order.indexOf('r-1')).toBeLessThan(order.indexOf('p-1'))
     expect(order.indexOf('p-1')).toBeLessThan(order.indexOf('i-1'))
+    // An ingredient has to exist before anything can point at it.
+    expect(order.indexOf('n-1')).toBeLessThan(order.indexOf('l-1'))
+    expect(order.indexOf('n-1')).toBeLessThan(order.indexOf('i-1'))
   })
 
   it('settles rows independently across tables', async () => {
@@ -424,7 +483,7 @@ describe('the synced table registry', () => {
   })
 })
 
-describe('the Dexie v1 to v2 upgrade', () => {
+describe('the Dexie upgrades', () => {
   it('keeps cached rows and queued mutations from before Phase 2', async () => {
     const name = `upgrade-${++dbCount}`
 
@@ -450,5 +509,43 @@ describe('the Dexie v1 to v2 upgrade', () => {
     expect(await v2.meal_plan_entries.count()).toBe(0)
 
     await v2.delete()
+  })
+
+  it('keeps a Phase 2 device intact when the ingredient stores arrive', async () => {
+    const name = `upgrade-${++dbCount}`
+
+    // A device running the Phase 2 build: a recipe library, a planned night, a
+    // list, and a write still waiting to go out.
+    const v2 = new Dexie(name)
+    v2.version(1).stores({ items: 'id', aisles: 'id', mutations: '++seq, rowId' })
+    v2.version(2).stores({ recipes: 'id', recipe_ingredients: 'id', meal_plan_entries: 'id' })
+    await v2.open()
+    await v2.table('items').put(item({ id: 'i-1', name: 'Milk' }))
+    await v2.table('recipes').put(recipe({ id: 'r-1' }))
+    await v2.table('recipe_ingredients').put(line({ id: 'l-1' }))
+    await v2.table('meal_plan_entries').put(planEntry({ id: 'p-1' }))
+    await v2.table('mutations').add({
+      table: 'recipes', rowId: 'r-1', payload: recipe({ id: 'r-1' }), ts: 1, attempts: 0
+    })
+    v2.close()
+
+    // The same device after the Phase 3 build lands.
+    const v3 = new AppDatabase(name)
+    await v3.open()
+
+    expect((await v3.items.get('i-1'))?.name).toBe('Milk')
+    expect((await v3.recipes.get('r-1'))?.name).toBe('Chilli')
+    expect(await v3.recipe_ingredients.count()).toBe(1)
+    expect(await v3.meal_plan_entries.count()).toBe(1)
+    expect(await v3.mutations.count()).toBe(1)
+    // The new stores exist, empty, waiting for the first pull. Nothing was
+    // reshaped, so the rows above keep their null ingredient_id until something
+    // touches them.
+    expect(await v3.ingredients.count()).toBe(0)
+    expect(await v3.ingredient_aliases.count()).toBe(0)
+    expect(await v3.ingredient_purchase_units.count()).toBe(0)
+    expect((await v3.recipe_ingredients.get('l-1'))?.ingredient_id).toBeNull()
+
+    await v3.delete()
   })
 })

@@ -8,6 +8,9 @@ export type AisleRow = Tables['aisles']['Row']
 export type RecipeRow = Tables['recipes']['Row']
 export type RecipeIngredientRow = Tables['recipe_ingredients']['Row']
 export type PlanEntryRow = Tables['meal_plan_entries']['Row']
+export type IngredientRow = Tables['ingredients']['Row']
+export type IngredientAliasRow = Tables['ingredient_aliases']['Row']
+export type PurchaseUnitRow = Tables['ingredient_purchase_units']['Row']
 
 /**
  * Every table the offline layer syncs.
@@ -19,10 +22,15 @@ export type PlanEntryRow = Tables['meal_plan_entries']['Row']
  *
  * Order matters in one narrow way: `pull` applies rows in this order, so parents
  * land before the shopping list items that reference them and a fresh device can
- * resolve a derived item's recipe on first paint.
+ * resolve a derived item's recipe on first paint. Ingredients come early for the
+ * same reason — a list item names its canonical ingredient, and the grouped line
+ * cannot be worked out until that row is there.
  */
 export const SYNC_TABLES = {
   aisles: { cache: 'aisles' },
+  ingredients: { cache: 'ingredients' },
+  ingredient_aliases: { cache: 'ingredient_aliases' },
+  ingredient_purchase_units: { cache: 'ingredient_purchase_units' },
   recipes: { cache: 'recipes' },
   recipe_ingredients: { cache: 'recipe_ingredients' },
   meal_plan_entries: { cache: 'meal_plan_entries' },
@@ -36,6 +44,9 @@ export const SYNC_TABLE_NAMES = Object.keys(SYNC_TABLES) as SyncTable[]
 /** The row type each synced table holds, so `cacheFor` and `commit` stay typed. */
 export interface RowOf {
   aisles: AisleRow
+  ingredients: IngredientRow
+  ingredient_aliases: IngredientAliasRow
+  ingredient_purchase_units: PurchaseUnitRow
   recipes: RecipeRow
   recipe_ingredients: RecipeIngredientRow
   meal_plan_entries: PlanEntryRow
@@ -64,6 +75,9 @@ export class AppDatabase extends Dexie {
   recipes!: Table<RecipeRow, string>
   recipe_ingredients!: Table<RecipeIngredientRow, string>
   meal_plan_entries!: Table<PlanEntryRow, string>
+  ingredients!: Table<IngredientRow, string>
+  ingredient_aliases!: Table<IngredientAliasRow, string>
+  ingredient_purchase_units!: Table<PurchaseUnitRow, string>
   mutations!: Table<Mutation, number>
 
   constructor(name = 'shoplist') {
@@ -80,6 +94,14 @@ export class AppDatabase extends Dexie {
       recipes: 'id',
       recipe_ingredients: 'id',
       meal_plan_entries: 'id'
+    })
+    // v3 adds the canonical ingredient tables, on the same terms as v2. The
+    // ingredient_id columns on items and recipe lines need no migration either:
+    // they arrive null on existing rows and are filled in as things are touched.
+    this.version(3).stores({
+      ingredients: 'id',
+      ingredient_aliases: 'id',
+      ingredient_purchase_units: 'id'
     })
   }
 

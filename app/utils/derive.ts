@@ -141,6 +141,7 @@ export function derive(input: DeriveInput): DeriveResult {
       source: 'plan',
       plan_entry_id: entry.id,
       recipe_ingredient_id: line.id,
+      ingredient_id: null,
       deleted_at: null,
       created_at: now,
       updated_at: now

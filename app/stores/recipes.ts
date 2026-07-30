@@ -115,6 +115,7 @@ export const useRecipesStore = defineStore('recipes', () => {
       quantity: input.quantity ?? null,
       // Undefined means "work it out"; an explicit null means "no aisle".
       aisle_id: input.aisle_id === undefined ? rememberedAisle(name) : input.aisle_id,
+      ingredient_id: null,
       sort_order: highest + 1,
       deleted_at: null,
       created_at: timestamp,
