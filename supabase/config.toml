@@ -393,7 +393,9 @@ deno_version = 2
 verify_jwt = false
 
 # Photo-to-recipe extraction spends Anthropic API credit, so only signed-in
-# household members may call it.
+# household members may call it. verify_jwt only rejects tokens this project
+# never signed; the membership check itself lives in the function, because any
+# stranger can mint a valid JWT while signup is open.
 [functions.import-recipe-photo]
 verify_jwt = true
 

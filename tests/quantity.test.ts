@@ -3,6 +3,7 @@ import {
   foldUnit,
   formatBaseAmount,
   formatPurchase,
+  intrinsicBaseUnit,
   parseQuantity,
   pluralise,
   purchaseCount,
@@ -73,6 +74,12 @@ describe('parseQuantity', () => {
     expect(parseQuantity('1,5 kg')).toEqual({ amount: 1.5, unit: 'kg' })
   })
 
+  it('gives up on a thousands-separator comma rather than reading it as a decimal', () => {
+    // "1,500g" as 1.5g would be a silent thousandfold under-count.
+    expect(parseQuantity('1,500g')).toBeNull()
+    expect(parseQuantity('1,500')).toBeNull()
+  })
+
   it('reads a written fraction', () => {
     expect(parseQuantity('1/2 tsp')).toEqual({ amount: 0.5, unit: 'tsp' })
   })
@@ -105,6 +112,17 @@ describe('parseQuantity', () => {
     expect(parseQuantity('400g x2')).toEqual({ amount: 800, unit: 'g' })
   })
 
+  it('does not read "2 x 400" as a hint', () => {
+    // That is a person writing two-of-something, and guessing 800 would put a
+    // confident wrong number on the list.
+    expect(parseQuantity('2 x 400')).toBeNull()
+    expect(parseQuantity('2x400')).toBeNull()
+  })
+
+  it('still reads the × derive writes after a bare number', () => {
+    expect(parseQuantity('2 ×1.5')).toEqual({ amount: 3, unit: null })
+  })
+
   it('rejects a hint with nothing in front of it', () => {
     // servingsHint emits this when the recipe line had no quantity at all. There
     // is no number to scale, so there is nothing to add up.
@@ -127,6 +145,24 @@ describe('parseQuantity', () => {
     expect(parseQuantity(null)).toBeNull()
     expect(parseQuantity('')).toBeNull()
     expect(parseQuantity('   ')).toBeNull()
+  })
+})
+
+describe('intrinsicBaseUnit', () => {
+  it('knows every spelled-out weight and volume the parser converts', () => {
+    // Base-unit inference asks this table, so a unit the parser converts but
+    // this misses would create an ingredient its own lines cannot aggregate on.
+    for (const unit of ['g', 'kg', 'kilo', 'kilogram', 'kilogramme', 'gram', 'gramme']) {
+      expect(intrinsicBaseUnit(unit), unit).toBe('g')
+    }
+    for (const unit of ['ml', 'millilitre', 'milliliter', 'cl', 'centilitre', 'l', 'litre', 'liter']) {
+      expect(intrinsicBaseUnit(unit), unit).toBe('ml')
+    }
+  })
+
+  it('has nothing to say about household units or bare numbers', () => {
+    expect(intrinsicBaseUnit('tin')).toBeNull()
+    expect(intrinsicBaseUnit(null)).toBeNull()
   })
 })
 
@@ -199,6 +235,10 @@ describe('formatBaseAmount', () => {
 
   it('rounds away floating point dust', () => {
     expect(formatBaseAmount(600.0000000001, 'g')).toBe('600g')
+  })
+
+  it('scales an amount that only rounds up to a thousand', () => {
+    expect(formatBaseAmount(999.96, 'g')).toBe('1kg')
   })
 })
 

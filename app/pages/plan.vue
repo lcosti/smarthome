@@ -2,7 +2,8 @@
 import { usePlanStore } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
 import { useSyncStore } from '../stores/sync'
-import { addDays, isoDate, mondayOf, todayIso, weekLabel } from '../utils/week'
+import { useToday } from '../composables/useToday'
+import { addDays, isoDate, mondayOf, weekLabel } from '../utils/week'
 
 const plan = usePlanStore()
 const recipes = useRecipesStore()
@@ -20,7 +21,7 @@ const filling = ref(false)
 const monday = computed(() => addDays(mondayOf(new Date()), weekOffset.value * 7))
 const weekStart = computed(() => isoDate(monday.value))
 const nights = computed(() => plan.week(weekStart.value))
-const today = todayIso()
+const today = useToday()
 
 // Stays enabled after the last night comes off, because that is exactly when the
 // list still holds ingredients nobody is going to cook.

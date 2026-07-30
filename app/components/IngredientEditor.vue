@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useIngredientsStore } from '../stores/ingredients'
+import { asBaseUnit, useIngredientsStore } from '../stores/ingredients'
 import { useListStore } from '../stores/list'
 import type { BaseUnit } from '../utils/quantity'
 
@@ -8,6 +8,7 @@ const { ingredientId } = defineProps<{ ingredientId: string | null }>()
 
 const store = useIngredientsStore()
 const list = useListStore()
+const toast = useToast()
 
 const name = ref('')
 const baseUnit = ref<BaseUnit>('count')
@@ -50,11 +51,25 @@ watch(open, (isOpen) => {
 
 async function save() {
   if (!ingredientId || !name.value.trim()) return
+  // A purchase unit's amount is written in the base unit, so changing the
+  // measure would silently turn "1 tin = 400g" into "1 tin = 400 each" and
+  // multiply every tin on the list by it. Clear them and say so instead.
+  const measureChanged = ingredient.value && baseUnit.value !== asBaseUnit(ingredient.value.base_unit)
+  const staleUnits = measureChanged ? [...units.value] : []
   await store.updateIngredient(ingredientId, {
     name: name.value.trim(),
     base_unit: baseUnit.value,
     aisle_id: aisleId.value
   })
+  if (staleUnits.length) {
+    for (const unit of staleUnits) await store.removePurchaseUnit(unit.id)
+    toast.add({
+      title: 'Purchase units cleared',
+      description: 'Their amounts were in the old measure. Add them again in the new one.',
+      icon: 'i-lucide-info',
+      color: 'neutral'
+    })
+  }
   open.value = false
 }
 

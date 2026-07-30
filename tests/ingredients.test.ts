@@ -81,12 +81,20 @@ describe('chaseMerge', () => {
     expect(chaseMerge('a', rows)?.id).toBe('c')
   })
 
-  it('does not hang on a cycle', () => {
+  it('resolves a cycle to the member every device prefers', () => {
+    // Two phones cross-merged A→B and B→A while both offline. Both rows end up
+    // deleted and pointing at each other; treating that as "gone" would lose the
+    // ingredient irrecoverably, so the loop settles on the older row instead.
     const rows = mapOf([
-      ingredient('a', 'A', { merged_into: 'b' }),
-      ingredient('b', 'B', { merged_into: 'a' })
+      ingredient('a', 'A', { merged_into: 'b', deleted_at: '2026-07-02T00:00:00.000Z' }),
+      ingredient('b', 'B', {
+        merged_into: 'a',
+        deleted_at: '2026-07-02T00:00:00.000Z',
+        created_at: '2026-07-01T12:00:00.000Z'
+      })
     ])
-    expect(chaseMerge('a', rows)).toBeNull()
+    expect(chaseMerge('a', rows)?.id).toBe('a')
+    expect(chaseMerge('b', rows)?.id).toBe('a')
   })
 
   it('keeps a live row whose merge target this device has not pulled yet', () => {

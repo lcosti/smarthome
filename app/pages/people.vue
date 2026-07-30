@@ -3,7 +3,7 @@ import { usePeopleStore } from '../stores/people'
 import { useSyncStore } from '../stores/sync'
 import { isHardConstraint } from '../utils/attendance'
 import { ageLabel, STAGE_LABEL } from '../utils/people'
-import { todayIso } from '../utils/week'
+import { useToday } from '../composables/useToday'
 
 const store = usePeopleStore()
 const sync = useSyncStore()
@@ -13,7 +13,7 @@ const newDob = ref('')
 const editingId = ref<string | null>(null)
 const editorOpen = ref(false)
 
-const today = computed(() => todayIso())
+const today = useToday()
 
 function edit(id: string) {
   editingId.value = id

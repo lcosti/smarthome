@@ -8,7 +8,7 @@ import {
   suggestIngredients,
   type Suggestion
 } from '../utils/ingredients'
-import { parseQuantity, type BaseUnit } from '../utils/quantity'
+import { intrinsicBaseUnit, parseQuantity, type BaseUnit } from '../utils/quantity'
 import { plainCopy } from '../utils/sync'
 import { nowIso, useSyncStore } from './sync'
 
@@ -22,15 +22,15 @@ export function asBaseUnit(value: string): BaseUnit {
   return value === 'g' || value === 'ml' ? value : 'count'
 }
 
-/** What the quantity on a line implies about how its ingredient is measured. */
+/**
+ * What the quantity on a line implies about how its ingredient is measured.
+ *
+ * Asks the parser's own unit table rather than keeping a second list here: a
+ * hand-maintained subset once let "1 kilogram potatoes" create a counted
+ * ingredient that no weight line could ever aggregate with.
+ */
 function inferBaseUnit(quantity: string | null | undefined): BaseUnit {
-  const parsed = parseQuantity(quantity)
-  if (!parsed?.unit) return 'count'
-  if (parsed.unit === 'g' || parsed.unit.startsWith('kg') || parsed.unit.startsWith('gram')) return 'g'
-  if (['ml', 'l', 'cl'].includes(parsed.unit) || parsed.unit.startsWith('litre') || parsed.unit.startsWith('liter')) {
-    return 'ml'
-  }
-  return 'count'
+  return intrinsicBaseUnit(parseQuantity(quantity)?.unit) ?? 'count'
 }
 
 export const useIngredientsStore = defineStore('ingredients', () => {

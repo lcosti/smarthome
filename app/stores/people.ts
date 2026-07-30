@@ -28,18 +28,21 @@ const STAGE_ORDER: LifeStage[] = ['adult', 'child', 'toddler', 'weaning', 'baby'
 
 export const usePeopleStore = defineStore('people', () => {
   const sync = useSyncStore()
+  // A reactive today, not todayIso() inside the computed: that would only
+  // re-evaluate when a row changes, never when the date does.
+  const today = useToday()
 
   const all = computed(() => sync.rowsOf('people'))
   const allConstraints = computed(() => sync.rowsOf('dietary_constraints'))
 
   /** Adults first, then by name. */
   const people = computed(() => {
-    const today = todayIso()
+    const onDate = today.value
     return [...all.value.values()]
       .filter(person => !person.deleted_at)
       .sort((a, b) => {
-        const byStage = STAGE_ORDER.indexOf(deriveLifeStage(a.date_of_birth, today))
-          - STAGE_ORDER.indexOf(deriveLifeStage(b.date_of_birth, today))
+        const byStage = STAGE_ORDER.indexOf(deriveLifeStage(a.date_of_birth, onDate))
+          - STAGE_ORDER.indexOf(deriveLifeStage(b.date_of_birth, onDate))
         return byStage !== 0 ? byStage : a.name.localeCompare(b.name)
       })
   })
