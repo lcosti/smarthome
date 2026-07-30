@@ -1,0 +1,42 @@
+{
+  "name": "smarthome",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "dev": "nuxt dev",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "typecheck": "nuxt typecheck",
+    "test": "vitest run",
+    "acceptance": "node scripts/acceptance.mjs",
+    "icons": "node scripts/generate-icons.mjs",
+    "db:types": "supabase gen types typescript --local > shared/types/database.types.ts"
+  },
+  "dependencies": {
+    "@iconify-json/lucide": "^1.2.120",
+    "@iconify-json/simple-icons": "^1.2.92",
+    "@nuxt/ui": "^4.10.0",
+    "@nuxtjs/supabase": "^2.0.9",
+    "@pinia/nuxt": "^1.0.1",
+    "@supabase/supabase-js": "^2.111.0",
+    "dexie": "^4.4.4",
+    "nuxt": "^4.4.8",
+    "pinia": "^4.0.2",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@nuxt/eslint": "^1.16.0",
+    "@vite-pwa/nuxt": "^1.1.1",
+    "eslint": "^10.8.0",
+    "fake-indexeddb": "^6.2.5",
+    "playwright": "^1.62.0",
+    "supabase": "^2.110.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10",
+    "vue-tsc": "^3.3.8"
+  },
+  "packageManager": "pnpm@11.17.0"
+}

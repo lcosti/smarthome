@@ -1,0 +1,25 @@
+[build]
+  command = "pnpm generate"
+  publish = ".output/public"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # Pin the preset so Nitro's Netlify auto-detection cannot swap in a
+  # server-rendering output for what is deliberately a static SPA.
+  NITRO_PRESET = "static"
+
+# SUPABASE_URL and SUPABASE_KEY are read at build time and baked into the bundle.
+# Set them as site environment variables in Netlify before the first deploy.
+
+# Every route is served by the SPA shell.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# The service worker must always be revalidated, or a stale one can pin the app to
+# an old build.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
