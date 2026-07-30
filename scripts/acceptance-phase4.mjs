@@ -209,10 +209,15 @@ try {
   )
   log('the payload held both photos, compressed and base64-encoded')
 
+  // The name and the method are editable fields, so what the page "shows" is
+  // their value, not its text: neither ever appears in main's innerText. Only
+  // the ingredient lines are rendered as text.
+  const soupName = await page.getByLabel('Recipe name').inputValue()
+  const soupMethod = await page.getByLabel('Notes').inputValue()
   const soupText = await mainText()
-  assert(soupText.includes('Lentil soup'), 'the recipe page shows the extracted name')
+  assert(soupName === 'Lentil soup', `the recipe page shows the extracted name, got "${soupName}"`)
   assert(soupText.includes('chopped tomatoes'), 'the ingredient lines are shown')
-  assert(soupText.includes('Soften the onion'), 'the method is shown')
+  assert(soupMethod.includes('Soften the onion'), 'the method is shown')
   log('name, ingredients and method all visible on the recipe page')
 
   const recipes = (await readTable('recipes')).filter(r => !r.deleted_at)
