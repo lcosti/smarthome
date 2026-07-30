@@ -35,3 +35,65 @@ jobs:
 
       - name: Test
         run: pnpm run test
+
+  # The CLAUDE.md guarantee, enforced: airplane mode, reopen from the home
+  # screen, nothing lost — plus the Phase 2 chain from recipe to list. Runs
+  # against a real local Supabase stack; its keys are fixed demo values read
+  # from `supabase status`, so no repository secrets are involved.
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Install node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start supabase
+        run: supabase start -x studio,imgproxy
+
+      - name: Export the local stack's keys
+        run: |
+          set -euo pipefail
+          # Depending on CLI version, -o json is one line or pretty-printed, and
+          # human-readable noise can precede it. Keep everything from the first
+          # brace and let jq do the rest.
+          STATUS_JSON="$(supabase status -o json | sed -n '/{/,$p')"
+          SUPABASE_URL="$(jq -r '.API_URL // empty' <<<"$STATUS_JSON")"
+          SUPABASE_KEY="$(jq -r '.PUBLISHABLE_KEY // empty' <<<"$STATUS_JSON")"
+          SUPABASE_SECRET_KEY="$(jq -r '.SECRET_KEY // empty' <<<"$STATUS_JSON")"
+          # Fail here, loudly, rather than three steps later with a blank env.
+          test -n "$SUPABASE_URL" -a -n "$SUPABASE_KEY" -a -n "$SUPABASE_SECRET_KEY"
+          {
+            echo "SUPABASE_URL=$SUPABASE_URL"
+            echo "SUPABASE_KEY=$SUPABASE_KEY"
+            echo "SUPABASE_SECRET_KEY=$SUPABASE_SECRET_KEY"
+          } >> "$GITHUB_ENV"
+
+      - name: Install a browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build the production bundle
+        run: pnpm run generate
+
+      - name: Offline acceptance
+        run: pnpm run acceptance
+
+      - name: Phase 2 acceptance
+        run: pnpm run acceptance:phase2

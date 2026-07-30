@@ -93,6 +93,60 @@ export type Database = {
         }
         Relationships: []
       }
+      meal_plan_entries: {
+        Row: {
+          created_at: string
+          date: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          meal: string
+          note: string | null
+          recipe_id: string
+          servings: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          meal?: string
+          note?: string | null
+          recipe_id: string
+          servings: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          meal?: string
+          note?: string | null
+          recipe_id?: string
+          servings?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meal_plan_entries_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meal_plan_entries_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       people: {
         Row: {
           auth_user_id: string | null
@@ -128,6 +182,117 @@ export type Database = {
           },
         ]
       }
+      recipe_ingredients: {
+        Row: {
+          aisle_id: string | null
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          name: string
+          quantity: string | null
+          recipe_id: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          aisle_id?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          name: string
+          quantity?: string | null
+          recipe_id: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          aisle_id?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          name?: string
+          quantity?: string | null
+          recipe_id?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_ingredients_aisle_id_fkey"
+            columns: ["aisle_id"]
+            isOneToOne: false
+            referencedRelation: "aisles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_ingredients_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_ingredients_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recipes: {
+        Row: {
+          base_servings: number
+          cook_minutes: number | null
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          method: string | null
+          name: string
+          prep_minutes: number | null
+          source_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          base_servings?: number
+          cook_minutes?: number | null
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          method?: string | null
+          name: string
+          prep_minutes?: number | null
+          source_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          base_servings?: number
+          cook_minutes?: number | null
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          method?: string | null
+          name?: string
+          prep_minutes?: number | null
+          source_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipes_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shopping_list_items: {
         Row: {
           aisle_id: string | null
@@ -138,7 +303,9 @@ export type Database = {
           household_id: string
           id: string
           name: string
+          plan_entry_id: string | null
           quantity: string | null
+          recipe_ingredient_id: string | null
           source: string
           updated_at: string
         }
@@ -151,7 +318,9 @@ export type Database = {
           household_id: string
           id: string
           name: string
+          plan_entry_id?: string | null
           quantity?: string | null
+          recipe_ingredient_id?: string | null
           source?: string
           updated_at?: string
         }
@@ -164,7 +333,9 @@ export type Database = {
           household_id?: string
           id?: string
           name?: string
+          plan_entry_id?: string | null
           quantity?: string | null
+          recipe_ingredient_id?: string | null
           source?: string
           updated_at?: string
         }
@@ -181,6 +352,20 @@ export type Database = {
             columns: ["household_id"]
             isOneToOne: false
             referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_list_items_plan_entry_id_fkey"
+            columns: ["plan_entry_id"]
+            isOneToOne: false
+            referencedRelation: "meal_plan_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_list_items_recipe_ingredient_id_fkey"
+            columns: ["recipe_ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "recipe_ingredients"
             referencedColumns: ["id"]
           },
         ]

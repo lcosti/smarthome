@@ -1,4 +1,4 @@
-import { useListStore } from '../stores/list'
+import { useSyncStore } from '../stores/sync'
 import { clearIdentity } from '../utils/identity'
 
 /**
@@ -6,7 +6,7 @@ import { clearIdentity } from '../utils/identity'
  * page can call it without setting up a second set of listeners and channels.
  */
 export function useSignOut() {
-  const store = useListStore()
+  const store = useSyncStore()
   const supabase = useSupabaseClient()
 
   return async function signOut() {

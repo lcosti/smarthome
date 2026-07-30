@@ -32,10 +32,6 @@ export function plainCopy<T extends object>(row: T): T {
   return { ...row }
 }
 
-export function cacheTableFor(db: AppDatabase, table: SyncTable) {
-  return table === 'aisles' ? db.aisles : db.items
-}
-
 /**
  * PostgREST rejections carry a code (a Postgres SQLSTATE, or a PGRST* code) and
  * will fail again identically no matter how often they are retried. A transport
@@ -68,7 +64,7 @@ export function shouldApplyServerRow(
 
 /** Write a row to the local cache and queue it for the server, atomically. */
 export async function enqueueMutation(db: AppDatabase, table: SyncTable, row: SyncedRow): Promise<void> {
-  const cache = cacheTableFor(db, table)
+  const cache = db.cacheFor(table)
   await db.transaction('rw', [cache, db.mutations], async () => {
     await cache.put(plainCopy(row) as never)
     await db.mutations.add({

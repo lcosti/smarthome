@@ -1,6 +1,6 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
-import { useListStore } from '../stores/list'
-import type { AisleRow, ItemRow } from '../utils/db'
+import { useSyncStore } from '../stores/sync'
+import { SYNC_TABLE_NAMES, type SyncedRow } from '../utils/db'
 import { clearIdentity, readIdentity, writeIdentity } from '../utils/identity'
 import type { UpsertFn } from '../utils/sync'
 
@@ -13,7 +13,7 @@ const DRAIN_INTERVAL_MS = 30_000
  * stay testable without a Supabase client.
  */
 export function useSync() {
-  const store = useListStore()
+  const store = useSyncStore()
   const supabase = useSupabaseClient()
   const session = useSupabaseSession()
   const user = useSupabaseUser()
@@ -23,31 +23,25 @@ export function useSync() {
   let connecting = false
 
   const upsert: UpsertFn = async (table, payload) => {
-    const { error } = table === 'aisles'
-      ? await supabase.from('aisles').upsert(payload as AisleRow)
-      : await supabase.from('shopping_list_items').upsert(payload as ItemRow)
+    const { error } = await supabase.from(table).upsert(payload as never)
     return { error }
   }
 
   function subscribe() {
     if (channel) return
-    channel = supabase
-      .channel('household-sync')
-      .on(
+    // One channel, one subscription per synced table. No household filter: RLS
+    // does that server-side, so a member only ever receives their own rows.
+    let next = supabase.channel('household-sync')
+    for (const table of SYNC_TABLE_NAMES) {
+      next = next.on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'shopping_list_items' },
+        { event: '*', schema: 'public', table },
         ({ new: row }) => {
-          if (row && 'id' in row) store.applyServerRow('shopping_list_items', row as ItemRow)
+          if (row && 'id' in row) store.applyServerRow(table, row as never)
         }
       )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'aisles' },
-        ({ new: row }) => {
-          if (row && 'id' in row) store.applyServerRow('aisles', row as AisleRow)
-        }
-      )
-      .subscribe()
+    }
+    channel = next.subscribe()
   }
 
   async function unsubscribe() {
@@ -61,16 +55,18 @@ export function useSync() {
    * on another device is only visible as a row with `deleted_at` set.
    */
   async function pull(householdId: string) {
-    const [itemResult, aisleResult] = await Promise.all([
-      supabase.from('shopping_list_items').select('*').eq('household_id', householdId),
-      supabase.from('aisles').select('*').eq('household_id', householdId)
-    ])
-    if (itemResult.error || aisleResult.error) {
+    const results = await Promise.all(
+      SYNC_TABLE_NAMES.map(table => supabase.from(table).select('*').eq('household_id', householdId))
+    )
+    if (results.some(result => result.error)) {
       store.reachable = false
       return
     }
-    for (const row of aisleResult.data) store.applyServerRow('aisles', row)
-    for (const row of itemResult.data) store.applyServerRow('shopping_list_items', row)
+    // Applied in registry order, so a recipe is in local state before the plan
+    // entry and derived items that point at it.
+    SYNC_TABLE_NAMES.forEach((table, i) => {
+      for (const row of results[i]!.data ?? []) store.applyServerRow(table, row as SyncedRow as never)
+    })
     store.reachable = true
   }
 
