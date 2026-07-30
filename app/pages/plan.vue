@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { usePlanStore } from '../stores/plan'
+import { useRecipesStore } from '../stores/recipes'
 import { useSyncStore } from '../stores/sync'
 import { addDays, isoDate, mondayOf, todayIso, weekLabel } from '../utils/week'
 
 const plan = usePlanStore()
+const recipes = useRecipesStore()
 const sync = useSyncStore()
 const toast = useToast()
 
@@ -13,6 +15,7 @@ const weekOffset = ref(0)
 const editingDate = ref<string | null>(null)
 const editorOpen = ref(false)
 const deriving = ref(false)
+const filling = ref(false)
 
 const monday = computed(() => addDays(mondayOf(new Date()), weekOffset.value * 7))
 const weekStart = computed(() => isoDate(monday.value))
@@ -22,6 +25,34 @@ const today = todayIso()
 // Stays enabled after the last night comes off, because that is exactly when the
 // list still holds ingredients nobody is going to cook.
 const canDerive = computed(() => plan.hasWorkFor(weekStart.value))
+const canFill = computed(() => plan.hasGapsFor(weekStart.value) && recipes.recipes.length > 0)
+
+async function fill() {
+  if (filling.value) return
+  filling.value = true
+  try {
+    const { filled, skipped } = await plan.fillWeek(weekStart.value)
+    if (!filled) {
+      toast.add({
+        title: 'Nothing to suggest',
+        description: 'Every recipe is either already on this week or ruled out by an allergy.',
+        icon: 'i-lucide-info',
+        color: 'neutral'
+      })
+      return
+    }
+    toast.add({
+      title: `${filled} night${filled === 1 ? '' : 's'} planned`,
+      description: skipped
+        ? `${skipped} night${skipped === 1 ? '' : 's'} had nothing left to suggest.`
+        : 'Change any of them, then add it to the list.',
+      icon: 'i-lucide-wand-sparkles',
+      color: 'success'
+    })
+  } finally {
+    filling.value = false
+  }
+}
 
 function openNight(date: string) {
   editingDate.value = date
@@ -107,8 +138,26 @@ async function derive() {
           />
         </ul>
 
+        <!--
+          Above the derive button because it comes first in the week: suggest,
+          adjust what you don't fancy, then shop.
+        -->
         <UButton
+          v-if="canFill"
           class="mt-4 justify-center"
+          size="xl"
+          color="neutral"
+          variant="subtle"
+          block
+          icon="i-lucide-wand-sparkles"
+          :loading="filling"
+          @click="fill"
+        >
+          Fill the empty nights
+        </UButton>
+
+        <UButton
+          class="mt-3 justify-center"
           size="xl"
           block
           icon="i-lucide-shopping-cart"
