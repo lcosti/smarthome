@@ -63,6 +63,12 @@ export default defineNuxtConfig({
         { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
         { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
         { src: '/pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+      ],
+      // Long-press the home screen icon. The list stays start_url — it is what
+      // the app is for — but the other two are one press away.
+      shortcuts: [
+        { name: 'Plan the week', short_name: 'Plan', url: '/plan' },
+        { name: 'Recipes', short_name: 'Recipes', url: '/recipes' }
       ]
     },
     workbox: {

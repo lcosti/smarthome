@@ -89,7 +89,7 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
       </div>
     </header>
 
-    <main class="mx-auto max-w-xl px-3 pb-24">
+    <main class="mx-auto max-w-xl px-3 pb-28">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"
@@ -123,6 +123,7 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
               v-for="item in group.items"
               :key="item.id"
               :item="item"
+              :source-label="store.sourceLabelFor(item)"
               @toggle="store.toggleItem(item.id)"
               @edit="edit(item.id)"
             />
@@ -164,6 +165,7 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
               :key="item.id"
               :item="item"
               :aisle-name="aisleNameFor(item.aisle_id)"
+              :source-label="store.sourceLabelFor(item)"
               @toggle="store.toggleItem(item.id)"
               @edit="edit(item.id)"
             />

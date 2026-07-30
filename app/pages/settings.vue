@@ -61,7 +61,7 @@ async function copyInviteCode() {
       </div>
     </header>
 
-    <main class="mx-auto max-w-xl space-y-8 px-3 py-5 pb-24">
+    <main class="mx-auto max-w-xl space-y-8 px-3 py-5 pb-28">
       <section class="space-y-2">
         <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
           Aisles

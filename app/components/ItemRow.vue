@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import type { ItemRow } from '../utils/db'
 
-const { item, aisleName = null } = defineProps<{
+const { item, aisleName = null, sourceLabel = null } = defineProps<{
   item: ItemRow
   /** Shown only in the done list, where items are no longer grouped by aisle. */
   aisleName?: string | null
+  /** The recipe a derived item came from, so "why is this here?" has an answer. */
+  sourceLabel?: string | null
 }>()
 
 defineEmits<{
@@ -32,10 +34,10 @@ defineEmits<{
           :class="item.checked ? 'text-muted line-through' : ''"
         >{{ item.name }}</span>
         <span
-          v-if="item.quantity || aisleName"
+          v-if="item.quantity || aisleName || sourceLabel"
           class="block truncate text-xs text-dimmed"
         >
-          {{ [item.quantity, aisleName].filter(Boolean).join(' · ') }}
+          {{ [item.quantity, aisleName, sourceLabel].filter(Boolean).join(' · ') }}
         </span>
       </span>
     </button>

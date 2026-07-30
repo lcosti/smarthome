@@ -1,0 +1,105 @@
+<script setup lang="ts">
+import { useRecipesStore } from '../../stores/recipes'
+import { useSyncStore } from '../../stores/sync'
+
+const store = useRecipesStore()
+const sync = useSyncStore()
+
+// One box does both jobs. Typing narrows the library; pressing add turns what you
+// typed into a recipe. Two separate inputs would mean choosing before you start.
+const draft = ref('')
+
+const matches = computed(() => {
+  const needle = draft.value.trim().toLowerCase()
+  if (!needle) return store.recipes
+  return store.recipes.filter(r => r.name.toLowerCase().includes(needle))
+})
+
+async function add() {
+  const name = draft.value.trim()
+  if (!name) return
+  draft.value = ''
+  const created = await store.addRecipe({ name })
+  if (created) await navigateTo(`/recipes/${created.id}`)
+}
+</script>
+
+<template>
+  <div class="min-h-dvh">
+    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
+      <div class="mx-auto max-w-xl px-3 pt-3 pb-2">
+        <h1 class="mb-2 text-lg font-semibold">
+          Recipes
+        </h1>
+
+        <form
+          class="flex gap-2"
+          @submit.prevent="add"
+        >
+          <UInput
+            v-model="draft"
+            size="xl"
+            placeholder="Search or add a recipe"
+            autocapitalize="sentences"
+            enterkeyhint="done"
+            class="flex-1"
+          />
+          <UButton
+            type="submit"
+            size="xl"
+            icon="i-lucide-plus"
+            :disabled="!draft.trim()"
+            aria-label="Add recipe"
+          />
+        </form>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-xl px-3 pb-28">
+      <div
+        v-if="!sync.hydrated"
+        class="py-16 text-center text-sm text-muted"
+      >
+        Loading…
+      </div>
+
+      <div
+        v-else-if="!store.recipes.length"
+        class="py-16 text-center"
+      >
+        <p class="text-muted">
+          No recipes yet.
+        </p>
+        <p class="mt-1 text-sm text-dimmed">
+          Type above to add the first one.
+        </p>
+      </div>
+
+      <div
+        v-else-if="!matches.length"
+        class="py-16 text-center"
+      >
+        <p class="text-muted">
+          Nothing matches “{{ draft.trim() }}”.
+        </p>
+        <p class="mt-1 text-sm text-dimmed">
+          Press add to make it a new recipe.
+        </p>
+      </div>
+
+      <ul
+        v-else
+        class="mt-3 rounded-lg border border-default bg-elevated/30"
+      >
+        <RecipeRow
+          v-for="item in matches"
+          :key="item.id"
+          :name="item.name"
+          :ingredient-count="store.ingredientsFor(item.id).length"
+          :servings="item.base_servings"
+          @select="navigateTo(`/recipes/${item.id}`)"
+        />
+      </ul>
+    </main>
+  </div>
+</template>
