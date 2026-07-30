@@ -1,8 +1,11 @@
-# Household shopping list
+# Household meal planner
 
-An offline-first shopping list for one household. Phase 1 of the meal planner
-described in [CLAUDE.md](./CLAUDE.md) — the list only, no recipes or meal plans
-yet.
+An offline-first meal planner for one household, described in
+[CLAUDE.md](./CLAUDE.md). Phases 1 to 3 are built: the shopping list, a recipe
+library with a manual weekly plan the list is derived from, and canonical
+ingredients so that two recipes wanting the same thing become one line to buy.
+
+The generator (phase 4) and recipe import from URLs (phase 5) are not built.
 
 Nuxt 4 SPA (`ssr: false`) + Supabase, deployed as a static bundle to Netlify.
 State lives in Pinia, persists to IndexedDB via Dexie, and syncs through a
@@ -38,25 +41,38 @@ pnpm typecheck
 pnpm generate      # static build into .output/public
 ```
 
-### The acceptance test
+### The acceptance tests
 
-`pnpm acceptance` runs the test CLAUDE.md defines as the bar for this phase, in a
-real browser against the production bundle: create a household, add items, go
+Three of them, each driving a real browser against the production bundle. They are
+the check to run before deploying anything that touches the sync layer.
+
+`pnpm acceptance` is the bar CLAUDE.md sets: create a household, add items, go
 offline, add and tick more, kill the app, reopen it still offline, come back
-online, and check the server ended up with exactly what the screen showed. It then
+online, and check the server ended up with exactly what the screen showed. It also
+cold-opens a route that was never prerendered while offline, which is the only
+thing that proves the service worker's navigation fallback is registered. Then it
 joins from a second browser profile as a second person and checks that a change on
 one device shows up on the other over realtime.
 
+`pnpm acceptance:phase2` drives a recipe to a night on the plan to the shopping
+list, and checks that deriving twice changes nothing and that taking a night off
+clears what it added without touching anything already ticked.
+
+`pnpm acceptance:phase3` drives two recipes wanting the same thing down to one
+line: the unit inferred from a quantity typed a moment later, two ingredients
+merged, the list healing with no re-derive, "800g · 2 tins", and ticking the line
+taking both rows behind it. It reads IndexedDB as well as the screen, because "one
+line" and "one row" are different claims and only one of them is visible.
+
 ```bash
 pnpm exec playwright install chromium   # once
-pnpm generate && pnpm acceptance
+pnpm generate && pnpm acceptance && pnpm acceptance:phase2 && pnpm acceptance:phase3
 ```
 
-It needs the local Supabase stack running, and it serves the built bundle itself on
-port 4001 — deliberately not the dev server's 4000, so `pnpm dev` can stay up while
-this runs. Each run creates its own household, so it is
-safe to run repeatedly without resetting the database. This is the check to run
-before deploying anything that touches the sync layer.
+They need the local Supabase stack running, and each serves the built bundle itself
+on port 4001 — deliberately not the dev server's 4000, so `pnpm dev` can stay up
+while they run. Every run creates its own household, so they are safe to run
+repeatedly without resetting the database.
 
 ## Schema changes
 
@@ -77,8 +93,12 @@ Everything the app knows lives in IndexedDB, so the list opens with no network a
 no valid session — reads come from the cache and writes queue locally. Auth is
 needed to sync, not to shop.
 
-- Ids for items and aisles are minted on the device (`crypto.randomUUID()`), so
-  rows can be created in airplane mode and pushed later.
+- Ids are minted on the device (`crypto.randomUUID()`), so anything — an item, a
+  recipe, a planned night, an ingredient — can be created in airplane mode and
+  pushed later. Two ids are derived instead of random, so that two devices doing
+  the same thing offline converge on one row rather than two: a derived list item
+  is a uuidv5 of its (plan entry, recipe line) pair, and an ingredient alias is a
+  uuidv5 of its (household, ingredient, alias).
 - Every queued write is a **full row snapshot**, not a patch. That makes draining
   idempotent and order-independent, which is what lets last-write-wins be
   sufficient. Insert, edit, tick, untick and delete are all the same operation.
@@ -96,6 +116,29 @@ with a toast.
 `app/utils/sync.ts` holds this logic as plain functions with no Nuxt or Supabase
 dependency, and `tests/sync.test.ts` covers it. `app/composables/useSync.ts` is
 the only file that talks to the network.
+
+Which tables sync is a registry in `app/utils/db.ts`. It drives the Dexie stores,
+the hydrate, the pull order, the realtime subscription and the typing, so adding a
+table is an entry there plus a Dexie version bump. Pull order is load-bearing:
+parents land before the rows that reference them, so a fresh device can resolve a
+derived item's recipe and ingredient on first paint.
+
+## Where the shopping list comes from
+
+Nobody maintains the list. `app/utils/derive.ts` works out what a week of the plan
+should put on it, and the button on `/plan` commits the result. One row per (plan
+entry, recipe line), because that row is the unit last-write-wins already
+reconciles correctly. A checked item is frozen, an item somebody deleted is not
+resurrected, an unchecked one is refreshed from the recipe, and running it twice
+does nothing.
+
+Combining rows into "800g of tomatoes" is a **display** concern —
+`app/utils/aggregate.ts`, computed at render time and never stored. Storing it
+would make the unit of conflict a whole week's arithmetic: two phones deriving
+offline would converge on whichever computed last, and a third recipe wanting
+tomatoes after the line was ticked could never surface, because a checked row is
+frozen. Grouping at render time has none of that, and it means a merge, a parser
+improvement or a new purchase unit applies retroactively with nothing rewritten.
 
 ## Deploying
 
@@ -135,8 +178,8 @@ Once you have created a Supabase project (free tier) and a Netlify site:
 
 The first person to sign in creates the household; everyone else joins with the
 six-character invite code shown on the settings screen. There are no accounts for
-children — `people` rows simply have no `auth_user_id`, which is what Phase 2
-builds on.
+children — `people` rows simply have no `auth_user_id`, which is what the generator
+will build on when it adapts a meal per person present.
 
 ## Icons
 
