@@ -1,10 +1,14 @@
 import { defineStore } from 'pinia'
 import type { ItemRow, PlanEntryRow, RecipeRow } from '../utils/db'
 import { derive } from '../utils/derive'
+import { generateWeek } from '../utils/generator'
+import { deriveLifeStage } from '../utils/people'
 import { plainCopy } from '../utils/sync'
 import { addDays, isoDate, weekDates } from '../utils/week'
+import { useAttendanceStore } from './attendance'
 import { useIngredientsStore } from './ingredients'
 import { useListStore } from './list'
+import { usePeopleStore } from './people'
 import { useRecipesStore } from './recipes'
 import { nowIso, useSyncStore } from './sync'
 
@@ -27,6 +31,8 @@ export const usePlanStore = defineStore('plan', () => {
   const recipesStore = useRecipesStore()
   const list = useListStore()
   const ingredients = useIngredientsStore()
+  const people = usePeopleStore()
+  const attendance = useAttendanceStore()
 
   const allEntries = computed(() => sync.rowsOf('meal_plan_entries'))
 
@@ -150,6 +156,81 @@ export const usePlanStore = defineStore('plan', () => {
   }
 
   /**
+   * Fill the week's empty nights from the recipe library.
+   *
+   * Only the empty ones. Somebody who has already said "Thursday is the roast"
+   * meant it, and a suggestion that overwrote them would be the last time they
+   * pressed this button. Their choice still counts against repeats and towards
+   * ingredient overlap, so the rest of the week is built around it.
+   *
+   * Nothing here is committed until the whole week has been decided, because the
+   * picks depend on each other and a half-applied week is not a plan.
+   */
+  async function fillWeek(weekStart: string) {
+    if (!sync.householdId) return { filled: 0, skipped: 0 }
+
+    const dates = weekDatesFrom(weekStart)
+    const planned = new Set<string>()
+    const alreadyPlanned: { date: string, recipe_id: string }[] = []
+    for (const date of dates) {
+      for (const entry of entriesOn(date)) {
+        planned.add(date)
+        alreadyPlanned.push({ date, recipe_id: entry.recipe_id })
+      }
+    }
+
+    const picks = generateWeek({
+      nights: dates.map(date => ({
+        date,
+        people: attendance.presentOn(date).map(person => ({
+          id: person.id,
+          stage: deriveLifeStage(person.date_of_birth, date)
+        }))
+      })),
+      recipes: [...sync.rowsOf('recipes').values()],
+      lines: [...sync.rowsOf('recipe_ingredients').values()].map(line => ({
+        recipe_id: line.recipe_id,
+        name: line.name,
+        // Resolved at read time, exactly as deriveWeek does it, so a library
+        // canonicalised later starts overlapping without being migrated.
+        ingredient_id: ingredients.ingredientById(line.ingredient_id)?.id
+          ?? ingredients.resolve(line.name)?.id
+          ?? null,
+        deleted_at: line.deleted_at
+      })),
+      constraints: people.constraints,
+      // Everything ever cooked before this week. Recency only looks back three
+      // weeks, but which entries those are is the generator's business.
+      history: liveEntries.value
+        .filter(entry => entry.date < dates[0]!)
+        .map(entry => ({ date: entry.date, recipe_id: entry.recipe_id })),
+      alreadyPlanned
+    })
+
+    for (const pick of picks) {
+      await addEntry(pick.date, pick.recipeId, pick.servings)
+    }
+
+    // A night is only "skipped" if somebody was eating and nothing could be
+    // found — an empty night nobody is home for is the right plan, not a gap.
+    const skipped = dates.filter(date =>
+      !planned.has(date)
+      && !picks.some(pick => pick.date === date)
+      && attendance.presentOn(date).some(person => deriveLifeStage(person.date_of_birth, date) !== 'baby')
+    ).length
+
+    return { filled: picks.length, skipped }
+  }
+
+  /** Whether there is an empty night this week that somebody is eating on. */
+  function hasGapsFor(weekStart: string): boolean {
+    return weekDatesFrom(weekStart).some(date =>
+      !entriesOn(date).length
+      && attendance.presentOn(date).some(person => deriveLifeStage(person.date_of_birth, date) !== 'baby')
+    )
+  }
+
+  /**
    * Put the week's ingredients on the shopping list, and take off the ones the
    * plan no longer calls for.
    *
@@ -207,6 +288,8 @@ export const usePlanStore = defineStore('plan', () => {
     updateEntry,
     removeEntry,
     clearNight,
+    fillWeek,
+    hasGapsFor,
     deriveWeek
   }
 })

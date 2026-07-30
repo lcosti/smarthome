@@ -72,14 +72,24 @@ function preferred<T extends { id: string, created_at: string }>(a: T, b: T): T 
  * A merge writes one pointer rather than rewriting every row that referenced the
  * loser — some of which are on a phone in a car park — so readers do this instead.
  * Returns null when the chain leads somewhere this device has not got, or runs
- * longer than a person could plausibly have merged, which also breaks any cycle.
+ * longer than a person could plausibly have merged.
+ *
+ * A chain that loops is two phones having merged A into B and B into A while
+ * both offline. Every member of such a loop is marked deleted, so returning null
+ * would make both ingredients vanish with no way back. Instead the loop resolves
+ * to the member every device agrees on, exactly as if the two rows had been
+ * duplicates all along — which is what they are.
  */
 export function chaseMerge<T extends IngredientLike>(
   id: string | null,
   ingredients: Map<string, T>
 ): T | null {
+  const path: T[] = []
   let current = id ? ingredients.get(id) : undefined
   for (let depth = 0; current && depth <= MAX_MERGE_DEPTH; depth++) {
+    const loopStart = path.indexOf(current)
+    if (loopStart !== -1) return path.slice(loopStart).reduce(preferred)
+    path.push(current)
     if (!current.merged_into) return current.deleted_at ? null : current
     const next = ingredients.get(current.merged_into)
     // A dangling pointer is more useful than nothing if the row is still live.

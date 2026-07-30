@@ -49,6 +49,11 @@ const INTRINSIC: Record<string, { base: BaseUnit, factor: number }> = {
   liter: { base: 'ml', factor: 1000 }
 }
 
+/** The base unit an intrinsic unit implies, or null for anything household-specific. */
+export function intrinsicBaseUnit(unit: string | null | undefined): BaseUnit | null {
+  return unit ? INTRINSIC[unit]?.base ?? null : null
+}
+
 const VULGAR: Record<string, number> = {
   '½': 0.5,
   '⅓': 1 / 3,
@@ -97,8 +102,10 @@ function leadingNumber(text: string): { value: number, rest: string } | null {
     [/^(\d+)\s*\/\s*(\d+)/, m => Number(m[1]) / Number(m[2])],
     // ½
     [new RegExp(`^([${VULGAR_CLASS}])`), m => VULGAR[m[1]!]!],
-    // 400 or 1.5 or 1,5
-    [/^(\d+(?:[.,]\d+)?)/, m => Number(m[1]!.replace(',', '.'))]
+    // 400 or 1.5 or 1,5 — but not 1,500, where the comma is a thousands
+    // separator and reading it as a decimal would shrink the amount a
+    // thousandfold. Three or more digits after a comma means give up.
+    [/^(\d+(?:[.,]\d+)?)/, m => /,\d{3}/.test(m[1]!) ? Number.NaN : Number(m[1]!.replace(',', '.'))]
   ]
 
   for (const [pattern, read] of patterns) {
@@ -130,10 +137,13 @@ export function parseQuantity(text: string | null | undefined): ParsedQuantity |
   if (!body) return null
 
   // Peel the servings hint off the end first, so the rest is what a person wrote.
+  // The × derive writes is always a hint; a plain ascii x only counts as one when
+  // it follows a unit word ("400g x2"), because after a bare number ("2 x 400")
+  // it is somebody writing two-of-something, not a ratio.
   let ratio = 1
-  const hint = body.match(/\s*[×x]\s*(\d+(?:[.,]\d+)?)$/)
-  if (hint) {
-    ratio = Number(hint[1]!.replace(',', '.'))
+  const hint = body.match(/\s*(×|x)\s*(\d+(?:[.,]\d+)?)$/)
+  if (hint && (hint[1] === '×' || /[a-z]$/.test(body.slice(0, hint.index).trim()))) {
+    ratio = Number(hint[2]!.replace(',', '.'))
     if (!Number.isFinite(ratio) || ratio <= 0) return null
     body = body.slice(0, hint.index).trim()
   }
@@ -189,7 +199,8 @@ function trimNumber(value: number, places: number): string {
 export function formatBaseAmount(amount: number, baseUnit: BaseUnit): string {
   if (baseUnit === 'count') return trimNumber(amount, 2)
   const big = baseUnit === 'g' ? 'kg' : 'l'
-  if (amount >= 1000) return `${trimNumber(amount / 1000, 2)}${big}`
+  // Judge against the rounded value, or 999.96 slips past as "1000g".
+  if (Number(amount.toFixed(1)) >= 1000) return `${trimNumber(amount / 1000, 2)}${big}`
   return `${trimNumber(amount, 1)}${baseUnit}`
 }
 

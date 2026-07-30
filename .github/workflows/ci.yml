@@ -33,6 +33,20 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: Install deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # The acceptance run stubs the Edge Function at the network seam and never
+      # compiles it, so without this a syntax error in it would ship green. Run
+      # from the functions directory: deno discovers its deno.json from the cwd,
+      # and from the repo root it would resolve npm: imports against the app's
+      # node_modules instead.
+      - name: Typecheck the Edge Function
+        working-directory: supabase/functions
+        run: deno check import-recipe-photo/index.ts
+
       - name: Test
         run: pnpm run test
 
@@ -105,3 +119,9 @@ jobs:
       # Anthropic key — it proves everything the client owns.
       - name: Phase 4 acceptance
         run: pnpm run acceptance:phase4
+
+      - name: Roster acceptance
+        run: pnpm run acceptance:roster
+
+      - name: Generator acceptance
+        run: pnpm run acceptance:generator

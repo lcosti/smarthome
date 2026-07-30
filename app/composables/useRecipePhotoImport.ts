@@ -45,11 +45,20 @@ export function useRecipePhotoImport() {
       }
 
       status.value = 'extracting'
-      const invoke = supabase.functions.invoke('import-recipe-photo', { body: { images } })
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('timeout')), TIMEOUT_MS)
-      )
-      const { data, error: invokeError } = await Promise.race([invoke, timeout])
+      // An aborted request, not a raced promise: giving up must also cancel the
+      // call, or the extraction keeps running for an answer nobody is waiting on.
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+      let data, invokeError
+      try {
+        ({ data, error: invokeError } = await supabase.functions.invoke('import-recipe-photo', {
+          body: { images },
+          signal: controller.signal
+        }))
+      } finally {
+        clearTimeout(timer)
+      }
+      if (controller.signal.aborted) throw new Error('timeout')
 
       if (invokeError) {
         // FunctionsHttpError carries the function's JSON body with the human message.

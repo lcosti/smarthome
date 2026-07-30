@@ -14,6 +14,7 @@
 //     -d "{\"images\":[{\"data\":\"$(base64 -i recipe.jpg)\",\"media_type\":\"image/jpeg\"}]}"
 
 import Anthropic from 'npm:@anthropic-ai/sdk'
+import { createClient } from 'npm:@supabase/supabase-js@2'
 
 // The static site on Netlify calls this from a different origin, and Supabase
 // does not add CORS headers on the function's behalf.
@@ -23,6 +24,10 @@ const CORS = {
 }
 
 const MAX_IMAGES = 4
+// The client compresses to ~200KB before sending (see compressToJpeg), so a
+// well-past-that cap costs no real photo anything while bounding what one
+// request can make the model read.
+const MAX_IMAGE_BASE64_LENGTH = 2_000_000
 const ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
 type MediaType = (typeof ALLOWED_MEDIA_TYPES)[number]
 
@@ -84,6 +89,29 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return json(405, { error: 'POST only' })
 
+  // verify_jwt only proves the token was signed for this project, and signup is
+  // open — so it admits any stranger who has requested themselves a magic link.
+  // Spending Anthropic credit additionally requires being somebody's household:
+  // querying `people` as the caller, under RLS, returns rows only for a member.
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    {
+      global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
+      auth: { persistSession: false }
+    }
+  )
+  const { data: caller, error: callerError } = await supabase.auth.getUser()
+  if (callerError || !caller.user) return json(401, { error: 'Sign in first' })
+
+  const { data: membership, error: membershipError } = await supabase
+    .from('people')
+    .select('id')
+    .eq('auth_user_id', caller.user.id)
+    .limit(1)
+  if (membershipError) return json(500, { error: 'Could not check household membership' })
+  if (!membership.length) return json(403, { error: 'Only household members can import photos' })
+
   let images: { data: string, media_type: MediaType }[]
   try {
     const body = await req.json()
@@ -94,6 +122,9 @@ Deno.serve(async (req) => {
       if (typeof image?.data !== 'string' || !image.data
         || !ALLOWED_MEDIA_TYPES.includes(image.media_type)) {
         return json(400, { error: 'Each image needs base64 data and a jpeg/png/webp media_type' })
+      }
+      if (image.data.length > MAX_IMAGE_BASE64_LENGTH) {
+        return json(400, { error: 'Each image must be under 1.5MB' })
       }
     }
     images = body.images
