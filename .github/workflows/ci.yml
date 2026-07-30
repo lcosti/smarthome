@@ -105,3 +105,9 @@ jobs:
       # Anthropic key — it proves everything the client owns.
       - name: Phase 4 acceptance
         run: pnpm run acceptance:phase4
+
+      - name: Roster acceptance
+        run: pnpm run acceptance:roster
+
+      - name: Generator acceptance
+        run: pnpm run acceptance:generator

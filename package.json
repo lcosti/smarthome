@@ -15,6 +15,8 @@
     "acceptance:phase2": "node scripts/acceptance-phase2.mjs",
     "acceptance:phase3": "node scripts/acceptance-phase3.mjs",
     "acceptance:phase4": "node scripts/acceptance-phase4.mjs",
+    "acceptance:roster": "node scripts/acceptance-roster.mjs",
+    "acceptance:generator": "node scripts/acceptance-generator.mjs",
     "icons": "node scripts/generate-icons.mjs",
     "db:types": "supabase gen types typescript --local > shared/types/database.types.ts"
   },
