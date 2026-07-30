@@ -132,6 +132,26 @@ async function copyInviteCode() {
 
       <section class="space-y-2">
         <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
+          People
+        </h2>
+        <p class="text-sm text-muted">
+          Everybody who eats here, children included. Their ages decide the
+          portions and their allergies decide what never gets planned.
+        </p>
+        <UButton
+          to="/people"
+          color="neutral"
+          variant="subtle"
+          size="lg"
+          block
+          trailing-icon="i-lucide-chevron-right"
+        >
+          Manage people
+        </UButton>
+      </section>
+
+      <section class="space-y-2">
+        <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
           Ingredients
         </h2>
         <p class="text-sm text-muted">
