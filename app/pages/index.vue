@@ -1,27 +1,56 @@
 <script setup lang="ts">
 import { useListStore } from '../stores/list'
 import { useSyncStore } from '../stores/sync'
+import type { ListEntry } from '../utils/aggregate'
+import type { ItemRow } from '../utils/db'
 
 const store = useListStore()
 const sync = useSyncStore()
+const toast = useToast()
 
 const draft = ref('')
 const editingId = ref<string | null>(null)
 const editorOpen = ref(false)
+const groupEntry = ref<ListEntry<ItemRow> | null>(null)
+const groupOpen = ref(false)
 const showDone = ref(false)
 
 async function add() {
   const name = draft.value.trim()
   if (!name) return
   // Clear first: the input has to be ready for the next item immediately, and the
-  // write is optimistic anyway.
+  // write is optimistic anyway — offline is not a failure here, it queues.
   draft.value = ''
-  await store.addItem(name)
+  const added = await store.addItem(name)
+  if (added) return
+
+  // It genuinely did not go anywhere. Give the typing back rather than swallowing
+  // it, and say why.
+  draft.value = draft.value || name
+  toast.add({
+    title: 'Not added',
+    description: 'This device is not set up with a household yet.',
+    color: 'warning',
+    icon: 'i-lucide-cloud-alert'
+  })
 }
 
 function edit(id: string) {
   editingId.value = id
   editorOpen.value = true
+}
+
+/**
+ * One row behind the line means edit it. Several means show what they are first —
+ * a summed quantity is not a thing that can be edited, only the rows under it.
+ */
+function openEntry(entry: ListEntry<ItemRow>) {
+  if (entry.items.length === 1) {
+    edit(entry.items[0]!.id)
+    return
+  }
+  groupEntry.value = entry
+  groupOpen.value = true
 }
 
 function aisleNameFor(id: string | null) {
@@ -97,6 +126,30 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
         Loading…
       </div>
 
+      <!--
+        The redirect in useSync handles this when it can. This is the fallback for
+        when it cannot — no signal, or mid-load — so nobody is ever left staring at
+        an input that quietly does nothing.
+      -->
+      <div
+        v-else-if="!sync.householdId"
+        class="py-16 text-center"
+      >
+        <p class="text-muted">
+          This device isn't set up yet.
+        </p>
+        <p class="mt-1 text-sm text-dimmed">
+          Create a household, or join the one you already have.
+        </p>
+        <UButton
+          to="/welcome"
+          class="mt-4"
+          size="lg"
+        >
+          Set up
+        </UButton>
+      </div>
+
       <div
         v-else-if="isEmpty"
         class="py-16 text-center"
@@ -119,13 +172,13 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
             {{ group.name }}
           </h2>
           <ul class="rounded-lg border border-default bg-elevated/30">
-            <ItemRow
-              v-for="item in group.items"
-              :key="item.id"
-              :item="item"
-              :source-label="store.sourceLabelFor(item)"
-              @toggle="store.toggleItem(item.id)"
-              @edit="edit(item.id)"
+            <ListEntryRow
+              v-for="entry in group.entries"
+              :key="entry.key"
+              :entry="entry"
+              :source-label="store.sourceLabelForEntry(entry)"
+              @toggle="store.toggleEntry(entry)"
+              @edit="openEntry(entry)"
             />
           </ul>
         </section>
@@ -177,6 +230,12 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
     <ItemEditor
       v-model:open="editorOpen"
       :item-id="editingId"
+    />
+
+    <ItemGroupSheet
+      v-model:open="groupOpen"
+      :entry="groupEntry"
+      @edit="edit"
     />
   </div>
 </template>

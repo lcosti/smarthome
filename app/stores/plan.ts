@@ -3,6 +3,7 @@ import type { ItemRow, PlanEntryRow, RecipeRow } from '../utils/db'
 import { derive } from '../utils/derive'
 import { plainCopy } from '../utils/sync'
 import { addDays, isoDate, weekDates } from '../utils/week'
+import { useIngredientsStore } from './ingredients'
 import { useListStore } from './list'
 import { useRecipesStore } from './recipes'
 import { nowIso, useSyncStore } from './sync'
@@ -25,6 +26,7 @@ export const usePlanStore = defineStore('plan', () => {
   const sync = useSyncStore()
   const recipesStore = useRecipesStore()
   const list = useListStore()
+  const ingredients = useIngredientsStore()
 
   const allEntries = computed(() => sync.rowsOf('meal_plan_entries'))
 
@@ -176,6 +178,14 @@ export const usePlanStore = defineStore('plan', () => {
       ingredients: [...sync.rowsOf('recipe_ingredients').values()],
       planItems,
       rememberAisle: name => list.rememberedAisle(name),
+      // Resolution runs on every derive rather than being written back to the
+      // line, so a household that canonicalises its library later gets the
+      // benefit on the next press of the button without anything being migrated.
+      resolveIngredientId: line =>
+        ingredients.ingredientById(line.ingredient_id)?.id
+        ?? ingredients.resolve(line.name)?.id
+        ?? null,
+      ingredientAisle: id => (id ? ingredients.ingredientById(id)?.aisle_id ?? null : null),
       now: nowIso()
     })
 

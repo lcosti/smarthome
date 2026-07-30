@@ -18,7 +18,9 @@ import { readFile, stat } from 'node:fs/promises'
 import { extname, join, normalize } from 'node:path'
 import { chromium } from 'playwright'
 
-const PORT = 3000
+// Deliberately not the dev server's port (4000), so `pnpm dev` can stay running
+// while this runs. Both are in the auth redirect allow-list in supabase/config.toml.
+const PORT = 4001
 const ORIGIN = `http://localhost:${PORT}`
 const ROOT = '.output/public'
 
@@ -221,12 +223,13 @@ async function signIn(context, email) {
 /**
  * Confirm the browser will reach *this* server on ORIGIN.
  *
- * A `pnpm dev` left running is the trap here. Node's listen() binds both stacks,
- * but a dev server already holding [::1]:3000 leaves the IPv4 address free, so
- * listen() succeeds and nothing looks wrong — while Chromium resolves localhost
- * to ::1 first and drives the dev server instead. The dev build has no service
- * worker, so the offline half of this test then fails in a way that reads
- * exactly like the app being broken.
+ * Anything else already on this port is the trap. Node's listen() binds both
+ * stacks, but a process already holding [::1]:4001 leaves the IPv4 address free,
+ * so listen() succeeds and nothing looks wrong — while Chromium resolves
+ * localhost to ::1 first and drives the other server instead. That one has no
+ * service worker, so the offline half of this test then fails in a way that reads
+ * exactly like the app being broken. Hence the separate dev port; this check
+ * stays for whatever else might be listening.
  */
 async function assertOwnServer() {
   let body = null
@@ -319,6 +322,18 @@ try {
   await doneToggle(reopened).click()
   for (const name of TO_TICK) await itemNamed(reopened, name).waitFor({ timeout: 10_000 })
   log('every tick and both new items survived the restart')
+
+  // Every route above is prerendered, so it has a precache entry of its own and
+  // opens offline whether or not the navigation fallback works. A dynamic route
+  // has no entry, so it is the only thing that actually proves the fallback is
+  // registered — and it went unregistered for a whole phase without one asserting
+  // it. Any recipe id will do; reaching the app shell is the whole point.
+  log('cold-opening a dynamic route offline')
+  const deepLink = await context.newPage()
+  await deepLink.goto(`${ORIGIN}/recipes/2f8e4a90-0000-4000-8000-000000000000`, { waitUntil: 'domcontentloaded' })
+  await deepLink.getByText('That recipe is gone.').waitFor({ timeout: 25_000 })
+  log('the shell served a route that was never prerendered')
+  await deepLink.close()
 
   // --- Back online ---------------------------------------------------------
   log('coming back online')

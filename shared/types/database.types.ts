@@ -72,6 +72,105 @@ export type Database = {
           },
         ]
       }
+      attendance: {
+        Row: {
+          created_at: string
+          date: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          meal: string
+          person_id: string
+          present: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          meal?: string
+          person_id: string
+          present: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          meal?: string
+          person_id?: string
+          present?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dietary_constraints: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          kind: string
+          person_id: string
+          tag: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          kind: string
+          person_id: string
+          tag: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          kind?: string
+          person_id?: string
+          tag?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dietary_constraints_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dietary_constraints_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       households: {
         Row: {
           created_at: string
@@ -92,6 +191,157 @@ export type Database = {
           name?: string
         }
         Relationships: []
+      }
+      ingredient_aliases: {
+        Row: {
+          alias: string
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          updated_at: string
+        }
+        Insert: {
+          alias: string
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          updated_at?: string
+        }
+        Update: {
+          alias?: string
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          ingredient_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingredient_aliases_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ingredient_aliases_ingredient_id_fkey"
+            columns: ["ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "ingredients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ingredient_purchase_units: {
+        Row: {
+          amount: number
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          ingredient_id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingredient_purchase_units_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ingredient_purchase_units_ingredient_id_fkey"
+            columns: ["ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "ingredients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ingredients: {
+        Row: {
+          aisle_id: string | null
+          base_unit: string
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          merged_into: string | null
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          aisle_id?: string | null
+          base_unit?: string
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          merged_into?: string | null
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          aisle_id?: string | null
+          base_unit?: string
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          merged_into?: string | null
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingredients_aisle_id_fkey"
+            columns: ["aisle_id"]
+            isOneToOne: false
+            referencedRelation: "aisles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ingredients_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ingredients_merged_into_fkey"
+            columns: ["merged_into"]
+            isOneToOne: false
+            referencedRelation: "ingredients"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       meal_plan_entries: {
         Row: {
@@ -152,25 +402,31 @@ export type Database = {
           auth_user_id: string | null
           created_at: string
           date_of_birth: string | null
+          deleted_at: string | null
           household_id: string
           id: string
           name: string
+          updated_at: string
         }
         Insert: {
           auth_user_id?: string | null
           created_at?: string
           date_of_birth?: string | null
+          deleted_at?: string | null
           household_id: string
           id?: string
           name: string
+          updated_at?: string
         }
         Update: {
           auth_user_id?: string | null
           created_at?: string
           date_of_birth?: string | null
+          deleted_at?: string | null
           household_id?: string
           id?: string
           name?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -189,6 +445,7 @@ export type Database = {
           deleted_at: string | null
           household_id: string
           id: string
+          ingredient_id: string | null
           name: string
           quantity: string | null
           recipe_id: string
@@ -201,6 +458,7 @@ export type Database = {
           deleted_at?: string | null
           household_id: string
           id: string
+          ingredient_id?: string | null
           name: string
           quantity?: string | null
           recipe_id: string
@@ -213,6 +471,7 @@ export type Database = {
           deleted_at?: string | null
           household_id?: string
           id?: string
+          ingredient_id?: string | null
           name?: string
           quantity?: string | null
           recipe_id?: string
@@ -232,6 +491,13 @@ export type Database = {
             columns: ["household_id"]
             isOneToOne: false
             referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_ingredients_ingredient_id_fkey"
+            columns: ["ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "ingredients"
             referencedColumns: ["id"]
           },
           {
@@ -302,6 +568,7 @@ export type Database = {
           deleted_at: string | null
           household_id: string
           id: string
+          ingredient_id: string | null
           name: string
           plan_entry_id: string | null
           quantity: string | null
@@ -317,6 +584,7 @@ export type Database = {
           deleted_at?: string | null
           household_id: string
           id: string
+          ingredient_id?: string | null
           name: string
           plan_entry_id?: string | null
           quantity?: string | null
@@ -332,6 +600,7 @@ export type Database = {
           deleted_at?: string | null
           household_id?: string
           id?: string
+          ingredient_id?: string | null
           name?: string
           plan_entry_id?: string | null
           quantity?: string | null
@@ -352,6 +621,13 @@ export type Database = {
             columns: ["household_id"]
             isOneToOne: false
             referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_list_items_ingredient_id_fkey"
+            columns: ["ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "ingredients"
             referencedColumns: ["id"]
           },
           {

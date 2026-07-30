@@ -1,12 +1,15 @@
 import { defineStore } from 'pinia'
+import type { AggregateContext, ListEntry } from '../utils/aggregate'
+import { buildEntries } from '../utils/aggregate'
 import type { AisleRow, ItemRow } from '../utils/db'
 import { plainCopy } from '../utils/sync'
+import { asBaseUnit, useIngredientsStore } from './ingredients'
 import { nowIso, useSyncStore } from './sync'
 
 export interface AisleGroup {
   id: string
   name: string
-  items: ItemRow[]
+  entries: ListEntry<ItemRow>[]
 }
 
 function normaliseName(name: string) {
@@ -15,6 +18,7 @@ function normaliseName(name: string) {
 
 export const useListStore = defineStore('list', () => {
   const sync = useSyncStore()
+  const ingredients = useIngredientsStore()
 
   const items = computed(() => sync.rowsOf('shopping_list_items'))
   const aisles = computed(() => sync.rowsOf('aisles'))
@@ -33,10 +37,21 @@ export const useListStore = defineStore('list', () => {
       .sort((a, b) => (b.checked_at ?? '').localeCompare(a.checked_at ?? ''))
   )
 
+  /** What buildEntries needs to add quantities up, in the shapes it reads. */
+  const aggregateContext = computed<AggregateContext>(() => ({
+    ingredients: new Map(
+      [...ingredients.allRows.values()].map(row => [row.id, { ...row, base_unit: asBaseUnit(row.base_unit) }])
+    ),
+    purchaseUnits: ingredients.purchaseUnits
+  }))
+
   /**
-   * Unchecked items grouped in the order the shop is walked. Anything whose aisle
-   * is unset or has since been deleted falls into a trailing "Other" group, so no
-   * item can ever become invisible.
+   * Unchecked items grouped in the order the shop is walked, then collapsed into
+   * the lines to show. Anything whose aisle is unset or has since been deleted
+   * falls into a trailing "Other" group, so no item can ever become invisible.
+   *
+   * Collapsing happens per aisle, after bucketing, so an ingredient somebody
+   * deliberately filed in two places stays in both.
    */
   const groups = computed<AisleGroup[]>(() => {
     const unchecked = liveItems.value.filter(i => !i.checked)
@@ -54,14 +69,18 @@ export const useListStore = defineStore('list', () => {
       else byAisle.set(aisle.id, [item])
     }
 
-    const byCreated = (a: ItemRow, b: ItemRow) => a.created_at.localeCompare(b.created_at)
+    const context = aggregateContext.value
     const result: AisleGroup[] = []
 
     for (const aisle of sortedAisles.value) {
       const bucket = byAisle.get(aisle.id)
-      if (bucket?.length) result.push({ id: aisle.id, name: aisle.name, items: bucket.sort(byCreated) })
+      if (bucket?.length) {
+        result.push({ id: aisle.id, name: aisle.name, entries: buildEntries(bucket, context) })
+      }
     }
-    if (other.length) result.push({ id: 'other', name: 'Other', items: other.sort(byCreated) })
+    if (other.length) {
+      result.push({ id: 'other', name: 'Other', entries: buildEntries(other, context) })
+    }
 
     return result
   })
@@ -93,21 +112,45 @@ export const useListStore = defineStore('list', () => {
     return sync.rowsOf('recipes').get(entry.recipe_id)?.name ?? null
   }
 
-  async function addItem(rawName: string) {
+  /**
+   * The recipes behind a grouped line: "Chilli · Pasta bake". Deduplicated,
+   * because the same recipe on two nights is one reason, not two.
+   */
+  function sourceLabelForEntry(entry: ListEntry<ItemRow>): string | null {
+    const names = new Set<string>()
+    for (const item of entry.items) {
+      const label = sourceLabelFor(item)
+      if (label) names.add(label)
+    }
+    return names.size ? [...names].join(' · ') : null
+  }
+
+  /**
+   * Null means the item was not added. Without a household there is nothing to
+   * attach the row to, and callers have to be able to tell — a dropped write that
+   * looks like a successful one is the worst thing this app can do.
+   */
+  async function addItem(rawName: string): Promise<ItemRow | null> {
     const name = rawName.trim()
-    if (!name || !sync.householdId) return
+    if (!name || !sync.householdId) return null
+    // Resolved if the household already knows this name, but never created: the
+    // canonical list is for things recipes are made of, and "bin bags" is not one.
+    // Resolving is still worth it — milk typed onto the list should join the milk
+    // the plan already asked for rather than sit beside it.
+    const ingredient = ingredients.resolve(name)
     const timestamp = nowIso()
     return sync.commit('shopping_list_items', {
       id: crypto.randomUUID(),
       household_id: sync.householdId,
       name,
       quantity: null,
-      aisle_id: rememberedAisle(name),
+      aisle_id: ingredient?.aisle_id ?? rememberedAisle(name),
       checked: false,
       checked_at: null,
       source: 'adhoc',
       plan_entry_id: null,
       recipe_ingredient_id: null,
+      ingredient_id: ingredient?.id ?? null,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp
@@ -123,6 +166,24 @@ export const useListStore = defineStore('list', () => {
       checked,
       checked_at: checked ? nowIso() : null
     })
+  }
+
+  /**
+   * Tick a whole line off, however many rows are behind it.
+   *
+   * One write per row rather than anything cleverer, because each is the same
+   * idempotent upsert ticking one item already is, and a group is two or three
+   * rows in practice. If the drain halts halfway, another device sees a smaller
+   * remaining total, which is coherent, and it settles on the next drain.
+   */
+  async function toggleEntry(entry: ListEntry<ItemRow>) {
+    const checked = !entry.items.every(i => i.checked)
+    const at = checked ? nowIso() : null
+    for (const item of entry.items) {
+      const current = items.value.get(item.id)
+      if (!current || current.checked === checked) continue
+      await sync.commit('shopping_list_items', { ...plainCopy(current), checked, checked_at: at })
+    }
   }
 
   async function updateItem(id: string, patch: Partial<Pick<ItemRow, 'name' | 'quantity' | 'aisle_id'>>) {
@@ -143,9 +204,10 @@ export const useListStore = defineStore('list', () => {
     }
   }
 
-  async function addAisle(rawName: string) {
+  /** Null for the same reason as {@link addItem}. */
+  async function addAisle(rawName: string): Promise<AisleRow | null> {
     const name = rawName.trim()
-    if (!name || !sync.householdId) return
+    if (!name || !sync.householdId) return null
     const timestamp = nowIso()
     const highest = sortedAisles.value.reduce((max, a) => Math.max(max, a.sort_order), 0)
     return sync.commit('aisles', {
@@ -192,8 +254,10 @@ export const useListStore = defineStore('list', () => {
     groups,
     rememberedAisle,
     sourceLabelFor,
+    sourceLabelForEntry,
     addItem,
     toggleItem,
+    toggleEntry,
     updateItem,
     deleteItem,
     clearChecked,

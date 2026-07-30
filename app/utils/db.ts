@@ -4,10 +4,16 @@ import type { Database } from '../../shared/types/database.types'
 type Tables = Database['public']['Tables']
 
 export type ItemRow = Tables['shopping_list_items']['Row']
+export type PersonRow = Tables['people']['Row']
+export type DietaryConstraintRow = Tables['dietary_constraints']['Row']
+export type AttendanceRow = Tables['attendance']['Row']
 export type AisleRow = Tables['aisles']['Row']
 export type RecipeRow = Tables['recipes']['Row']
 export type RecipeIngredientRow = Tables['recipe_ingredients']['Row']
 export type PlanEntryRow = Tables['meal_plan_entries']['Row']
+export type IngredientRow = Tables['ingredients']['Row']
+export type IngredientAliasRow = Tables['ingredient_aliases']['Row']
+export type PurchaseUnitRow = Tables['ingredient_purchase_units']['Row']
 
 /**
  * Every table the offline layer syncs.
@@ -19,10 +25,20 @@ export type PlanEntryRow = Tables['meal_plan_entries']['Row']
  *
  * Order matters in one narrow way: `pull` applies rows in this order, so parents
  * land before the shopping list items that reference them and a fresh device can
- * resolve a derived item's recipe on first paint.
+ * resolve a derived item's recipe on first paint. Ingredients come early for the
+ * same reason — a list item names its canonical ingredient, and the grouped line
+ * cannot be worked out until that row is there. People come first of all: a
+ * constraint and an attendance row are both meaningless until there is a person
+ * to hang them off.
  */
 export const SYNC_TABLES = {
+  people: { cache: 'people' },
+  dietary_constraints: { cache: 'dietary_constraints' },
+  attendance: { cache: 'attendance' },
   aisles: { cache: 'aisles' },
+  ingredients: { cache: 'ingredients' },
+  ingredient_aliases: { cache: 'ingredient_aliases' },
+  ingredient_purchase_units: { cache: 'ingredient_purchase_units' },
   recipes: { cache: 'recipes' },
   recipe_ingredients: { cache: 'recipe_ingredients' },
   meal_plan_entries: { cache: 'meal_plan_entries' },
@@ -35,7 +51,13 @@ export const SYNC_TABLE_NAMES = Object.keys(SYNC_TABLES) as SyncTable[]
 
 /** The row type each synced table holds, so `cacheFor` and `commit` stay typed. */
 export interface RowOf {
+  people: PersonRow
+  dietary_constraints: DietaryConstraintRow
+  attendance: AttendanceRow
   aisles: AisleRow
+  ingredients: IngredientRow
+  ingredient_aliases: IngredientAliasRow
+  ingredient_purchase_units: PurchaseUnitRow
   recipes: RecipeRow
   recipe_ingredients: RecipeIngredientRow
   meal_plan_entries: PlanEntryRow
@@ -64,6 +86,12 @@ export class AppDatabase extends Dexie {
   recipes!: Table<RecipeRow, string>
   recipe_ingredients!: Table<RecipeIngredientRow, string>
   meal_plan_entries!: Table<PlanEntryRow, string>
+  ingredients!: Table<IngredientRow, string>
+  ingredient_aliases!: Table<IngredientAliasRow, string>
+  ingredient_purchase_units!: Table<PurchaseUnitRow, string>
+  people!: Table<PersonRow, string>
+  dietary_constraints!: Table<DietaryConstraintRow, string>
+  attendance!: Table<AttendanceRow, string>
   mutations!: Table<Mutation, number>
 
   constructor(name = 'shoplist') {
@@ -80,6 +108,22 @@ export class AppDatabase extends Dexie {
       recipes: 'id',
       recipe_ingredients: 'id',
       meal_plan_entries: 'id'
+    })
+    // v3 adds the canonical ingredient tables, on the same terms as v2. The
+    // ingredient_id columns on items and recipe lines need no migration either:
+    // they arrive null on existing rows and are filled in as things are touched.
+    this.version(3).stores({
+      ingredients: 'id',
+      ingredient_aliases: 'id',
+      ingredient_purchase_units: 'id'
+    })
+    // v4 adds the roster, on the same terms again. `people` has been read from the
+    // server since Phase 1 but never cached, so this store starts empty on every
+    // device and fills on the next pull.
+    this.version(4).stores({
+      people: 'id',
+      dietary_constraints: 'id',
+      attendance: 'id'
     })
   }
 

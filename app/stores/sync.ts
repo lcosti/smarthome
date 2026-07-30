@@ -3,8 +3,14 @@ import {
   db,
   SYNC_TABLE_NAMES,
   type AisleRow,
+  type AttendanceRow,
+  type DietaryConstraintRow,
+  type IngredientAliasRow,
+  type IngredientRow,
   type ItemRow,
+  type PersonRow,
   type PlanEntryRow,
+  type PurchaseUnitRow,
   type RecipeIngredientRow,
   type RecipeRow,
   type RowOf,
@@ -35,7 +41,13 @@ export function nowIso() {
  */
 export const useSyncStore = defineStore('sync', () => {
   const maps = {
+    people: ref(new Map<string, PersonRow>()),
+    dietary_constraints: ref(new Map<string, DietaryConstraintRow>()),
+    attendance: ref(new Map<string, AttendanceRow>()),
     aisles: ref(new Map<string, AisleRow>()),
+    ingredients: ref(new Map<string, IngredientRow>()),
+    ingredient_aliases: ref(new Map<string, IngredientAliasRow>()),
+    ingredient_purchase_units: ref(new Map<string, PurchaseUnitRow>()),
     recipes: ref(new Map<string, RecipeRow>()),
     recipe_ingredients: ref(new Map<string, RecipeIngredientRow>()),
     meal_plan_entries: ref(new Map<string, PlanEntryRow>()),

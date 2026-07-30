@@ -6,6 +6,9 @@ import type { UpsertFn } from '../utils/sync'
 
 const DRAIN_INTERVAL_MS = 30_000
 
+/** Answered the question / could not ask. Never collapse the two. */
+type HouseholdLookup = { ok: true, householdId: string | null } | { ok: false }
+
 /**
  * Wires the offline store to Supabase. Called exactly once, from app.vue.
  *
@@ -41,7 +44,12 @@ export function useSync() {
         }
       )
     }
-    channel = next.subscribe()
+    // A live socket is proof the server is there, and it arrives without a request.
+    // Only the positive signal is taken: realtime can be blocked on a network where
+    // plain HTTP still works, and pull is the authority on that.
+    channel = next.subscribe((status) => {
+      if (status === 'SUBSCRIBED') store.reachable = true
+    })
   }
 
   async function unsubscribe() {
@@ -70,7 +78,15 @@ export function useSync() {
     store.reachable = true
   }
 
-  async function resolveHousehold(userId: string): Promise<string | null> {
+  /**
+   * Doubles as the reachability probe. It is the one request that runs before a
+   * household is known, so a device that has none — and therefore never reaches
+   * `drain` or `pull` — still has a way to discover that the server is back.
+   *
+   * "No household" and "could not ask" must stay distinguishable: the first is a
+   * setup problem the user can fix at /welcome, the second is weather.
+   */
+  async function resolveHousehold(userId: string): Promise<HouseholdLookup> {
     const { data, error } = await supabase
       .from('people')
       .select('household_id')
@@ -78,9 +94,10 @@ export function useSync() {
       .maybeSingle()
     if (error) {
       store.reachable = false
-      return null
+      return { ok: false }
     }
-    return data?.household_id ?? null
+    store.reachable = true
+    return { ok: true, householdId: data?.household_id ?? null }
   }
 
   /**
@@ -116,13 +133,18 @@ export function useSync() {
         // Which household this user belongs to is the one thing that genuinely
         // needs their id, so this step alone waits for the claims.
         if (!userId) return
-        const householdId = await resolveHousehold(userId)
-        if (!householdId) {
-          if (store.reachable) await navigateTo('/welcome')
+        const lookup = await resolveHousehold(userId)
+        // Could not ask: leave the user where they are and let the tick retry.
+        if (!lookup.ok) return
+        // Asked, and there is genuinely no household for this account. Send them
+        // to setup — this has to happen whatever the connection is doing, or a
+        // device with no household sits on a dead list with no way forward.
+        if (!lookup.householdId) {
+          await navigateTo('/welcome')
           return
         }
-        store.householdId = householdId
-        writeIdentity({ householdId, userId })
+        store.householdId = lookup.householdId
+        writeIdentity({ householdId: lookup.householdId, userId })
       }
 
       subscribe()

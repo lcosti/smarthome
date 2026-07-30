@@ -156,11 +156,13 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://localhost:3000"
+site_url = "http://localhost:4000"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://127.0.0.1:3000"]
+# 4000 is the dev server, 4001 the acceptance harness — separate ports so a dev
+# server left running cannot collide with a test run.
+additional_redirect_urls = ["http://127.0.0.1:4000", "http://localhost:4001", "http://127.0.0.1:4001"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -389,6 +391,11 @@ deno_version = 2
 # scheduled GitHub Action that holds no Supabase credentials.
 [functions.keepalive]
 verify_jwt = false
+
+# Photo-to-recipe extraction spends Anthropic API credit, so only signed-in
+# household members may call it.
+[functions.import-recipe-photo]
+verify_jwt = true
 
 [analytics]
 enabled = true

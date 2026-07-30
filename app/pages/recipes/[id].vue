@@ -1,12 +1,15 @@
 <script setup lang="ts">
+import { useIngredientsStore } from '../../stores/ingredients'
 import { useListStore } from '../../stores/list'
 import { useRecipesStore } from '../../stores/recipes'
 import { useSyncStore } from '../../stores/sync'
+import type { IngredientRow } from '../../utils/db'
 
 const route = useRoute()
 const store = useRecipesStore()
 const list = useListStore()
 const sync = useSyncStore()
+const ingredients = useIngredientsStore()
 
 const id = computed(() => String(route.params.id))
 const recipe = computed(() => store.recipeById(id.value))
@@ -16,7 +19,7 @@ const draftName = ref('')
 const draftIngredient = ref('')
 const editingLineId = ref<string | null>(null)
 const editorOpen = ref(false)
-const ingredientInput = useTemplateRef<{ inputRef?: HTMLInputElement }>('ingredientInput')
+const ingredientInput = useTemplateRef<{ focus: () => void }>('ingredientInput')
 
 watch(recipe, (value) => {
   if (value && document.activeElement?.tagName !== 'INPUT') draftName.value = value.name
@@ -32,15 +35,18 @@ async function renameOnBlur() {
   await store.updateRecipe(id.value, { name })
 }
 
-async function addIngredient() {
-  const name = draftIngredient.value.trim()
-  if (!name) return
+async function addIngredient(name: string, chosen: IngredientRow | null) {
   // Clear first so the next one can be typed straight away. Quantity and aisle
   // are one tap away in the editor; asking for them here would turn eight
   // ingredients into twenty-four decisions.
   draftIngredient.value = ''
-  await store.addIngredient(id.value, { name })
-  ingredientInput.value?.inputRef?.focus()
+  // Everything on a recipe is an ingredient by definition, so an unknown name is
+  // worth a canonical row. Picking a suggestion instead records what was typed as
+  // an alias, so next time this resolves without anybody choosing.
+  const ingredientId = await ingredients.linkFor(name, { chosen })
+  const line = chosen ? { name: chosen.name } : { name }
+  await store.addIngredient(id.value, { ...line, ingredient_id: ingredientId })
+  ingredientInput.value?.focus()
 }
 
 function editLine(lineId: string) {
@@ -151,16 +157,13 @@ async function removeRecipe() {
 
           <form
             class="mt-2 flex gap-2"
-            @submit.prevent="addIngredient"
+            @submit.prevent="addIngredient(draftIngredient.trim(), null)"
           >
-            <UInput
+            <IngredientSuggest
               ref="ingredientInput"
               v-model="draftIngredient"
-              size="xl"
               placeholder="Add an ingredient"
-              autocapitalize="sentences"
-              enterkeyhint="next"
-              class="flex-1"
+              @submit="addIngredient"
             />
             <UButton
               type="submit"

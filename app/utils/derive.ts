@@ -12,6 +12,18 @@ export interface DeriveInput {
   /** Every item with source 'plan', soft-deleted and checked ones included. */
   planItems: ItemRow[]
   rememberAisle: (name: string) => string | null
+  /**
+   * The canonical ingredient a recipe line means, or null if nothing known does.
+   *
+   * Injected rather than resolved here so this stays pure, and read-only on
+   * purpose: derive never creates an ingredient or writes back to the line. An
+   * unresolved line still produces its item, just an item that groups with
+   * nothing — so a household that has never opened /ingredients notices no
+   * difference.
+   */
+  resolveIngredientId: (line: RecipeIngredientRow) => string | null
+  /** Where a canonical ingredient has been filed, if anybody has said. */
+  ingredientAisle: (ingredientId: string | null) => string | null
   now: string
 }
 
@@ -62,10 +74,16 @@ export function servingsHint(quantity: string | null, servings: number, baseServ
  *   - An unchecked item is refreshed from the recipe, because the recipe is the
  *     source of truth until someone acts on the item. Its aisle is only filled
  *     in when empty: re-filing something mid-shop must survive a plan tweak.
+ *   - Its canonical ingredient is stamped on, and never unstamped. That is what
+ *     lets the list group two recipes' tomatoes into one line without any of
+ *     these rules changing shape.
  *   - Items belonging to nights outside the range are left completely alone.
  */
 export function derive(input: DeriveInput): DeriveResult {
-  const { householdId, start, end, entries, recipes, ingredients, planItems, rememberAisle, now } = input
+  const {
+    householdId, start, end, entries, recipes, ingredients, planItems,
+    rememberAisle, resolveIngredientId, ingredientAisle, now
+  } = input
 
   const linesByRecipe = new Map<string, RecipeIngredientRow[]>()
   for (const line of ingredients) {
@@ -108,13 +126,23 @@ export function derive(input: DeriveInput): DeriveResult {
 
     if (hit) {
       if (item.checked || item.deleted_at) continue
+      const ingredientId = resolveIngredientId(hit.line)
       const next: ItemRow = {
         ...item,
         name: hit.line.name,
         quantity: servingsHint(hit.line.quantity, hit.entry.servings, hit.recipe.base_servings),
-        aisle_id: item.aisle_id ?? hit.line.aisle_id ?? rememberAisle(hit.line.name)
+        aisle_id: item.aisle_id ?? ingredientAisle(ingredientId) ?? hit.line.aisle_id ?? rememberAisle(hit.line.name),
+        // Never cleared once set. Resolution improving is worth following; it
+        // going quiet — because a device has not pulled the ingredient yet — is
+        // not worth un-grouping a line somebody is looking at.
+        ingredient_id: ingredientId ?? item.ingredient_id
       }
-      if (next.name !== item.name || next.quantity !== item.quantity || next.aisle_id !== item.aisle_id) {
+      if (
+        next.name !== item.name
+        || next.quantity !== item.quantity
+        || next.aisle_id !== item.aisle_id
+        || next.ingredient_id !== item.ingredient_id
+      ) {
         updates.push(next)
       }
       continue
@@ -130,17 +158,21 @@ export function derive(input: DeriveInput): DeriveResult {
 
   // 3. Anything still wanted is new.
   for (const [id, { entry, line, recipe }] of wanted) {
+    const ingredientId = resolveIngredientId(line)
     creates.push({
       id,
       household_id: householdId,
       name: line.name,
       quantity: servingsHint(line.quantity, entry.servings, recipe.base_servings),
-      aisle_id: line.aisle_id ?? rememberAisle(line.name),
+      // The canonical ingredient's aisle outranks the line's, because it is the
+      // thing a person filed deliberately and it holds for every recipe using it.
+      aisle_id: ingredientAisle(ingredientId) ?? line.aisle_id ?? rememberAisle(line.name),
       checked: false,
       checked_at: null,
       source: 'plan',
       plan_entry_id: entry.id,
       recipe_ingredient_id: line.id,
+      ingredient_id: ingredientId,
       deleted_at: null,
       created_at: now,
       updated_at: now
