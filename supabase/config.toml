@@ -392,6 +392,11 @@ deno_version = 2
 [functions.keepalive]
 verify_jwt = false
 
+# Photo-to-recipe extraction spends Anthropic API credit, so only signed-in
+# household members may call it.
+[functions.import-recipe-photo]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327

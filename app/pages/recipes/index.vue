@@ -22,6 +22,26 @@ async function add() {
   const created = await store.addRecipe({ name })
   if (created) await navigateTo(`/recipes/${created.id}`)
 }
+
+// Photograph a cookbook page instead of typing it in. Multi-select because a
+// recipe often spans a spread: ingredients on one page, method overleaf.
+const photoImport = useRecipePhotoImport()
+const photoInput = ref<HTMLInputElement>()
+const toast = useToast()
+
+async function onPhotosPicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = [...(input.files ?? [])]
+  input.value = ''
+  if (!files.length) return
+
+  const recipeId = await photoImport.importPhotos(files)
+  if (recipeId) {
+    await navigateTo(`/recipes/${recipeId}`)
+  } else if (photoImport.error.value) {
+    toast.add({ title: photoImport.error.value, color: 'error' })
+  }
+}
 </script>
 
 <template>
@@ -51,7 +71,36 @@ async function add() {
             :disabled="!draft.trim()"
             aria-label="Add recipe"
           />
+          <UButton
+            size="xl"
+            color="neutral"
+            variant="outline"
+            :icon="photoImport.status.value === 'idle' ? 'i-lucide-camera' : ''"
+            :loading="photoImport.status.value !== 'idle'"
+            :disabled="photoImport.status.value !== 'idle'"
+            aria-label="Add recipe from a photo"
+            @click="photoInput?.click()"
+          />
+          <!-- No `capture` attribute: on iOS it forces the camera and silently
+               drops `multiple`, and a cookbook recipe often needs two photos.
+               Without it the phone offers camera or library, both of which work. -->
+          <input
+            ref="photoInput"
+            type="file"
+            accept="image/*"
+            multiple
+            class="hidden"
+            data-testid="recipe-photo-input"
+            @change="onPhotosPicked"
+          >
         </form>
+
+        <p
+          v-if="photoImport.status.value !== 'idle'"
+          class="mt-2 text-sm text-muted"
+        >
+          Reading recipe… this can take up to 30 seconds.
+        </p>
       </div>
     </header>
 

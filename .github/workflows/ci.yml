@@ -100,3 +100,8 @@ jobs:
 
       - name: Phase 3 acceptance
         run: pnpm run acceptance:phase3
+
+      # The Edge Function is stubbed at the network seam, so this needs no
+      # Anthropic key — it proves everything the client owns.
+      - name: Phase 4 acceptance
+        run: pnpm run acceptance:phase4
