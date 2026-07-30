@@ -35,3 +35,56 @@ jobs:
 
       - name: Test
         run: pnpm run test
+
+  # The CLAUDE.md guarantee, enforced: airplane mode, reopen from the home
+  # screen, nothing lost — plus the Phase 2 chain from recipe to list. Runs
+  # against a real local Supabase stack; its keys are fixed demo values read
+  # from `supabase status`, so no repository secrets are involved.
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Install node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start supabase
+        run: supabase start -x studio,imgproxy
+
+      - name: Export the local stack's keys
+        run: |
+          STATUS="$(supabase status -o json 2>/dev/null | tail -n 1)"
+          {
+            echo "SUPABASE_URL=$(echo "$STATUS" | jq -r .API_URL)"
+            echo "SUPABASE_KEY=$(echo "$STATUS" | jq -r .PUBLISHABLE_KEY)"
+            echo "SUPABASE_SECRET_KEY=$(echo "$STATUS" | jq -r .SECRET_KEY)"
+          } >> "$GITHUB_ENV"
+
+      - name: Install a browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build the production bundle
+        run: pnpm run generate
+
+      - name: Offline acceptance
+        run: pnpm run acceptance
+
+      - name: Phase 2 acceptance
+        run: pnpm run acceptance:phase2
