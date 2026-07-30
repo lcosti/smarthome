@@ -61,8 +61,8 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
 </script>
 
 <template>
-  <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
+  <div class="flex h-full flex-col">
+    <header class="shrink-0 border-b border-default bg-default">
       <div class="mx-auto max-w-xl px-3 pt-3 pb-2">
         <div class="mb-2 flex items-center gap-2">
           <h1 class="flex-1 truncate text-lg font-semibold">
@@ -118,7 +118,7 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
       </div>
     </header>
 
-    <main class="mx-auto max-w-xl px-3 pb-28">
+    <main class="mx-auto w-full max-w-xl min-h-0 flex-1 overflow-y-auto px-3 pb-6">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"

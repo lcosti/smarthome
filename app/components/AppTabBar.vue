@@ -19,8 +19,11 @@ function isActive(to: string) {
     inset, and fighting a menu component's layout costs more than it saves.
     pb-[env(safe-area-inset-bottom)] keeps the labels off the iPhone home
     indicator — the only place in the app that needs it.
+
+    A plain flex child of the shell, not fixed: it is the bottom of a column that
+    is exactly one viewport tall, so nothing can scroll it away.
   -->
-  <nav class="fixed inset-x-0 bottom-0 z-20 border-t border-default bg-default/85 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+  <nav class="shrink-0 border-t border-default bg-default pb-[env(safe-area-inset-bottom)]">
     <div class="mx-auto flex max-w-xl">
       <NuxtLink
         v-for="tab in tabs"

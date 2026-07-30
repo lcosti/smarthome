@@ -82,8 +82,8 @@ async function derive() {
 </script>
 
 <template>
-  <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
+  <div class="flex h-full flex-col">
+    <header class="shrink-0 border-b border-default bg-default">
       <div class="mx-auto max-w-xl px-3 pt-3 pb-2">
         <h1 class="mb-2 text-lg font-semibold">
           Plan
@@ -119,7 +119,7 @@ async function derive() {
       </div>
     </header>
 
-    <main class="mx-auto max-w-xl px-3 pb-28">
+    <main class="mx-auto w-full max-w-xl min-h-0 flex-1 overflow-y-auto px-3 pb-6">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"

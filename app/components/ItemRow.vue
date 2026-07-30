@@ -17,10 +17,18 @@ defineEmits<{
 
 <template>
   <li class="flex items-stretch border-b border-default last:border-b-0">
-    <!-- Deliberately large: this gets tapped one-handed, in a coat, pushing a trolley. -->
+    <!--
+      Deliberately large: this gets tapped one-handed, in a coat, pushing a trolley.
+
+      min-w-0 is load-bearing. A flex item defaults to min-width:auto, which floors
+      it at its content's width, so a long ingredient name ("skinless, boneless
+      chicken thighs, each cut into 3 pieces") pushes the row wider than the screen
+      and the truncate inside never gets to do anything. The whole page then scrolls
+      sideways.
+    -->
     <button
       type="button"
-      class="flex flex-1 items-center gap-3 py-3 pl-1 pr-2 text-left min-h-12 active:bg-elevated/60"
+      class="flex min-w-0 flex-1 items-center gap-3 py-3 pl-1 pr-2 text-left min-h-12 active:bg-elevated/60"
       @click="$emit('toggle')"
     >
       <UIcon
