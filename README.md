@@ -70,6 +70,9 @@ merged, the list healing with no re-derive, "800g · 2 tins", and ticking the li
 taking both rows behind it. It reads IndexedDB as well as the screen, because "one
 line" and "one row" are different claims and only one of them is visible.
 
+`pnpm acceptance:phase4` drives a photograph of a recipe into a recipe in the
+library, with the LLM stubbed at the network seam so it needs no API key.
+
 `pnpm acceptance:roster` adds a child, checks the life stage was derived rather
 than typed, records an allergy, and marks them out on one night. Its load-bearing
 assertion is about a row that does not exist: no row means present, so marking one
@@ -83,7 +86,7 @@ servings came from the roster rather than the recipe default.
 ```bash
 pnpm exec playwright install chromium   # once
 pnpm generate && pnpm acceptance && pnpm acceptance:phase2 && pnpm acceptance:phase3
-pnpm acceptance:roster && pnpm acceptance:generator
+pnpm acceptance:phase4 && pnpm acceptance:roster && pnpm acceptance:generator
 ```
 
 They need the local Supabase stack running, and each serves the built bundle itself
