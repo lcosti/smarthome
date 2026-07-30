@@ -73,8 +73,8 @@ async function removeRecipe() {
 </script>
 
 <template>
-  <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
+  <div class="flex h-full flex-col">
+    <header class="shrink-0 border-b border-default bg-default">
       <div class="mx-auto flex max-w-xl items-center gap-1 px-3 py-2">
         <UButton
           to="/recipes"
@@ -96,7 +96,7 @@ async function removeRecipe() {
       </div>
     </header>
 
-    <main class="mx-auto max-w-xl space-y-8 px-3 py-5 pb-28">
+    <main class="mx-auto w-full max-w-xl min-h-0 flex-1 space-y-8 overflow-y-auto px-3 py-5">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"

@@ -59,89 +59,91 @@ async function submit() {
 </script>
 
 <template>
-  <div class="min-h-dvh flex items-center justify-center p-6">
-    <div class="w-full max-w-sm space-y-6">
-      <div class="space-y-1 text-center">
-        <h1 class="text-2xl font-semibold">
-          Set up your household
-        </h1>
-        <p class="text-sm text-muted">
-          Create one, or join the one that already exists.
-        </p>
+  <div class="h-full overflow-y-auto">
+    <div class="flex min-h-full items-center justify-center p-6">
+      <div class="w-full max-w-sm space-y-6">
+        <div class="space-y-1 text-center">
+          <h1 class="text-2xl font-semibold">
+            Set up your household
+          </h1>
+          <p class="text-sm text-muted">
+            Create one, or join the one that already exists.
+          </p>
+        </div>
+
+        <div class="flex gap-2">
+          <UButton
+            block
+            :variant="mode === 'create' ? 'solid' : 'outline'"
+            @click="mode = 'create'"
+          >
+            Create
+          </UButton>
+          <UButton
+            block
+            :variant="mode === 'join' ? 'solid' : 'outline'"
+            @click="mode = 'join'"
+          >
+            Join
+          </UButton>
+        </div>
+
+        <form
+          class="space-y-3"
+          @submit.prevent="submit"
+        >
+          <UFormField
+            v-if="mode === 'create'"
+            label="Household name"
+          >
+            <UInput
+              v-model="householdName"
+              size="xl"
+              placeholder="The Costis"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UFormField
+            v-else
+            label="Invite code"
+            help="Six characters, from the settings screen on the other phone."
+          >
+            <UInput
+              v-model="inviteCode"
+              size="xl"
+              placeholder="ABC123"
+              class="w-full font-mono uppercase"
+            />
+          </UFormField>
+
+          <UFormField label="Your name">
+            <UInput
+              v-model="personName"
+              size="xl"
+              placeholder="Luke"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UButton
+            type="submit"
+            size="xl"
+            block
+            :loading="pending"
+            :disabled="!canSubmit"
+          >
+            {{ mode === 'create' ? 'Create household' : 'Join household' }}
+          </UButton>
+
+          <p
+            v-if="errorMessage"
+            class="text-sm text-error"
+          >
+            {{ errorMessage }}
+          </p>
+        </form>
       </div>
-
-      <div class="flex gap-2">
-        <UButton
-          block
-          :variant="mode === 'create' ? 'solid' : 'outline'"
-          @click="mode = 'create'"
-        >
-          Create
-        </UButton>
-        <UButton
-          block
-          :variant="mode === 'join' ? 'solid' : 'outline'"
-          @click="mode = 'join'"
-        >
-          Join
-        </UButton>
-      </div>
-
-      <form
-        class="space-y-3"
-        @submit.prevent="submit"
-      >
-        <UFormField
-          v-if="mode === 'create'"
-          label="Household name"
-        >
-          <UInput
-            v-model="householdName"
-            size="xl"
-            placeholder="The Costis"
-            class="w-full"
-          />
-        </UFormField>
-
-        <UFormField
-          v-else
-          label="Invite code"
-          help="Six characters, from the settings screen on the other phone."
-        >
-          <UInput
-            v-model="inviteCode"
-            size="xl"
-            placeholder="ABC123"
-            class="w-full font-mono uppercase"
-          />
-        </UFormField>
-
-        <UFormField label="Your name">
-          <UInput
-            v-model="personName"
-            size="xl"
-            placeholder="Luke"
-            class="w-full"
-          />
-        </UFormField>
-
-        <UButton
-          type="submit"
-          size="xl"
-          block
-          :loading="pending"
-          :disabled="!canSubmit"
-        >
-          {{ mode === 'create' ? 'Create household' : 'Join household' }}
-        </UButton>
-
-        <p
-          v-if="errorMessage"
-          class="text-sm text-error"
-        >
-          {{ errorMessage }}
-        </p>
-      </form>
     </div>
   </div>
 </template>

@@ -164,13 +164,22 @@ improvement or a new purchase unit applies retroactively with nothing rewritten.
 
 Once you have created a Supabase project (free tier) and a Netlify site:
 
-1. **Push the schema.**
+1. **Push the schema and the Edge Functions.**
    ```bash
    pnpm supabase login
    pnpm supabase link --project-ref <ref>
    pnpm supabase db push
    pnpm supabase functions deploy keepalive
+   pnpm supabase functions deploy import-recipe-photo
+   pnpm supabase secrets set ANTHROPIC_API_KEY=<key>
    ```
+
+   `pnpm supabase functions list` should show both. Until `import-recipe-photo`
+   is deployed the camera button fails on every photo: the project answers the
+   call with its own 404, which carries none of the CORS headers the function
+   would have set, so the browser blocks the response and the app can only say
+   the photo could not be read. Nothing else in the app touches it — everything
+   but photo import works with no functions deployed at all.
 
 2. **Netlify.** Create a site from this repo. `netlify.toml` sets the build
    command and publish directory. Set these site environment variables **before

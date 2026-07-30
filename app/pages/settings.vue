@@ -45,8 +45,8 @@ async function copyInviteCode() {
 </script>
 
 <template>
-  <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
+  <div class="flex h-full flex-col">
+    <header class="shrink-0 border-b border-default bg-default">
       <div class="mx-auto flex max-w-xl items-center gap-2 px-3 py-3">
         <UButton
           to="/"
@@ -61,7 +61,7 @@ async function copyInviteCode() {
       </div>
     </header>
 
-    <main class="mx-auto max-w-xl space-y-8 px-3 py-5 pb-28">
+    <main class="mx-auto w-full max-w-xl min-h-0 flex-1 space-y-8 overflow-y-auto px-3 py-5">
       <section class="space-y-2">
         <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
           Aisles

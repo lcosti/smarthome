@@ -99,7 +99,7 @@ async function newRecipe(name, ingredient) {
   await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
   await page.getByPlaceholder('Search or add a recipe').fill(name)
-  await page.getByRole('button', { name: 'Add recipe' }).click()
+  await page.getByRole('button', { name: 'Add recipe', exact: true }).click()
   await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 15_000 })
   const box = page.getByPlaceholder('Add an ingredient')
   await box.fill(ingredient)

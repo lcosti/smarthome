@@ -81,8 +81,8 @@ const unlinkedCount = computed(() =>
 </script>
 
 <template>
-  <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
+  <div class="flex h-full flex-col">
+    <header class="shrink-0 border-b border-default bg-default">
       <div class="mx-auto flex max-w-xl items-center gap-2 px-3 py-3">
         <UButton
           to="/settings"
@@ -107,7 +107,7 @@ const unlinkedCount = computed(() =>
       </div>
     </header>
 
-    <main class="mx-auto max-w-xl px-3 py-4 pb-28">
+    <main class="mx-auto w-full max-w-xl min-h-0 flex-1 overflow-y-auto px-3 py-4">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"

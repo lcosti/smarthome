@@ -123,6 +123,7 @@ const BOLOGNESE = {
 }
 
 let cannedRecipe = SOUP
+let failNextPost = false
 const seenPayloads = []
 
 await page.route('**/functions/v1/import-recipe-photo', async (route) => {
@@ -132,6 +133,10 @@ await page.route('**/functions/v1/import-recipe-photo', async (route) => {
   }
   if (route.request().method() === 'OPTIONS') {
     return route.fulfill({ status: 200, headers, body: 'ok' })
+  }
+  if (failNextPost) {
+    failNextPost = false
+    return route.abort('failed')
   }
   seenPayloads.push(route.request().postDataJSON())
   return route.fulfill({
@@ -239,6 +244,19 @@ try {
   assert(tomatoRows.length === 1, `imports share one canonical tomatoes row, got ${tomatoRows.length}`)
   assert(after.length === 4, `only the genuinely new ingredient was coined, got ${after.length}`)
   log('the shared ingredient resolved to the existing row, coining nothing')
+
+  // --- A request that dies on the wire: signal advice, not a crash ----------
+  // A failed fetch yields a FunctionsFetchError whose context is the raw
+  // network error, not a Response; assuming a readable body once surfaced as
+  // "t.context.json is not a function" in the toast.
+  failNextPost = true
+  await page.getByRole('link', { name: 'Recipes', exact: true }).click()
+  await page.waitForURL('**/recipes')
+  await page.setInputFiles('[data-testid="recipe-photo-input"]', [await makePhoto('unreachable')])
+  await page
+    .getByText('Could not read the photo — check your signal and try again.')
+    .waitFor({ timeout: 20_000 })
+  log('a request that never got a response surfaced the friendly signal message')
 
   console.log('\n  PASS — a photo became a recipe, canonicalised like a typed one\n')
 } catch (e) {
