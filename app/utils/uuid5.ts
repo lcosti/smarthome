@@ -105,3 +105,21 @@ export const DERIVE_NAMESPACE = '6f9b1d84-3c2e-4a17-9b5f-0d8e7a41c6b2'
  * two, and converge through the ordinary last-write-wins path. Fixed forever.
  */
 export const ALIAS_NAMESPACE = 'b3d2c5a1-7e48-4f26-8a09-1c6b4e5d3f70'
+
+/**
+ * The namespace for attendance, keyed on (household, person, date, meal).
+ *
+ * One cell of the roster is one row, whoever taps it. Two phones marking the same
+ * child out on the same Tuesday must land on that row rather than two, because
+ * "present" is read as the absence of a false — and two rows disagreeing would
+ * make the answer depend on which one a device happened to see. Fixed forever.
+ */
+export const ATTENDANCE_NAMESPACE = 'd41c8f26-5a93-4e07-b8d1-2f7a6c904e35'
+
+/**
+ * The namespace for dietary constraints, keyed on (household, person, kind, tag).
+ *
+ * Both parents recording the peanut allergy is the expected case, not the odd
+ * one. Fixed forever.
+ */
+export const CONSTRAINT_NAMESPACE = '9e5b3a74-1c62-4d8f-a057-3b8e1d47c026'
