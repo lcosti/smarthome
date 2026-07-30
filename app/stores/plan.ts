@@ -1,0 +1,177 @@
+import { defineStore } from 'pinia'
+import type { ItemRow, PlanEntryRow, RecipeRow } from '../utils/db'
+import { derive } from '../utils/derive'
+import { plainCopy } from '../utils/sync'
+import { addDays, isoDate, weekDates } from '../utils/week'
+import { useListStore } from './list'
+import { useRecipesStore } from './recipes'
+import { nowIso, useSyncStore } from './sync'
+
+export interface PlannedEntry {
+  entry: PlanEntryRow
+  /** Null when the recipe has since been deleted — the night still shows something. */
+  recipe: RecipeRow | null
+  derived: boolean
+}
+
+export interface PlannedNight {
+  date: string
+  entries: PlannedEntry[]
+}
+
+const DINNER = 'dinner'
+
+export const usePlanStore = defineStore('plan', () => {
+  const sync = useSyncStore()
+  const recipesStore = useRecipesStore()
+  const list = useListStore()
+
+  const allEntries = computed(() => sync.rowsOf('meal_plan_entries'))
+
+  const liveEntries = computed(() =>
+    [...allEntries.value.values()]
+      .filter(e => !e.deleted_at)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.created_at.localeCompare(b.created_at))
+  )
+
+  /** Plan entries that have put at least one live item on the shopping list. */
+  const derivedEntryIds = computed(() => {
+    const ids = new Set<string>()
+    for (const item of sync.rowsOf('shopping_list_items').values()) {
+      if (item.plan_entry_id && !item.deleted_at) ids.add(item.plan_entry_id)
+    }
+    return ids
+  })
+
+  function entriesOn(date: string): PlanEntryRow[] {
+    return liveEntries.value.filter(e => e.date === date && e.meal === DINNER)
+  }
+
+  /** The seven nights of a week, empty ones included — the shape the page renders. */
+  function week(weekStart: string): PlannedNight[] {
+    const [year, month, day] = weekStart.split('-').map(Number)
+    const monday = new Date(year!, month! - 1, day!)
+    return weekDates(monday).map(date => ({
+      date,
+      entries: entriesOn(date).map(entry => ({
+        entry,
+        recipe: recipesStore.recipeById(entry.recipe_id) ?? null,
+        derived: derivedEntryIds.value.has(entry.id)
+      }))
+    }))
+  }
+
+  function isDerived(entryId: string) {
+    return derivedEntryIds.value.has(entryId)
+  }
+
+  async function addEntry(date: string, recipeId: string, servings?: number) {
+    if (!sync.householdId) return
+    const recipe = recipesStore.recipeById(recipeId)
+    if (!recipe) return
+    const timestamp = nowIso()
+    return sync.commit('meal_plan_entries', {
+      id: crypto.randomUUID(),
+      household_id: sync.householdId,
+      date,
+      meal: DINNER,
+      recipe_id: recipeId,
+      servings: servings ?? recipe.base_servings,
+      note: null,
+      deleted_at: null,
+      created_at: timestamp,
+      updated_at: timestamp
+    })
+  }
+
+  /**
+   * One recipe per night, enforced here rather than by a unique constraint.
+   *
+   * The database deliberately tolerates two entries on a night, because two
+   * phones planning offline mint different ids and a constraint would turn the
+   * loser's write into a permanent rejection. Replacing on this side gives the
+   * one-per-night behaviour people expect without that risk.
+   */
+  async function setNight(date: string, recipeId: string, servings?: number) {
+    for (const existing of entriesOn(date)) {
+      await sync.commit('meal_plan_entries', { ...plainCopy(existing), deleted_at: nowIso() })
+    }
+    return addEntry(date, recipeId, servings)
+  }
+
+  async function updateEntry(
+    id: string,
+    patch: Partial<Pick<PlanEntryRow, 'recipe_id' | 'servings' | 'note' | 'date'>>
+  ) {
+    const current = allEntries.value.get(id)
+    if (!current) return
+    await sync.commit('meal_plan_entries', { ...plainCopy(current), ...patch })
+  }
+
+  /**
+   * Take a night off the plan. The items it generated are not touched here —
+   * they go on the next deriveWeek, which is the only thing that reconciles the
+   * list, so there is exactly one place that decides what an edit costs.
+   */
+  async function removeEntry(id: string) {
+    const current = allEntries.value.get(id)
+    if (!current) return
+    await sync.commit('meal_plan_entries', { ...plainCopy(current), deleted_at: nowIso() })
+  }
+
+  async function clearNight(date: string) {
+    for (const existing of entriesOn(date)) await removeEntry(existing.id)
+  }
+
+  /**
+   * Put the week's ingredients on the shopping list, and take off the ones the
+   * plan no longer calls for.
+   *
+   * Explicit rather than automatic: planning is bursty, and re-deriving on every
+   * keystroke would churn the sync queue. Worse, deriving in response to inbound
+   * realtime rows would have every device re-derive on every echo of every other
+   * device's edit.
+   */
+  async function deriveWeek(weekStart: string) {
+    if (!sync.householdId) return { added: 0, updated: 0, removed: 0 }
+
+    const [year, month, day] = weekStart.split('-').map(Number)
+    const monday = new Date(year!, month! - 1, day!)
+
+    const planItems: ItemRow[] = []
+    for (const item of sync.rowsOf('shopping_list_items').values()) {
+      if (item.source === 'plan') planItems.push(item)
+    }
+
+    const { creates, updates, removes } = derive({
+      householdId: sync.householdId,
+      start: isoDate(monday),
+      end: isoDate(addDays(monday, 6)),
+      entries: [...allEntries.value.values()],
+      recipes: sync.rowsOf('recipes'),
+      ingredients: [...sync.rowsOf('recipe_ingredients').values()],
+      planItems,
+      rememberAisle: name => list.rememberedAisle(name),
+      now: nowIso()
+    })
+
+    for (const row of [...creates, ...updates, ...removes]) {
+      await sync.commit('shopping_list_items', row)
+    }
+
+    return { added: creates.length, updated: updates.length, removed: removes.length }
+  }
+
+  return {
+    liveEntries,
+    week,
+    entriesOn,
+    isDerived,
+    addEntry,
+    setNight,
+    updateEntry,
+    removeEntry,
+    clearNight,
+    deriveWeek
+  }
+})
