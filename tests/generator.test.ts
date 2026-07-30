@@ -1,0 +1,371 @@
+import { describe, expect, it } from 'vitest'
+import {
+  defaultEffortBudget,
+  eaters,
+  generateWeek,
+  type GenerateInput,
+  type GeneratorLine,
+  type GeneratorRecipe
+} from '../app/utils/generator'
+
+/** Deterministic randomness, so an assertion about a pick means something. */
+function seeded(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const ADULT = { id: 'p-adult', stage: 'adult' as const }
+const TODDLER = { id: 'p-toddler', stage: 'toddler' as const }
+const BABY = { id: 'p-baby', stage: 'baby' as const }
+
+function recipe(over: Partial<GeneratorRecipe> & { id: string }): GeneratorRecipe {
+  return {
+    name: over.id,
+    base_servings: 4,
+    prep_minutes: 10,
+    cook_minutes: 15,
+    deleted_at: null,
+    ...over
+  }
+}
+
+function line(recipeId: string, name: string, ingredientId: string | null = null): GeneratorLine {
+  return { recipe_id: recipeId, name, ingredient_id: ingredientId, deleted_at: null }
+}
+
+/** A week of Mondays-onward dates, everybody home. */
+function week(people = [ADULT]) {
+  return ['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-08', '2026-08-09']
+    .map(date => ({ date, people }))
+}
+
+function run(over: Partial<GenerateInput> = {}) {
+  return generateWeek({
+    nights: week(),
+    recipes: [recipe({ id: 'r1' }), recipe({ id: 'r2' }), recipe({ id: 'r3' }),
+      recipe({ id: 'r4' }), recipe({ id: 'r5' }), recipe({ id: 'r6' }), recipe({ id: 'r7' })],
+    lines: [],
+    constraints: [],
+    history: [],
+    random: seeded(1),
+    ...over
+  })
+}
+
+describe('generateWeek', () => {
+  it('fills every night that has somebody eating', () => {
+    expect(run()).toHaveLength(7)
+  })
+
+  it('never picks the same recipe twice in one week', () => {
+    const picks = run()
+    expect(new Set(picks.map(p => p.recipeId)).size).toBe(picks.length)
+  })
+
+  it('runs out gracefully when the library is smaller than the week', () => {
+    // Three recipes cannot fill seven nights without repeating, and repeating is
+    // the thing it must not do. Three nights planned beats seven nights of the
+    // same chilli.
+    const picks = run({ recipes: [recipe({ id: 'r1' }), recipe({ id: 'r2' }), recipe({ id: 'r3' })] })
+    expect(picks).toHaveLength(3)
+  })
+
+  it('is deterministic given the same randomness', () => {
+    expect(run({ random: seeded(7) })).toEqual(run({ random: seeded(7) }))
+  })
+
+  it('does not converge on one answer across different seeds', () => {
+    // The whole reason for weighted-random over argmax: five identical recipes
+    // should not always produce the same Monday.
+    const mondays = new Set(
+      Array.from({ length: 25 }, (_, i) => run({ random: seeded(i + 1) })[0]?.recipeId)
+    )
+    expect(mondays.size).toBeGreaterThan(1)
+  })
+})
+
+describe('hard constraints', () => {
+  const recipes = [recipe({ id: 'satay' }), recipe({ id: 'pasta' })]
+  const lines = [line('satay', 'Peanut butter'), line('pasta', 'Tomatoes')]
+
+  it('never plans something an allergic person is present for', () => {
+    const picks = generateWeek({
+      nights: week([ADULT, TODDLER]),
+      recipes,
+      lines,
+      constraints: [{ person_id: TODDLER.id, kind: 'allergy', tag: 'peanut', deleted_at: null }],
+      history: [],
+      random: seeded(3)
+    })
+    expect(picks.every(p => p.recipeId !== 'satay')).toBe(true)
+    expect(picks.map(p => p.recipeId)).toContain('pasta')
+  })
+
+  it('matches a tag inside a longer ingredient name', () => {
+    // "peanut" has to catch "Peanut butter". Over-excluding costs a duller week;
+    // under-excluding costs a hospital.
+    const picks = generateWeek({
+      nights: [{ date: '2026-08-03', people: [TODDLER] }],
+      recipes: [recipe({ id: 'satay' })],
+      lines: [line('satay', 'Peanut butter')],
+      constraints: [{ person_id: TODDLER.id, kind: 'allergy', tag: 'peanut', deleted_at: null }],
+      history: [],
+      random: seeded(3)
+    })
+    expect(picks).toHaveLength(0)
+  })
+
+  it('allows it again on a night that person is away', () => {
+    const picks = generateWeek({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER] },
+        { date: '2026-08-04', people: [ADULT] }
+      ],
+      recipes: [recipe({ id: 'satay' })],
+      lines: [line('satay', 'Peanut butter')],
+      constraints: [{ person_id: TODDLER.id, kind: 'allergy', tag: 'peanut', deleted_at: null }],
+      history: [],
+      random: seeded(3)
+    })
+    expect(picks).toEqual([{ date: '2026-08-04', recipeId: 'satay', servings: 1 }])
+  })
+
+  it('ignores a constraint that has been removed', () => {
+    const picks = generateWeek({
+      nights: [{ date: '2026-08-03', people: [TODDLER] }],
+      recipes: [recipe({ id: 'satay' })],
+      lines: [line('satay', 'Peanut butter')],
+      constraints: [{
+        person_id: TODDLER.id, kind: 'allergy', tag: 'peanut', deleted_at: '2026-08-01T00:00:00.000Z'
+      }],
+      history: [],
+      random: seeded(3)
+    })
+    expect(picks).toHaveLength(1)
+  })
+
+  it('treats an intolerance as hard and a dislike as merely unlikely', () => {
+    const asHard = generateWeek({
+      nights: [{ date: '2026-08-03', people: [ADULT] }],
+      recipes: [recipe({ id: 'creamy' })],
+      lines: [line('creamy', 'Double cream')],
+      constraints: [{ person_id: ADULT.id, kind: 'intolerance', tag: 'cream', deleted_at: null }],
+      history: [],
+      random: seeded(3)
+    })
+    expect(asHard).toHaveLength(0)
+
+    const asSoft = generateWeek({
+      nights: [{ date: '2026-08-03', people: [ADULT] }],
+      recipes: [recipe({ id: 'creamy' })],
+      lines: [line('creamy', 'Double cream')],
+      constraints: [{ person_id: ADULT.id, kind: 'dislike', tag: 'cream', deleted_at: null }],
+      history: [],
+      random: seeded(3)
+    })
+    // Still the only thing on the menu, so it is still dinner.
+    expect(asSoft).toHaveLength(1)
+  })
+})
+
+describe('recency', () => {
+  it('leans away from something cooked days ago', () => {
+    // Two identical recipes, one cooked yesterday. Over many seeds the rested one
+    // should win clearly more often — a lean, not a law.
+    let fresh = 0
+    for (let seed = 1; seed <= 60; seed++) {
+      const picks = generateWeek({
+        nights: [{ date: '2026-08-03', people: [ADULT] }],
+        recipes: [recipe({ id: 'recent' }), recipe({ id: 'rested' })],
+        lines: [],
+        constraints: [],
+        history: [
+          { date: '2026-08-02', recipe_id: 'recent' },
+          { date: '2026-05-01', recipe_id: 'rested' }
+        ],
+        random: seeded(seed)
+      })
+      if (picks[0]?.recipeId === 'rested') fresh++
+    }
+    expect(fresh).toBeGreaterThan(40)
+  })
+
+  it('stops penalising once a recipe has rested long enough', () => {
+    // Beyond the window there is no penalty left, so the two are even and the
+    // never-cooked bonus is what separates them.
+    let old = 0
+    for (let seed = 1; seed <= 60; seed++) {
+      const picks = generateWeek({
+        nights: [{ date: '2026-08-03', people: [ADULT] }],
+        recipes: [recipe({ id: 'old' }), recipe({ id: 'older' })],
+        lines: [],
+        constraints: [],
+        history: [
+          { date: '2026-01-01', recipe_id: 'old' },
+          { date: '2025-01-01', recipe_id: 'older' }
+        ],
+        random: seeded(seed)
+      })
+      if (picks[0]?.recipeId === 'old') old++
+    }
+    expect(old).toBeGreaterThan(20)
+    expect(old).toBeLessThan(40)
+  })
+})
+
+describe('ingredient overlap', () => {
+  it('leans towards a recipe sharing a perishable with one already picked', () => {
+    // Monday is forced (only one candidate passes for it), then Tuesday chooses
+    // between something sharing its coriander and something that does not.
+    let shared = 0
+    for (let seed = 1; seed <= 60; seed++) {
+      const picks = generateWeek({
+        nights: [
+          { date: '2026-08-03', people: [ADULT] },
+          { date: '2026-08-04', people: [ADULT] }
+        ],
+        recipes: [recipe({ id: 'curry' }), recipe({ id: 'salsa' }), recipe({ id: 'pie' })],
+        lines: [
+          line('curry', 'Coriander', 'ing-coriander'),
+          line('salsa', 'Coriander', 'ing-coriander'),
+          line('pie', 'Beef', 'ing-beef')
+        ],
+        constraints: [],
+        history: [{ date: '2026-08-02', recipe_id: 'salsa' }, { date: '2026-08-02', recipe_id: 'pie' }],
+        alreadyPlanned: [{ date: '2026-08-03', recipe_id: 'curry' }],
+        random: seeded(seed)
+      })
+      if (picks[0]?.recipeId === 'salsa') shared++
+    }
+    // Both were cooked equally recently, so overlap is the only thing between them.
+    expect(shared).toBeGreaterThan(40)
+  })
+
+  it('only counts canonical ingredients, not matching free text', () => {
+    // Two lines both saying "Coriander" but never canonicalised share nothing, so
+    // there is no overlap bonus to be had and the two are even.
+    let shared = 0
+    for (let seed = 1; seed <= 60; seed++) {
+      const picks = generateWeek({
+        nights: [{ date: '2026-08-04', people: [ADULT] }],
+        recipes: [recipe({ id: 'salsa' }), recipe({ id: 'pie' })],
+        lines: [line('salsa', 'Coriander'), line('pie', 'Beef')],
+        constraints: [],
+        history: [],
+        alreadyPlanned: [{ date: '2026-08-03', recipe_id: 'curry' }],
+        random: seeded(seed)
+      })
+      if (picks[0]?.recipeId === 'salsa') shared++
+    }
+    expect(shared).toBeGreaterThan(20)
+    expect(shared).toBeLessThan(40)
+  })
+})
+
+describe('effort', () => {
+  it('leans short on a weeknight and long at the weekend', () => {
+    const quick = recipe({ id: 'quick', prep_minutes: 5, cook_minutes: 15 })
+    const slow = recipe({ id: 'slow', prep_minutes: 40, cook_minutes: 80 })
+
+    let slowOnTuesday = 0
+    let slowOnSaturday = 0
+    for (let seed = 1; seed <= 60; seed++) {
+      const tuesday = generateWeek({
+        nights: [{ date: '2026-08-04', people: [ADULT] }],
+        recipes: [quick, slow], lines: [], constraints: [], history: [], random: seeded(seed)
+      })
+      if (tuesday[0]?.recipeId === 'slow') slowOnTuesday++
+
+      const saturday = generateWeek({
+        nights: [{ date: '2026-08-08', people: [ADULT] }],
+        recipes: [quick, slow], lines: [], constraints: [], history: [], random: seeded(seed)
+      })
+      if (saturday[0]?.recipeId === 'slow') slowOnSaturday++
+    }
+    // A two-hour meal is a big ask on any night, and overrunning is penalised
+    // harder than finishing early — people abandon plans that take too long. The
+    // weekend does not make it likely, only meaningfully likelier.
+    expect(slowOnTuesday).toBeLessThan(3)
+    expect(slowOnSaturday).toBeGreaterThan(slowOnTuesday)
+  })
+
+  it('gives a weeknight less time than a weekend', () => {
+    expect(defaultEffortBudget('2026-08-04')).toBeLessThan(defaultEffortBudget('2026-08-08'))
+    expect(defaultEffortBudget('2026-08-07')).toBeLessThan(defaultEffortBudget('2026-08-09'))
+  })
+})
+
+describe('servings', () => {
+  it('is one portion per person eating', () => {
+    const picks = generateWeek({
+      nights: [{ date: '2026-08-03', people: [ADULT, TODDLER] }],
+      recipes: [recipe({ id: 'r1' })], lines: [], constraints: [], history: [], random: seeded(1)
+    })
+    expect(picks[0]?.servings).toBe(2)
+  })
+
+  it('does not cater for a baby who is not eating yet', () => {
+    const picks = generateWeek({
+      nights: [{ date: '2026-08-03', people: [ADULT, TODDLER, BABY] }],
+      recipes: [recipe({ id: 'r1' })], lines: [], constraints: [], history: [], random: seeded(1)
+    })
+    expect(picks[0]?.servings).toBe(2)
+  })
+
+  it('plans nothing at all for a night nobody is home', () => {
+    const picks = generateWeek({
+      nights: [{ date: '2026-08-03', people: [] }, { date: '2026-08-04', people: [ADULT] }],
+      recipes: [recipe({ id: 'r1' })], lines: [], constraints: [], history: [], random: seeded(1)
+    })
+    expect(picks.map(p => p.date)).toEqual(['2026-08-04'])
+  })
+
+  it('plans nothing for a night that is only a pre-weaning baby', () => {
+    const picks = generateWeek({
+      nights: [{ date: '2026-08-03', people: [BABY] }],
+      recipes: [recipe({ id: 'r1' })], lines: [], constraints: [], history: [], random: seeded(1)
+    })
+    expect(picks).toHaveLength(0)
+  })
+})
+
+describe('nights a person already chose', () => {
+  it('leaves them alone', () => {
+    const picks = generateWeek({
+      nights: week(),
+      recipes: [recipe({ id: 'r1' }), recipe({ id: 'r2' })],
+      lines: [], constraints: [], history: [],
+      alreadyPlanned: [{ date: '2026-08-03', recipe_id: 'r1' }],
+      random: seeded(1)
+    })
+    expect(picks.some(p => p.date === '2026-08-03')).toBe(false)
+  })
+
+  it('does not repeat what they chose', () => {
+    const picks = generateWeek({
+      nights: week(),
+      recipes: [recipe({ id: 'r1' }), recipe({ id: 'r2' })],
+      lines: [], constraints: [], history: [],
+      alreadyPlanned: [{ date: '2026-08-03', recipe_id: 'r1' }],
+      random: seeded(1)
+    })
+    expect(picks.every(p => p.recipeId === 'r2')).toBe(true)
+    expect(picks).toHaveLength(1)
+  })
+})
+
+describe('eaters', () => {
+  it('counts everybody but a pre-weaning baby', () => {
+    expect(eaters([ADULT, TODDLER, BABY]).map(p => p.id)).toEqual([ADULT.id, TODDLER.id])
+  })
+
+  it('counts a weaning baby, who is eating something', () => {
+    expect(eaters([{ id: 'w', stage: 'weaning' }])).toHaveLength(1)
+  })
+})
