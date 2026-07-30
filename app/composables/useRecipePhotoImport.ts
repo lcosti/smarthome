@@ -61,9 +61,12 @@ export function useRecipePhotoImport() {
       if (controller.signal.aborted) throw new Error('timeout')
 
       if (invokeError) {
-        // FunctionsHttpError carries the function's JSON body with the human message.
-        const body = 'context' in invokeError
-          ? await (invokeError.context as Response).json().catch(() => null)
+        // FunctionsHttpError carries the function's JSON body with the human
+        // message. FunctionsFetchError carries the raw network failure instead —
+        // no Response, no body — so only an actual Response gets asked for one.
+        const context = (invokeError as { context?: unknown }).context
+        const body = context instanceof Response
+          ? await context.json().catch(() => null)
           : null
         throw new Error(body?.error ?? 'Could not read the photo — check your signal and try again.')
       }
