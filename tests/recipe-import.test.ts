@@ -6,7 +6,8 @@ const VALID = {
   base_servings: 4,
   prep_minutes: 10,
   cook_minutes: 25,
-  method: 'Boil pasta.\n\nMake sauce.',
+  method: 'Freezes well.',
+  steps: ['Boil the pasta.', 'Make the sauce.'],
   ingredients: [
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'spaghetti', quantity: '300g' }
@@ -80,5 +81,45 @@ describe('coerceExtractedRecipe', () => {
     const result = coerceExtractedRecipe({ ...VALID, name: ' Tomato pasta ', method: '  ' })
     expect(result?.name).toBe('Tomato pasta')
     expect(result?.method).toBeNull()
+  })
+
+  it('trims steps and drops the blank ones', () => {
+    const result = coerceExtractedRecipe({
+      ...VALID,
+      steps: ['  Boil the pasta. ', '   ', 42, null, 'Drain it.']
+    })
+    expect(result?.steps).toEqual(['Boil the pasta.', 'Drain it.'])
+  })
+
+  it('accepts a recipe with no steps at all', () => {
+    const result = coerceExtractedRecipe({ ...VALID, steps: undefined, method: null })
+    expect(result?.steps).toEqual([])
+    expect(result?.method).toBeNull()
+  })
+
+  it('caps an absurd run of steps', () => {
+    const result = coerceExtractedRecipe({
+      ...VALID,
+      steps: Array.from({ length: 200 }, (_, i) => `Step ${i}`)
+    })
+    expect(result?.steps).toHaveLength(60)
+  })
+
+  // The function may be older than the bundle: before steps existed it answered
+  // with the whole method as prose.
+  it('splits a prose method into steps when none were sent, and empties the notes', () => {
+    const result = coerceExtractedRecipe({
+      ...VALID,
+      steps: undefined,
+      method: '1. Boil the pasta.\n\n2. Make the sauce.'
+    })
+    expect(result?.steps).toEqual(['Boil the pasta.', 'Make the sauce.'])
+    expect(result?.method).toBeNull()
+  })
+
+  it('leaves the notes alone when steps did arrive', () => {
+    const result = coerceExtractedRecipe({ ...VALID, method: 'Freezes well.' })
+    expect(result?.method).toBe('Freezes well.')
+    expect(result?.steps).toEqual(['Boil the pasta.', 'Make the sauce.'])
   })
 })

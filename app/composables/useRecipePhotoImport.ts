@@ -87,6 +87,10 @@ export function useRecipePhotoImport() {
         method: recipe.method
       })
 
+      // Steps before ingredients so the method is on screen the moment the
+      // navigation lands, whatever the ingredient canonicalisation is still doing.
+      await recipes.addSteps(created.id, recipe.steps)
+
       // Sequential, not Promise.all: linkFor resolves against ingredients created
       // by earlier lines, so "tomatoes" twice must mint one row, not two.
       for (const line of recipe.ingredients) {

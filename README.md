@@ -62,7 +62,9 @@ one device shows up on the other over realtime.
 
 `pnpm acceptance:phase2` drives a recipe to a night on the plan to the shopping
 list, and checks that deriving twice changes nothing and that taking a night off
-clears what it added without touching anything already ticked.
+clears what it added without touching anything already ticked. It also builds the
+recipe's method in the steps editor — writing three, reordering one, editing
+another — and checks the order on screen is the order in IndexedDB.
 
 `pnpm acceptance:phase3` drives two recipes wanting the same thing down to one
 line: the unit inferred from a quantity typed a moment later, two ingredients
@@ -71,7 +73,9 @@ taking both rows behind it. It reads IndexedDB as well as the screen, because "o
 line" and "one row" are different claims and only one of them is visible.
 
 `pnpm acceptance:phase4` drives a photograph of a recipe into a recipe in the
-library, with the LLM stubbed at the network seam so it needs no API key.
+library, with the LLM stubbed at the network seam so it needs no API key. One of
+its two stubbed extractions comes back in the shape the Edge Function used before
+steps existed, which is how the client's own prose-splitting fallback is covered.
 
 `pnpm acceptance:roster` adds a child, checks the life stage was derived rather
 than typed, records an allergy, and marks them out on one night. Its load-bearing
@@ -160,6 +164,26 @@ tomatoes after the line was ticked could never surface, because a checked row is
 frozen. Grouping at render time has none of that, and it means a merge, a parser
 improvement or a new purchase unit applies retroactively with nothing rewritten.
 
+## Recipes and their steps
+
+A recipe's method is rows in `recipe_steps`, not prose in a column. Rows because
+last-write-wins compares whole rows: two people tidying different steps of the
+same recipe both keep their edit, where a json column or one big textarea would
+let the later write clobber the earlier one. Steps are ordered by a gapped
+`sort_order`, so moving one is two writes and renumbers nothing — the same scheme
+recipe ingredients use.
+
+`recipes.method` survives as the notes box: what the recipe goes with, what to
+watch for, anything that is not an instruction. The migration that added steps
+split the methods already written there, conservatively — paragraphs if the text
+had any, else lines, and a method that yielded only one part was left alone.
+
+`app/utils/steps.ts` is the same guessing for the two places it happens at
+runtime: an extraction that came back as prose, and the "move into steps" button
+on a recipe whose notes are really a method. It splits on paragraphs, then lines,
+then a numbered list run together on one line, and never on sentences — "Firstly,
+soak the rice. To do this…" is one step written as two sentences.
+
 ## Deploying
 
 Once you have created a Supabase project (free tier) and a Netlify site:
@@ -180,6 +204,10 @@ Once you have created a Supabase project (free tier) and a Netlify site:
    would have set, so the browser blocks the response and the app can only say
    the photo could not be read. Nothing else in the app touches it — everything
    but photo import works with no functions deployed at all.
+
+   Redeploy `import-recipe-photo` after any change to it — it asks for the method
+   as steps now. A stale deployment is not a broken import: the client splits the
+   prose it gets back instead, and the recipe still lands stepped.
 
 2. **Netlify.** Create a site from this repo. `netlify.toml` sets the build
    command and publish directory. Set these site environment variables **before

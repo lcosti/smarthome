@@ -10,6 +10,7 @@ export type AttendanceRow = Tables['attendance']['Row']
 export type AisleRow = Tables['aisles']['Row']
 export type RecipeRow = Tables['recipes']['Row']
 export type RecipeIngredientRow = Tables['recipe_ingredients']['Row']
+export type RecipeStepRow = Tables['recipe_steps']['Row']
 export type PlanEntryRow = Tables['meal_plan_entries']['Row']
 export type IngredientRow = Tables['ingredients']['Row']
 export type IngredientAliasRow = Tables['ingredient_aliases']['Row']
@@ -41,6 +42,7 @@ export const SYNC_TABLES = {
   ingredient_purchase_units: { cache: 'ingredient_purchase_units' },
   recipes: { cache: 'recipes' },
   recipe_ingredients: { cache: 'recipe_ingredients' },
+  recipe_steps: { cache: 'recipe_steps' },
   meal_plan_entries: { cache: 'meal_plan_entries' },
   shopping_list_items: { cache: 'items' }
 } as const
@@ -60,6 +62,7 @@ export interface RowOf {
   ingredient_purchase_units: PurchaseUnitRow
   recipes: RecipeRow
   recipe_ingredients: RecipeIngredientRow
+  recipe_steps: RecipeStepRow
   meal_plan_entries: PlanEntryRow
   shopping_list_items: ItemRow
 }
@@ -85,6 +88,7 @@ export class AppDatabase extends Dexie {
   aisles!: Table<AisleRow, string>
   recipes!: Table<RecipeRow, string>
   recipe_ingredients!: Table<RecipeIngredientRow, string>
+  recipe_steps!: Table<RecipeStepRow, string>
   meal_plan_entries!: Table<PlanEntryRow, string>
   ingredients!: Table<IngredientRow, string>
   ingredient_aliases!: Table<IngredientAliasRow, string>
@@ -124,6 +128,12 @@ export class AppDatabase extends Dexie {
       people: 'id',
       dietary_constraints: 'id',
       attendance: 'id'
+    })
+    // v5 adds recipe steps, on the same terms again: a new empty store, nothing
+    // reshaped. Recipes whose method the migration split server-side arrive as
+    // ordinary rows on the next pull, so no device has any local work to do.
+    this.version(5).stores({
+      recipe_steps: 'id'
     })
   }
 

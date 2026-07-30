@@ -45,13 +45,16 @@ const RECIPE_SCHEMA = {
         {
           type: 'object',
           additionalProperties: false,
-          required: ['name', 'base_servings', 'prep_minutes', 'cook_minutes', 'method', 'ingredients'],
+          required: ['name', 'base_servings', 'prep_minutes', 'cook_minutes', 'method', 'steps', 'ingredients'],
           properties: {
             name: { type: 'string' },
             base_servings: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
             prep_minutes: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
             cook_minutes: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
+            // Anything printed that is not an instruction. The method itself is
+            // `steps`, one row each, because that is how it gets cooked from.
             method: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+            steps: { type: 'array', items: { type: 'string' } },
             ingredients: {
               type: 'array',
               items: {
@@ -73,9 +76,16 @@ const RECIPE_SCHEMA = {
 
 const EXTRACTION_PROMPT = `These photos show a single recipe, possibly spread across pages.
 Extract it exactly as printed: the recipe's name, servings, prep and cook times in minutes,
-the method as plain paragraphs in cooking order, and one ingredient per line with its
-quantity exactly as written (e.g. "400g", "2 tbsp", "1 tin"). Use null for anything not
-visible in the photos. Do not invent, convert, or normalise anything.
+and one ingredient per line with its quantity exactly as written (e.g. "400g", "2 tbsp",
+"1 tin").
+Put the method in "steps": one string per instruction, in cooking order, worded as printed
+but without any "1." or "Step 2:" numbering — they are numbered when displayed. Keep a
+printed step whole rather than splitting it into a sentence each; merge two printed steps
+only if one is a fragment of the other.
+Put anything printed that is not an instruction — a headnote, a serving suggestion, a tip,
+a storage note — in "method", or null if there is none. Never repeat a step there.
+Use null for anything not visible in the photos. Do not invent, convert, or normalise
+anything.
 If the photos do not show a recipe, set is_recipe to false and recipe to null.`
 
 function json(status: number, body: unknown): Response {

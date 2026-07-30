@@ -10,6 +10,7 @@ import {
   type PurchaseUnitRow,
   type RecipeIngredientRow,
   type RecipeRow,
+  type RecipeStepRow,
   type SyncTable,
   type SyncedRow
 } from '../app/utils/db'
@@ -74,6 +75,20 @@ function line(overrides: Partial<RecipeIngredientRow> = {}): RecipeIngredientRow
     quantity: '2 tins',
     aisle_id: null,
     ingredient_id: null,
+    sort_order: 1,
+    deleted_at: null,
+    created_at: STAMP,
+    updated_at: STAMP,
+    ...overrides
+  }
+}
+
+function step(overrides: Partial<RecipeStepRow> = {}): RecipeStepRow {
+  return {
+    id: 'd1000000-0000-0000-0000-000000000001',
+    household_id: HOUSEHOLD,
+    recipe_id: 'c0000000-0000-0000-0000-000000000001',
+    text: 'Soften the onion.',
     sort_order: 1,
     deleted_at: null,
     created_at: STAMP,
@@ -407,6 +422,7 @@ describe('the synced table registry', () => {
     await db.cacheFor('ingredient_purchase_units').put(purchaseUnit({ id: 'u-1' }))
     await db.cacheFor('recipes').put(recipe({ id: 'r-1' }))
     await db.cacheFor('recipe_ingredients').put(line({ id: 'l-1' }))
+    await db.cacheFor('recipe_steps').put(step({ id: 's-1' }))
     await db.cacheFor('meal_plan_entries').put(planEntry({ id: 'p-1' }))
     await db.cacheFor('shopping_list_items').put(item({ id: 'i-1' }))
     await db.cacheFor('people').put({
@@ -559,5 +575,37 @@ describe('the Dexie upgrades', () => {
     expect((await v3.recipe_ingredients.get('l-1'))?.ingredient_id).toBeNull()
 
     await v3.delete()
+  })
+
+  it('keeps a device intact when the steps store arrives', async () => {
+    const name = `upgrade-${++dbCount}`
+
+    // A device running the build before recipe steps existed: a library whose
+    // methods are still prose in recipes.method.
+    const before = new Dexie(name)
+    before.version(1).stores({ items: 'id', aisles: 'id', mutations: '++seq, rowId' })
+    before.version(2).stores({ recipes: 'id', recipe_ingredients: 'id', meal_plan_entries: 'id' })
+    before.version(3).stores({
+      ingredients: 'id', ingredient_aliases: 'id', ingredient_purchase_units: 'id'
+    })
+    before.version(4).stores({ people: 'id', dietary_constraints: 'id', attendance: 'id' })
+    await before.open()
+    await before.table('recipes').put(recipe({ id: 'r-1', method: 'Soften the onion.' }))
+    await before.table('recipe_ingredients').put(line({ id: 'l-1' }))
+    before.close()
+
+    const after = new AppDatabase(name)
+    await after.open()
+
+    expect((await after.recipes.get('r-1'))?.name).toBe('Chilli')
+    // The method is untouched locally: splitting it is the server migration's
+    // job, and this device simply pulls the result.
+    expect((await after.recipes.get('r-1'))?.method).toBe('Soften the onion.')
+    expect(await after.recipe_steps.count()).toBe(0)
+
+    await after.recipe_steps.put(step({ id: 's-1' }))
+    expect((await after.recipe_steps.get('s-1'))?.text).toBe('Soften the onion.')
+
+    await after.delete()
   })
 })

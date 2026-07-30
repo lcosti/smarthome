@@ -8,6 +8,8 @@
  * half-written recipe.
  */
 
+import { splitIntoSteps } from './steps'
+
 export interface ExtractedIngredient {
   name: string
   quantity: string | null
@@ -18,12 +20,16 @@ export interface ExtractedRecipe {
   base_servings: number
   prep_minutes: number | null
   cook_minutes: number | null
+  /** Whatever the page said that was not an instruction. Steps live below. */
   method: string | null
+  steps: string[]
   ingredients: ExtractedIngredient[]
 }
 
 /** A cookbook serves a family, not a canteen; anything outside this is a misread. */
 const MAX_SERVINGS = 24
+/** Longer than any real method; a run past this is the model looping. */
+const MAX_STEPS = 60
 
 function asMinutes(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 && value < 24 * 60
@@ -59,12 +65,28 @@ export function coerceExtractedRecipe(input: unknown): ExtractedRecipe | null {
     ? Math.min(servings, MAX_SERVINGS)
     : 2
 
+  const steps = Array.isArray(raw.steps)
+    ? raw.steps.map(asText).filter((step): step is string => step !== null).slice(0, MAX_STEPS)
+    : []
+
+  let method = asText(raw.method)
+
+  // A function deployed before steps existed answers with the whole method as
+  // prose, and a bundle can outlive a deploy either way round. Splitting it here
+  // means an import lands as steps regardless of which side is older — and the
+  // text moves rather than being copied, so nothing shows up twice.
+  if (!steps.length && method) {
+    steps.push(...splitIntoSteps(method).slice(0, MAX_STEPS))
+    if (steps.length) method = null
+  }
+
   return {
     name,
     base_servings,
     prep_minutes: asMinutes(raw.prep_minutes),
     cook_minutes: asMinutes(raw.cook_minutes),
-    method: asText(raw.method),
+    method,
+    steps,
     ingredients
   }
 }

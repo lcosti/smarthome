@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { RecipeIngredientRow, RecipeRow } from '../utils/db'
+import type { RecipeIngredientRow, RecipeRow, RecipeStepRow } from '../utils/db'
 import { plainCopy } from '../utils/sync'
 import { useListStore } from './list'
 import { nowIso, useSyncStore } from './sync'
@@ -14,6 +14,7 @@ export const useRecipesStore = defineStore('recipes', () => {
 
   const all = computed(() => sync.rowsOf('recipes'))
   const allLines = computed(() => sync.rowsOf('recipe_ingredients'))
+  const allSteps = computed(() => sync.rowsOf('recipe_steps'))
 
   /** Alphabetical: a household library is small, and it stays where you left it. */
   const recipes = computed(() =>
@@ -35,6 +36,17 @@ export const useRecipesStore = defineStore('recipes', () => {
 
   function ingredientById(id: string): RecipeIngredientRow | undefined {
     const row = allLines.value.get(id)
+    return row && !row.deleted_at ? row : undefined
+  }
+
+  function stepsFor(recipeId: string): RecipeStepRow[] {
+    return [...allSteps.value.values()]
+      .filter(s => s.recipe_id === recipeId && !s.deleted_at)
+      .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at))
+  }
+
+  function stepById(id: string): RecipeStepRow | undefined {
+    const row = allSteps.value.get(id)
     return row && !row.deleted_at ? row : undefined
   }
 
@@ -152,6 +164,58 @@ export const useRecipesStore = defineStore('recipes', () => {
     await sync.commit('recipe_ingredients', { ...plainCopy(target), sort_order: source.sort_order })
   }
 
+  async function addStep(recipeId: string, text: string) {
+    const trimmed = text.trim()
+    if (!trimmed || !sync.householdId) return
+    const timestamp = nowIso()
+    const highest = stepsFor(recipeId).reduce((max, s) => Math.max(max, s.sort_order), 0)
+    return sync.commit('recipe_steps', {
+      id: crypto.randomUUID(),
+      household_id: sync.householdId,
+      recipe_id: recipeId,
+      text: trimmed,
+      sort_order: highest + 1,
+      deleted_at: null,
+      created_at: timestamp,
+      updated_at: timestamp
+    })
+  }
+
+  /**
+   * Append several at once, in order. Sequential rather than parallel because
+   * each one reads the highest sort_order the last one wrote — commit updates
+   * local state before it resolves, so awaiting is what keeps them in sequence.
+   */
+  async function addSteps(recipeId: string, texts: string[]) {
+    for (const text of texts) await addStep(recipeId, text)
+  }
+
+  async function updateStep(id: string, text: string) {
+    const current = allSteps.value.get(id)
+    const trimmed = text.trim()
+    if (!current || !trimmed) return
+    await sync.commit('recipe_steps', { ...plainCopy(current), text: trimmed })
+  }
+
+  async function deleteStep(id: string) {
+    const current = allSteps.value.get(id)
+    if (!current) return
+    await sync.commit('recipe_steps', { ...plainCopy(current), deleted_at: nowIso() })
+  }
+
+  /** As moveIngredient: swap sort_order with the neighbour, renumbering nothing. */
+  async function moveStep(id: string, direction: -1 | 1) {
+    const current = allSteps.value.get(id)
+    if (!current) return
+    const ordered = stepsFor(current.recipe_id)
+    const index = ordered.findIndex(s => s.id === id)
+    const target = ordered[index + direction]
+    const source = ordered[index]
+    if (!source || !target) return
+    await sync.commit('recipe_steps', { ...plainCopy(source), sort_order: target.sort_order })
+    await sync.commit('recipe_steps', { ...plainCopy(target), sort_order: source.sort_order })
+  }
+
   return {
     /** Every recipe line, for the one-press catch-up on /ingredients. */
     allLines,
@@ -159,6 +223,8 @@ export const useRecipesStore = defineStore('recipes', () => {
     recipeById,
     ingredientsFor,
     ingredientById,
+    stepsFor,
+    stepById,
     rememberedAisle,
     addRecipe,
     updateRecipe,
@@ -166,6 +232,11 @@ export const useRecipesStore = defineStore('recipes', () => {
     addIngredient,
     updateIngredient,
     deleteIngredient,
-    moveIngredient
+    moveIngredient,
+    addStep,
+    addSteps,
+    updateStep,
+    deleteStep,
+    moveStep
   }
 })

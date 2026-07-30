@@ -102,7 +102,8 @@ const SOUP = {
   base_servings: 4,
   prep_minutes: 10,
   cook_minutes: 30,
-  method: 'Soften the onion.\n\nAdd everything else and simmer.',
+  method: 'Freezes well.',
+  steps: ['Soften the onion.', 'Add everything else and simmer.'],
   ingredients: [
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'red lentils', quantity: '200g' },
@@ -110,12 +111,14 @@ const SOUP = {
   ]
 }
 
+// No `steps` at all: what an Edge Function deployed before steps existed
+// answers with. The client has to split the prose itself.
 const BOLOGNESE = {
   name: 'Bolognese',
   base_servings: 4,
   prep_minutes: null,
   cook_minutes: 45,
-  method: 'Brown the mince, add the tomatoes, simmer.',
+  method: '1. Brown the mince.\n2. Add the tomatoes and simmer.',
   ingredients: [
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'beef mince', quantity: '500g' }
@@ -213,7 +216,11 @@ try {
   assert(soupText.includes('Lentil soup'), 'the recipe page shows the extracted name')
   assert(soupText.includes('chopped tomatoes'), 'the ingredient lines are shown')
   assert(soupText.includes('Soften the onion'), 'the method is shown')
-  log('name, ingredients and method all visible on the recipe page')
+  // The notes box is a textarea bound by value, so its text is not in innerText.
+  const soupNotes = await page.getByLabel('Notes').inputValue()
+  assert(soupNotes.includes('Freezes well'), `the notes are shown separately, got "${soupNotes}"`)
+  assert(!soupNotes.includes('Soften the onion'), 'the method is not duplicated into the notes')
+  log('name, ingredients, steps and notes all visible on the recipe page')
 
   const recipes = (await readTable('recipes')).filter(r => !r.deleted_at)
   const soup = recipes.find(r => r.name === 'Lentil soup')
@@ -221,6 +228,14 @@ try {
   assert(soup.base_servings === 4, `servings extracted, got ${soup.base_servings}`)
   assert(soup.prep_minutes === 10 && soup.cook_minutes === 30, 'prep and cook minutes extracted')
   log('the recipe row carries servings and times')
+
+  const soupSteps = (await readTable('recipe_steps'))
+    .filter(s => !s.deleted_at && s.recipe_id === soup.id)
+    .sort((a, b) => a.sort_order - b.sort_order)
+  assert(soupSteps.length === 2, `the method landed as two step rows, got ${soupSteps.length}`)
+  assert(soupSteps[0].text === 'Soften the onion.', `first step, got "${soupSteps[0]?.text}"`)
+  assert(soup.method === 'Freezes well.', `notes hold only what is not a step, got "${soup.method}"`)
+  log('the method arrived as ordered step rows, not a wall of text')
 
   const lines = (await readTable('recipe_ingredients'))
     .filter(l => !l.deleted_at && l.recipe_id === soup.id)
@@ -238,6 +253,21 @@ try {
   await page.waitForURL('**/recipes')
   await importPhotos(['bolognese'])
   log('imported a second recipe that also wants chopped tomatoes')
+
+  // That second extraction came back in the old shape, with no `steps` at all.
+  // The client splits the prose itself, so an Edge Function that has not been
+  // redeployed yet still produces a stepped recipe.
+  const bolognese = (await readTable('recipes')).find(r => r.name === 'Bolognese')
+  const bologneseSteps = (await readTable('recipe_steps'))
+    .filter(s => !s.deleted_at && s.recipe_id === bolognese.id)
+    .sort((a, b) => a.sort_order - b.sort_order)
+  assert(bologneseSteps.length === 2, `prose split into two steps, got ${bologneseSteps.length}`)
+  assert(
+    bologneseSteps[0].text === 'Brown the mince.',
+    `the printed numbering was stripped, got "${bologneseSteps[0]?.text}"`
+  )
+  assert(!bolognese.method, `the split emptied the notes, got "${bolognese.method}"`)
+  log('an extraction in the old shape still became steps, numbering stripped')
 
   const after = (await readTable('ingredients')).filter(i => !i.deleted_at)
   const tomatoRows = after.filter(i => i.name === 'chopped tomatoes')

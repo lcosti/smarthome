@@ -129,6 +129,38 @@ try {
   await page.locator('li', { hasText: '2 tins' }).first().waitFor({ timeout: 10_000 })
   log('set a quantity on one ingredient')
 
+  // The method, written as steps rather than dumped into the notes box.
+  const STEPS = ['Brown the mince.', 'Add the tomatoes.', 'Simmer for an hour.']
+  const stepBox = page.getByLabel('Add a step')
+  for (const text of STEPS) {
+    await stepBox.fill(text)
+    await stepBox.press('Enter')
+    await page.locator('ol li', { hasText: text }).first().waitFor({ timeout: 10_000 })
+  }
+  log(`wrote ${STEPS.length} steps, one enter each`)
+
+  await page.getByRole('button', { name: 'Move step 3 up' }).click()
+  await page.locator('ol li').nth(1).getByText('Simmer for an hour.').waitFor({ timeout: 10_000 })
+  log('moved the last step up one, and it stayed there')
+
+  await page.locator('ol li button', { hasText: 'Add the tomatoes.' }).first().click()
+  await page.getByLabel('Step', { exact: true }).fill('Add the tomatoes and the beans.')
+  await page.getByRole('button', { name: 'Done' }).click()
+  await page.locator('ol li', { hasText: 'Add the tomatoes and the beans.' })
+    .first().waitFor({ timeout: 10_000 })
+  log('edited a step in place')
+
+  const steps = (await readTable('recipe_steps'))
+    .filter(s => !s.deleted_at)
+    .sort((a, b) => a.sort_order - b.sort_order)
+  assert(steps.length === 3, `three step rows, got ${steps.length}`)
+  assert(
+    steps.map(s => s.text).join(' | ')
+    === 'Brown the mince. | Simmer for an hour. | Add the tomatoes and the beans.',
+    `steps persisted in the order shown, got ${JSON.stringify(steps.map(s => s.text))}`
+  )
+  log('the reorder and the edit both reached IndexedDB')
+
   await page.getByRole('link', { name: 'Plan' }).click()
   await page.waitForURL('**/plan')
   assert(((await mainText()).match(/Add dinner/g) ?? []).length === 7, 'seven empty nights invite a dinner')

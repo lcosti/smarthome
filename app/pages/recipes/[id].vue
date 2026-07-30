@@ -4,6 +4,7 @@ import { useListStore } from '../../stores/list'
 import { useRecipesStore } from '../../stores/recipes'
 import { useSyncStore } from '../../stores/sync'
 import type { IngredientRow } from '../../utils/db'
+import { splitIntoSteps } from '../../utils/steps'
 
 const route = useRoute()
 const store = useRecipesStore()
@@ -14,12 +15,18 @@ const ingredients = useIngredientsStore()
 const id = computed(() => String(route.params.id))
 const recipe = computed(() => store.recipeById(id.value))
 const lines = computed(() => store.ingredientsFor(id.value))
+const steps = computed(() => store.stepsFor(id.value))
 
 const draftName = ref('')
 const draftIngredient = ref('')
+const draftStep = ref('')
 const editingLineId = ref<string | null>(null)
 const editorOpen = ref(false)
+// Only one step is ever open, so a half-edited one cannot be forgotten behind
+// another.
+const editingStepId = ref<string | null>(null)
 const ingredientInput = useTemplateRef<{ focus: () => void }>('ingredientInput')
+const stepInput = useTemplateRef<{ textareaRef?: HTMLTextAreaElement }>('stepInput')
 
 watch(recipe, (value) => {
   if (value && document.activeElement?.tagName !== 'INPUT') draftName.value = value.name
@@ -54,6 +61,30 @@ function editLine(lineId: string) {
   editorOpen.value = true
 }
 
+async function addStep() {
+  const text = draftStep.value.trim()
+  if (!text) return
+  // Clear first, like the ingredient box: the next step should be typeable
+  // before the write has finished.
+  draftStep.value = ''
+  await store.addStep(id.value, text)
+  stepInput.value?.textareaRef?.focus()
+}
+
+/**
+ * For a method that arrived as prose — pasted in, or imported before steps
+ * existed. The text moves rather than being copied, so the notes box is left
+ * empty and nothing is shown twice.
+ */
+async function stepsFromNotes() {
+  const method = recipe.value?.method
+  if (!method) return
+  const parts = splitIntoSteps(method)
+  if (!parts.length) return
+  await store.addSteps(id.value, parts)
+  await store.updateRecipe(id.value, { method: null })
+}
+
 async function setServings(delta: number) {
   if (!recipe.value) return
   const next = Math.max(1, recipe.value.base_servings + delta)
@@ -64,6 +95,11 @@ async function saveMethod(event: Event) {
   const value = (event.target as HTMLTextAreaElement).value.trim()
   if (!recipe.value || value === (recipe.value.method ?? '')) return
   await store.updateRecipe(id.value, { method: value || null })
+}
+
+async function removeStep(stepId: string) {
+  editingStepId.value = null
+  await store.deleteStep(stepId)
 }
 
 async function removeRecipe() {
@@ -177,6 +213,69 @@ async function removeRecipe() {
 
         <section>
           <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
+            Steps
+          </h2>
+
+          <ol
+            v-if="steps.length"
+            class="rounded-lg border border-default bg-elevated/30"
+          >
+            <RecipeStepRow
+              v-for="(step, index) in steps"
+              :key="step.id"
+              :index="index + 1"
+              :text="step.text"
+              :editing="editingStepId === step.id"
+              :can-move-up="index > 0"
+              :can-move-down="index < steps.length - 1"
+              @edit="editingStepId = step.id"
+              @save="store.updateStep(step.id, $event)"
+              @remove="removeStep(step.id)"
+              @done="editingStepId = null"
+              @move-up="store.moveStep(step.id, -1)"
+              @move-down="store.moveStep(step.id, 1)"
+            />
+          </ol>
+
+          <p
+            v-else
+            class="rounded-lg border border-default bg-elevated/30 px-3 py-6 text-center text-sm text-dimmed"
+          >
+            No steps yet. Write the first one below.
+          </p>
+
+          <!-- Enter adds the step rather than starting a line, as in the
+               ingredient box: writing a method is a run of short entries, and
+               a step that genuinely needs two lines can be broken up later. -->
+          <form
+            class="mt-2 flex items-start gap-2"
+            @submit.prevent="addStep"
+          >
+            <UTextarea
+              ref="stepInput"
+              v-model="draftStep"
+              autoresize
+              :rows="2"
+              :maxrows="8"
+              size="xl"
+              class="flex-1"
+              placeholder="Add a step"
+              aria-label="Add a step"
+              autocapitalize="sentences"
+              @keydown.enter.exact.prevent="addStep"
+            />
+            <UButton
+              type="submit"
+              size="xl"
+              icon="i-lucide-plus"
+              :disabled="!draftStep.trim()"
+              aria-label="Add step"
+            />
+          </form>
+        </section>
+
+        <section>
+          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
             Serves
           </h2>
           <div class="flex items-center gap-2">
@@ -213,10 +312,25 @@ async function removeRecipe() {
             :rows="4"
             size="xl"
             class="w-full"
-            placeholder="Anything worth remembering next time."
+            placeholder="Anything that isn't a step: what it goes with, what to watch for."
             aria-label="Notes"
             @blur="saveMethod"
           />
+
+          <!-- The way out for a method pasted in as prose, or imported before
+               steps existed. Offered rather than done automatically: some notes
+               really are notes. -->
+          <UButton
+            v-if="recipe.method?.trim()"
+            icon="i-lucide-list-ordered"
+            size="sm"
+            color="neutral"
+            variant="subtle"
+            class="mt-2"
+            @click="stepsFromNotes"
+          >
+            Move into steps
+          </UButton>
         </section>
 
         <section>
