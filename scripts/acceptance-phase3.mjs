@@ -3,9 +3,15 @@
 //   two recipes wanting the same thing -> one line on the shopping list
 //
 // The parts worth checking are the ones that are invisible when they work: the
-// alias recorded by tapping a suggestion, the quantities actually being added up,
-// the purchase unit turning a total into something you can pick off a shelf, and
-// ticking the line taking every row behind it with it.
+// unit inferred from a quantity typed a moment later, a merge healing a list that
+// is never re-derived, the quantities actually being added up, the purchase unit
+// turning a total into something you can pick off a shelf, and ticking the one
+// line taking every row behind it with it.
+//
+// The route through it is the realistic one rather than the flattering one. A
+// household that says "tinned tomatoes" gets no suggestion for "Chopped tomatoes",
+// because the two share no leading text — so enter coins a second ingredient and
+// the two are merged afterwards, which is what merging is for.
 //
 // Runs against the production bundle in .output/public. Each run creates its own
 // household, so it needs no seed data and can be repeated.
@@ -106,7 +112,7 @@ async function addLine(name, quantity) {
 }
 
 async function newRecipe(name) {
-  await page.getByRole('link', { name: 'Recipes' }).click()
+  await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
   await page.getByPlaceholder('Search or add a recipe').fill(name)
   await page.getByRole('button', { name: 'Add recipe' }).click()
@@ -115,7 +121,7 @@ async function newRecipe(name) {
 
 /** Assign the recipe to the first night that is still free. */
 async function planANight(recipeName) {
-  await page.getByRole('link', { name: 'Plan' }).click()
+  await page.getByRole('link', { name: 'Plan', exact: true }).click()
   await page.waitForURL('**/plan')
   await page.locator('main ul li button', { hasText: 'Add dinner' }).first().click()
   await page.locator('[role="dialog"] button', { hasText: recipeName }).first().click()
@@ -142,28 +148,28 @@ try {
   assert(coined[0].base_unit === 'g', `base unit inferred from "400g", got ${coined[0].base_unit}`)
   log('its unit was inferred from the quantity, with nobody asked')
 
-  // --- A second recipe, reaching the same ingredient by another name --------
+  // --- Suggestions offer what is already known, on a shared word -----------
   await newRecipe('Pasta bake')
   const box = page.getByPlaceholder('Add an ingredient')
-  await box.fill('tinned tomatoes')
-  // Two characters in, the suggestion list offers what the household knows.
+  await box.fill('tomat')
   const suggestion = page.locator('button', { hasText: 'Chopped tomatoes' }).first()
   await suggestion.waitFor({ timeout: 10_000 })
-  await suggestion.click()
-  await page.locator('main li', { hasText: 'Chopped tomatoes' }).first().waitFor({ timeout: 10_000 })
-  log('second recipe: tapped the suggestion instead of coining a second row')
+  log('typing part of a known name offered it as a suggestion')
 
-  const afterPick = (await readTable('ingredients')).filter(i => !i.deleted_at)
-  assert(afterPick.length === 1, `still one canonical ingredient, got ${afterPick.length}`)
-  const aliases = (await readTable('ingredient_aliases')).filter(a => !a.deleted_at)
-  assert(aliases.length === 1, `the typed name was recorded as an alias, got ${aliases.length}`)
-  assert(aliases[0].alias === 'tinned tomatoes', `alias is what was typed, got "${aliases[0].alias}"`)
-  log('what was typed became an alias, so next time it resolves on its own')
-
-  await page.locator('main li button', { hasText: 'Chopped tomatoes' }).first().click()
+  // But this household calls them something with no word in common, so there is
+  // nothing to suggest and enter coins a second row. That is the case merging
+  // exists for, and it is the realistic one — nobody types "chopped" first.
+  await box.fill('tinned tomatoes')
+  await box.press('Enter')
+  await page.locator('main li', { hasText: 'tinned tomatoes' }).first().waitFor({ timeout: 10_000 })
+  await page.locator('main li button', { hasText: 'tinned tomatoes' }).first().click()
   await page.getByLabel('Quantity').fill('400g')
   await page.getByRole('button', { name: 'Save' }).click()
   await page.locator('main li', { hasText: '400g' }).first().waitFor({ timeout: 10_000 })
+
+  const two = (await readTable('ingredients')).filter(i => !i.deleted_at)
+  assert(two.length === 2, `an unrecognisable name coined its own row, got ${two.length}`)
+  log('a name with nothing in common coined a second ingredient')
 
   // --- Both nights on the plan, then derive --------------------------------
   await planANight('Chilli con carne')
@@ -172,36 +178,65 @@ try {
   await page.getByText('On list').first().waitFor({ timeout: 15_000 })
   log('planned both nights and derived the week')
 
-  await page.getByRole('link', { name: 'List' }).click()
+  await page.getByRole('link', { name: 'List', exact: true }).click()
   await page.waitForURL(`${ORIGIN}/`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 10_000 })
+  const before = await mainText()
+  assert(!before.includes('800g'), 'two different ingredients are not added up')
+  assert(
+    (before.match(/tomatoes/gi) ?? []).length === 2,
+    `both lines are present separately, saw: ${before.slice(0, 200)}`
+  )
+  log('the list shows them as two lines, because they are two ingredients')
 
+  // --- Merging heals the list with no re-derive ----------------------------
+  await page.goto(`${ORIGIN}/ingredients`)
+  await page.locator('main button', { hasText: 'tinned tomatoes' }).first().click()
+  await page.locator('[role="dialog"]').getByRole('button', { name: 'Merge' }).click()
+  await page.locator('[role="dialog"] button', { hasText: 'Chopped tomatoes' }).first().click()
+  await page.waitForTimeout(1500)
+  const merged = await readTable('ingredients')
+  const loser = merged.find(i => i.name === 'tinned tomatoes')
+  const winner = merged.find(i => i.name === 'Chopped tomatoes')
+  assert(loser?.merged_into === winner?.id, 'the loser points at the winner')
+  assert(loser?.deleted_at, 'the loser is soft-deleted, never hard-deleted')
+  const mergedAliases = (await readTable('ingredient_aliases')).filter(a => !a.deleted_at)
+  assert(
+    mergedAliases.some(a => a.alias === 'tinned tomatoes' && a.ingredient_id === winner.id),
+    `the loser name became a way of finding the winner, got ${JSON.stringify(mergedAliases.map(a => a.alias))}`
+  )
+  log('merged one into the other: a pointer, a soft delete, and a kept name')
+
+  await page.getByRole('link', { name: 'List', exact: true }).click()
+  await page.waitForURL(`${ORIGIN}/`)
+  await page.getByPlaceholder('Add an item').waitFor({ timeout: 10_000 })
   const grouped = await mainText()
-  assert(grouped.includes('800g'), `the two 400g lines were added up, saw: ${grouped.slice(0, 200)}`)
+  // No re-derive happened. The rows still name the loser; following the pointer
+  // is what groups them, which is the whole reason a merge costs one write.
+  assert(grouped.includes('800g'), `the two 400g lines are now added up, saw: ${grouped.slice(0, 200)}`)
   assert(
     grouped.includes('Chilli con carne') && grouped.includes('Pasta bake'),
     'the grouped line names both recipes'
   )
-  // One visible line, two rows behind it.
   assert(
     (grouped.match(/tomatoes/gi) ?? []).length === 1,
     `tomatoes appear once, not twice, saw: ${grouped.slice(0, 200)}`
   )
   const rows = (await readTable('items')).filter(i => !i.deleted_at && i.ingredient_id)
   assert(rows.length === 2, `two rows still exist underneath, got ${rows.length}`)
-  log('two recipes, one line reading 800g, both recipes named')
+  log('one line reading 800g, with no re-derive and no rows rewritten')
 
   // --- A purchase unit turns the total into something to pick off a shelf ---
   await page.goto(`${ORIGIN}/ingredients`)
   await page.locator('main button', { hasText: 'Chopped tomatoes' }).first().click()
-  await page.getByPlaceholder('tin').fill('tin')
-  await page.getByPlaceholder('400').fill('400')
+  await page.getByPlaceholder('tin', { exact: true }).fill('tin')
+  await page.getByPlaceholder('400', { exact: true }).fill('400')
   await page.getByRole('button', { name: 'Add purchase unit' }).click()
   await page.locator('[role="dialog"]').getByText('1 tin = 400g').waitFor({ timeout: 10_000 })
   await page.getByRole('button', { name: 'Save' }).click()
   log('told it a tin is 400g')
 
-  await page.getByRole('link', { name: 'List' }).click()
+  await page.getByRole('link', { name: 'List', exact: true }).click()
   await page.waitForURL(`${ORIGIN}/`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 10_000 })
   const withUnits = await mainText()
@@ -216,13 +251,13 @@ try {
   log('ticking the one line ticked both rows behind it')
 
   // --- And it is all still idempotent -------------------------------------
-  await page.getByRole('link', { name: 'Plan' }).click()
+  await page.getByRole('link', { name: 'Plan', exact: true }).click()
   await page.getByRole('button', { name: 'Add to shopping list' }).click()
   await page.getByText('Already on the list').first().waitFor({ timeout: 15_000 })
   log('deriving again still changes nothing')
 
   // --- The alias now resolves without anybody choosing --------------------
-  await page.getByRole('link', { name: 'Recipes' }).click()
+  await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
   await page.getByPlaceholder('Search or add a recipe').fill('Soup')
   await page.getByRole('button', { name: 'Add recipe' }).click()
@@ -234,12 +269,15 @@ try {
 
   const finalIngredients = (await readTable('ingredients')).filter(i => !i.deleted_at)
   assert(finalIngredients.length === 1, `still one canonical ingredient, got ${finalIngredients.length}`)
-  const soupLine = (await readTable('recipe_ingredients'))
-    .find(l => !l.deleted_at && l.name === 'tinned tomatoes')
-  assert(soupLine?.ingredient_id === finalIngredients[0].id, 'the alias resolved silently on enter')
-  log('typing the alias resolved it with no suggestion tapped and no new row')
+  const soupLines = (await readTable('recipe_ingredients'))
+    .filter(l => !l.deleted_at && l.name === 'tinned tomatoes')
+  assert(
+    soupLines.some(l => l.ingredient_id === finalIngredients[0].id),
+    'the name kept by the merge resolved silently on enter'
+  )
+  log('the merged-away name now resolves on its own, coining nothing')
 
-  console.log('\n  PASS — an alias learned once, quantities added up, and one line ticked as one\n')
+  console.log('\n  PASS — merged without a re-derive, added up, and ticked as one line\n')
 } catch (e) {
   console.error(`\n  ${e.message.split('\n').slice(0, 8).join('\n  ')}\n`)
   console.error('  url  :', page.url())

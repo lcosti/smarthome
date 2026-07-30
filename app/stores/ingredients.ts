@@ -143,6 +143,28 @@ export const useIngredientsStore = defineStore('ingredients', () => {
   }
 
   /**
+   * Learn how something is measured from a quantity that arrived after the fact.
+   *
+   * Needed because the two facts turn up at different moments: the name is typed
+   * into the quick-add, where there is deliberately nowhere to put a quantity, and
+   * the quantity is set a tap later in the editor. Guessing only at creation left
+   * every ingredient as 'count', and 'count' cannot absorb "400g" — so nothing
+   * grouped, which is the entire point of the feature.
+   *
+   * Only ever upgrades away from the 'count' default, and only when the quantity
+   * genuinely names a weight or a volume. A unit somebody chose on /ingredients is
+   * never overruled.
+   */
+  async function refineBaseUnit(ingredientId: string, quantity: string | null | undefined) {
+    if (!quantity) return
+    const current = all.value.get(ingredientId)
+    if (!current || current.base_unit !== 'count') return
+    const inferred = inferBaseUnit(quantity)
+    if (inferred === 'count') return
+    await updateIngredient(ingredientId, { base_unit: inferred })
+  }
+
+  /**
    * The ingredient id to stamp on something somebody has just typed.
    *
    * The one place the three entry points agree, so that a recipe line, a line
@@ -165,15 +187,21 @@ export const useIngredientsStore = defineStore('ingredients', () => {
 
     if (options.chosen) {
       await recordAlias(options.chosen.id, name)
+      await refineBaseUnit(options.chosen.id, options.quantity)
       return options.chosen.id
     }
 
-    if (options.create === false) return resolve(name)?.id ?? null
+    if (options.create === false) {
+      const found = resolve(name)
+      if (found) await refineBaseUnit(found.id, options.quantity)
+      return found?.id ?? null
+    }
 
     const ingredient = await ensureIngredient(name, {
       quantity: options.quantity,
       aisleId: options.aisleId
     })
+    if (ingredient) await refineBaseUnit(ingredient.id, options.quantity)
     return ingredient?.id ?? null
   }
 
