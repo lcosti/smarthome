@@ -153,6 +153,8 @@ export const useRecipesStore = defineStore('recipes', () => {
   }
 
   return {
+    /** Every recipe line, for the one-press catch-up on /ingredients. */
+    allLines,
     recipes,
     recipeById,
     ingredientsFor,

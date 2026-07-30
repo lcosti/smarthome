@@ -132,6 +132,26 @@ async function copyInviteCode() {
 
       <section class="space-y-2">
         <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
+          Ingredients
+        </h2>
+        <p class="text-sm text-muted">
+          The names your recipes share. Two recipes calling for the same thing
+          become one line on the shopping list.
+        </p>
+        <UButton
+          to="/ingredients"
+          color="neutral"
+          variant="subtle"
+          size="lg"
+          block
+          trailing-icon="i-lucide-chevron-right"
+        >
+          Manage ingredients
+        </UButton>
+      </section>
+
+      <section class="space-y-2">
+        <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
           Household
         </h2>
         <div class="rounded-lg border border-default p-3">
