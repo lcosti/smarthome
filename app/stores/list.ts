@@ -93,9 +93,14 @@ export const useListStore = defineStore('list', () => {
     return sync.rowsOf('recipes').get(entry.recipe_id)?.name ?? null
   }
 
-  async function addItem(rawName: string) {
+  /**
+   * Null means the item was not added. Without a household there is nothing to
+   * attach the row to, and callers have to be able to tell — a dropped write that
+   * looks like a successful one is the worst thing this app can do.
+   */
+  async function addItem(rawName: string): Promise<ItemRow | null> {
     const name = rawName.trim()
-    if (!name || !sync.householdId) return
+    if (!name || !sync.householdId) return null
     const timestamp = nowIso()
     return sync.commit('shopping_list_items', {
       id: crypto.randomUUID(),
@@ -143,9 +148,10 @@ export const useListStore = defineStore('list', () => {
     }
   }
 
-  async function addAisle(rawName: string) {
+  /** Null for the same reason as {@link addItem}. */
+  async function addAisle(rawName: string): Promise<AisleRow | null> {
     const name = rawName.trim()
-    if (!name || !sync.householdId) return
+    if (!name || !sync.householdId) return null
     const timestamp = nowIso()
     const highest = sortedAisles.value.reduce((max, a) => Math.max(max, a.sort_order), 0)
     return sync.commit('aisles', {

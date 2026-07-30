@@ -4,6 +4,7 @@ import { useSyncStore } from '../stores/sync'
 
 const store = useListStore()
 const sync = useSyncStore()
+const toast = useToast()
 
 const draft = ref('')
 const editingId = ref<string | null>(null)
@@ -14,9 +15,20 @@ async function add() {
   const name = draft.value.trim()
   if (!name) return
   // Clear first: the input has to be ready for the next item immediately, and the
-  // write is optimistic anyway.
+  // write is optimistic anyway — offline is not a failure here, it queues.
   draft.value = ''
-  await store.addItem(name)
+  const added = await store.addItem(name)
+  if (added) return
+
+  // It genuinely did not go anywhere. Give the typing back rather than swallowing
+  // it, and say why.
+  draft.value = draft.value || name
+  toast.add({
+    title: 'Not added',
+    description: 'This device is not set up with a household yet.',
+    color: 'warning',
+    icon: 'i-lucide-cloud-alert'
+  })
 }
 
 function edit(id: string) {
@@ -95,6 +107,30 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
         class="py-16 text-center text-sm text-muted"
       >
         Loading…
+      </div>
+
+      <!--
+        The redirect in useSync handles this when it can. This is the fallback for
+        when it cannot — no signal, or mid-load — so nobody is ever left staring at
+        an input that quietly does nothing.
+      -->
+      <div
+        v-else-if="!sync.householdId"
+        class="py-16 text-center"
+      >
+        <p class="text-muted">
+          This device isn't set up yet.
+        </p>
+        <p class="mt-1 text-sm text-dimmed">
+          Create a household, or join the one you already have.
+        </p>
+        <UButton
+          to="/welcome"
+          class="mt-4"
+          size="lg"
+        >
+          Set up
+        </UButton>
       </div>
 
       <div
