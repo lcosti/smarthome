@@ -323,6 +323,18 @@ try {
   for (const name of TO_TICK) await itemNamed(reopened, name).waitFor({ timeout: 10_000 })
   log('every tick and both new items survived the restart')
 
+  // Every route above is prerendered, so it has a precache entry of its own and
+  // opens offline whether or not the navigation fallback works. A dynamic route
+  // has no entry, so it is the only thing that actually proves the fallback is
+  // registered — and it went unregistered for a whole phase without one asserting
+  // it. Any recipe id will do; reaching the app shell is the whole point.
+  log('cold-opening a dynamic route offline')
+  const deepLink = await context.newPage()
+  await deepLink.goto(`${ORIGIN}/recipes/2f8e4a90-0000-4000-8000-000000000000`, { waitUntil: 'domcontentloaded' })
+  await deepLink.getByText('That recipe is gone.').waitFor({ timeout: 25_000 })
+  log('the shell served a route that was never prerendered')
+  await deepLink.close()
+
   // --- Back online ---------------------------------------------------------
   log('coming back online')
   assert(await queueLength(reopened) === offlineWrites, 'queue still holds every offline write')

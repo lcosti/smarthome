@@ -81,7 +81,15 @@ export default defineNuxtConfig({
     workbox: {
       globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
       // Cold offline navigations resolve to the precached shell.
-      navigateFallback: '/index.html',
+      //
+      // Must be '/' and not '/index.html': the module rewrites that precache
+      // entry to the base URL, so the manifest holds '/' and nothing else. The
+      // navigation route is bound to this URL by a plain lookup against those
+      // keys, and a miss throws inside a promise — silently, after precaching
+      // has already succeeded. The app still opens offline on every prerendered
+      // route, which is why this hid for a whole phase; a dynamic route like
+      // /recipes/<id> has no entry of its own and had no fallback either.
+      navigateFallback: '/',
       // Supabase requests must never be served from the service worker cache —
       // offline behaviour is owned by the Dexie/mutation-queue layer.
       navigateFallbackDenylist: [/^\/api/],
