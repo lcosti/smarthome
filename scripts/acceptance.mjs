@@ -70,10 +70,18 @@ function assert(condition, message) {
   if (!condition) throw new Error(`FAILED: ${message}`)
 }
 
+/** Proves a response came from this server and not from something else on the port. */
+const SENTINEL = `/__acceptance-${RUN}`
+
 /** Static file server with an SPA fallback, mirroring the netlify.toml redirect. */
 function serve() {
   const server = createServer(async (req, res) => {
     const pathname = decodeURIComponent(new URL(req.url, ORIGIN).pathname)
+    if (pathname === SENTINEL) {
+      res.setHeader('Content-Type', 'text/plain')
+      res.end('ok')
+      return
+    }
     let file = join(ROOT, normalize(pathname).replace(/^(\.\.[/\\])+/, ''))
     try {
       if ((await stat(file)).isDirectory()) file = join(file, 'index.html')
@@ -166,14 +174,40 @@ async function waitForQueue(page, expected, timeout = 30_000) {
   assert(seen === expected, `queue drains to ${expected} (stuck at ${seen})`)
 }
 
-async function waitForServiceWorker(page) {
-  await page.waitForFunction(async () => {
-    if (!navigator.serviceWorker.controller) return false
-    for (const name of await caches.keys()) {
-      if ((await (await caches.open(name)).keys()).length > 5) return true
+/**
+ * Block until the worker is actually controlling this page and the shell is in
+ * the cache — the precondition for the app opening at all with no signal.
+ *
+ * Polled from here with `evaluate` rather than with `waitForFunction`, because
+ * `waitForFunction` does not await an async predicate: it only tests the
+ * returned value for truthiness, and an async function returns a Promise, which
+ * is always truthy. Written that way it returns on its first poll no matter what
+ * the worker is doing, and the test then goes offline before anything has been
+ * precached — which fails the reopen a good second later and looks like a bug in
+ * the app rather than in the waiting.
+ */
+async function waitForServiceWorker(page, timeout = 30_000) {
+  const deadline = Date.now() + timeout
+  for (;;) {
+    const ready = await page.evaluate(async () => {
+      if (!navigator.serviceWorker.controller) return false
+      for (const name of await caches.keys()) {
+        if ((await (await caches.open(name)).keys()).length > 5) return true
+      }
+      return false
+    })
+    if (ready) return
+    if (Date.now() > deadline) {
+      const diag = await page.evaluate(async () => ({
+        regs: (await navigator.serviceWorker.getRegistrations()).map(r => ({ scope: r.scope, active: r.active?.state, installing: !!r.installing, waiting: !!r.waiting })),
+        controller: !!navigator.serviceWorker.controller,
+        caches: await caches.keys(),
+        url: location.href
+      }))
+      throw new Error('service worker did not precache the shell in time: ' + JSON.stringify(diag))
     }
-    return false
-  }, null, { timeout: 30_000 })
+    await page.waitForTimeout(250)
+  }
 }
 
 async function signIn(context, email) {
@@ -184,8 +218,32 @@ async function signIn(context, email) {
   return page
 }
 
+/**
+ * Confirm the browser will reach *this* server on ORIGIN.
+ *
+ * A `pnpm dev` left running is the trap here. Node's listen() binds both stacks,
+ * but a dev server already holding [::1]:3000 leaves the IPv4 address free, so
+ * listen() succeeds and nothing looks wrong — while Chromium resolves localhost
+ * to ::1 first and drives the dev server instead. The dev build has no service
+ * worker, so the offline half of this test then fails in a way that reads
+ * exactly like the app being broken.
+ */
+async function assertOwnServer() {
+  let body = null
+  try {
+    body = await (await fetch(ORIGIN + SENTINEL)).text()
+  } catch {
+    // Fall through to the error below.
+  }
+  if (body === 'ok') return
+  throw new Error(
+    `something else is already serving ${ORIGIN} — stop it (a stray \`pnpm dev\`?) and run this again`
+  )
+}
+
 await waitForSupabase()
 const server = await serve()
+await assertOwnServer()
 const browser = await chromium.launch()
 const context = await browser.newContext({ viewport: { width: 390, height: 844 } })
 const contexts = [context]
