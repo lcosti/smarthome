@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DERIVE_NAMESPACE, uuidv5 } from '../app/utils/uuid5'
+import { ALIAS_NAMESPACE, DERIVE_NAMESPACE, uuidv5 } from '../app/utils/uuid5'
 
 // The namespaces RFC 4122 defines, used here only as known-answer test vectors.
 const DNS_NAMESPACE = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'
@@ -30,6 +30,18 @@ describe('uuidv5', () => {
 
   it('separates the same name in different namespaces', () => {
     expect(uuidv5(DNS_NAMESPACE, 'shared')).not.toBe(uuidv5(DERIVE_NAMESPACE, 'shared'))
+  })
+
+  it('keeps the two app namespaces apart', () => {
+    // Both are fixed forever, and an alias must never collide with a derived item.
+    expect(ALIAS_NAMESPACE).not.toBe(DERIVE_NAMESPACE)
+    expect(uuidv5(ALIAS_NAMESPACE, 'shared')).not.toBe(uuidv5(DERIVE_NAMESPACE, 'shared'))
+  })
+
+  it('pins the alias namespace, which cannot change without orphaning aliases', () => {
+    expect(ALIAS_NAMESPACE).toBe('b3d2c5a1-7e48-4f26-8a09-1c6b4e5d3f70')
+    expect(uuidv5(ALIAS_NAMESPACE, 'household:ingredient:tinned tomatoes'))
+      .toBe(uuidv5(ALIAS_NAMESPACE, 'household:ingredient:tinned tomatoes'))
   })
 
   it('handles names long enough to span several hash blocks', () => {

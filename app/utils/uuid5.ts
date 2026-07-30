@@ -96,3 +96,12 @@ export function uuidv5(namespace: string, name: string): string {
  * fixed forever: changing it would orphan every item already on a list.
  */
 export const DERIVE_NAMESPACE = '6f9b1d84-3c2e-4a17-9b5f-0d8e7a41c6b2'
+
+/**
+ * The namespace for ingredient aliases, keyed on (household, ingredient, alias).
+ *
+ * Same trick as derived items, for the same reason: two people who both teach the
+ * app that "tinned tomatoes" means chopped tomatoes mint the same row rather than
+ * two, and converge through the ordinary last-write-wins path. Fixed forever.
+ */
+export const ALIAS_NAMESPACE = 'b3d2c5a1-7e48-4f26-8a09-1c6b4e5d3f70'
