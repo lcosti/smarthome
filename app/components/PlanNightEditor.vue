@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useAttendanceStore } from '../stores/attendance'
+import { usePeopleStore } from '../stores/people'
 import { usePlanStore } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
 import { dayLabel } from '../utils/week'
@@ -8,6 +10,8 @@ const { date } = defineProps<{ date: string | null }>()
 
 const plan = usePlanStore()
 const recipes = useRecipesStore()
+const people = usePeopleStore()
+const attendance = useAttendanceStore()
 
 const search = ref('')
 
@@ -42,6 +46,15 @@ async function setServings(delta: number) {
   await plan.updateEntry(planned.value.id, {
     servings: Math.max(1, planned.value.servings + delta)
   })
+}
+
+function isHome(personId: string) {
+  return date ? attendance.isPresent(personId, date) : true
+}
+
+async function toggleHome(personId: string) {
+  if (!date) return
+  await attendance.togglePresence(personId, date)
 }
 
 async function clear() {
@@ -93,6 +106,31 @@ async function clear() {
           >
             Quantities aren’t scaled — the list shows a ×{{ Math.round((planned.servings / (plannedRecipe?.base_servings ?? 1)) * 10) / 10 }} hint.
           </p>
+        </div>
+
+        <!--
+          Who is eating is a fact about the night, so it belongs on the night, not
+          on a page somebody would have to remember to visit.
+        -->
+        <div
+          v-if="people.people.length > 1"
+          class="rounded-lg border border-default p-3"
+        >
+          <p class="text-xs font-medium uppercase tracking-wide text-dimmed">
+            Who's home
+          </p>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <UButton
+              v-for="person in people.people"
+              :key="person.id"
+              :color="isHome(person.id) ? 'primary' : 'neutral'"
+              :variant="isHome(person.id) ? 'solid' : 'subtle'"
+              size="lg"
+              @click="toggleHome(person.id)"
+            >
+              {{ person.name }}
+            </UButton>
+          </div>
         </div>
 
         <div

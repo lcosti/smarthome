@@ -409,6 +409,18 @@ describe('the synced table registry', () => {
     await db.cacheFor('recipe_ingredients').put(line({ id: 'l-1' }))
     await db.cacheFor('meal_plan_entries').put(planEntry({ id: 'p-1' }))
     await db.cacheFor('shopping_list_items').put(item({ id: 'i-1' }))
+    await db.cacheFor('people').put({
+      id: 'per-1', household_id: HOUSEHOLD, name: 'Tom', date_of_birth: '2023-02-01',
+      auth_user_id: null, deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
+    await db.cacheFor('dietary_constraints').put({
+      id: 'c-1', household_id: HOUSEHOLD, person_id: 'per-1', kind: 'allergy',
+      tag: 'peanuts', deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
+    await db.cacheFor('attendance').put({
+      id: 'att-1', household_id: HOUSEHOLD, person_id: 'per-1', date: '2026-08-04',
+      meal: 'dinner', present: false, deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
 
     // Each row lands in exactly one store, and nothing collides.
     for (const table of SYNC_TABLE_NAMES) {
