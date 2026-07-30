@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { useListStore } from '../stores/list'
+import { useSyncStore } from '../stores/sync'
 import type { AisleRow } from '../utils/db'
 
 const store = useListStore()
+const sync = useSyncStore()
 const supabase = useSupabaseClient()
 const signOut = useSignOut()
 const toast = useToast()
@@ -12,11 +14,11 @@ const newAisle = ref('')
 const drafts = ref(new Map<string, string>())
 
 onMounted(async () => {
-  if (!store.householdId) return
+  if (!sync.householdId) return
   const { data } = await supabase
     .from('households')
     .select('name, invite_code')
-    .eq('id', store.householdId)
+    .eq('id', sync.householdId)
     .maybeSingle()
   household.value = data
 })
@@ -177,7 +179,7 @@ async function copyInviteCode() {
           This device
         </h2>
         <p class="text-sm text-muted">
-          {{ store.pendingCount }} change{{ store.pendingCount === 1 ? '' : 's' }} waiting to sync.
+          {{ sync.pendingCount }} change{{ sync.pendingCount === 1 ? '' : 's' }} waiting to sync.
         </p>
         <UButton
           color="neutral"

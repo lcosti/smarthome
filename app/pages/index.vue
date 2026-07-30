@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useListStore } from '../stores/list'
+import { useSyncStore } from '../stores/sync'
 
 const store = useListStore()
+const sync = useSyncStore()
 
 const draft = ref('')
 const editingId = ref<string | null>(null)
@@ -39,15 +41,15 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
           </h1>
 
           <UBadge
-            v-if="store.offline"
+            v-if="sync.offline"
             color="neutral"
             variant="subtle"
             icon="i-lucide-cloud-off"
           >
-            {{ store.pendingCount > 0 ? `${store.pendingCount} to sync` : 'Offline' }}
+            {{ sync.pendingCount > 0 ? `${sync.pendingCount} to sync` : 'Offline' }}
           </UBadge>
           <UBadge
-            v-else-if="store.pendingCount > 0"
+            v-else-if="sync.pendingCount > 0"
             color="neutral"
             variant="subtle"
             icon="i-lucide-refresh-cw"
@@ -89,7 +91,7 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
 
     <main class="mx-auto max-w-xl px-3 pb-24">
       <div
-        v-if="!store.hydrated"
+        v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"
       >
         Loading…

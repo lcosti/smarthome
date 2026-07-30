@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { useListStore } from '../stores/list'
+import { useSyncStore } from '../stores/sync'
 import { writeIdentity } from '../utils/identity'
 
-const store = useListStore()
+const store = useSyncStore()
 const supabase = useSupabaseClient()
 const user = useSupabaseUser()
 
