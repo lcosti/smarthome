@@ -1,5 +1,15 @@
+import Dexie from 'dexie'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AppDatabase, type ItemRow, type SyncTable, type SyncedRow } from '../app/utils/db'
+import {
+  AppDatabase,
+  SYNC_TABLE_NAMES,
+  type ItemRow,
+  type PlanEntryRow,
+  type RecipeIngredientRow,
+  type RecipeRow,
+  type SyncTable,
+  type SyncedRow
+} from '../app/utils/db'
 import {
   MAX_SYNC_ATTEMPTS,
   drainQueue,
@@ -24,9 +34,62 @@ function item(overrides: Partial<ItemRow> = {}): ItemRow {
     checked: false,
     checked_at: null,
     source: 'adhoc',
+    plan_entry_id: null,
+    recipe_ingredient_id: null,
     deleted_at: null,
     created_at: stamp,
     updated_at: stamp,
+    ...overrides
+  }
+}
+
+const STAMP = '2026-07-30T10:00:00.000Z'
+
+function recipe(overrides: Partial<RecipeRow> = {}): RecipeRow {
+  return {
+    id: 'c0000000-0000-0000-0000-000000000001',
+    household_id: HOUSEHOLD,
+    name: 'Chilli',
+    source_url: null,
+    base_servings: 2,
+    prep_minutes: null,
+    cook_minutes: null,
+    method: null,
+    deleted_at: null,
+    created_at: STAMP,
+    updated_at: STAMP,
+    ...overrides
+  }
+}
+
+function line(overrides: Partial<RecipeIngredientRow> = {}): RecipeIngredientRow {
+  return {
+    id: 'd0000000-0000-0000-0000-000000000001',
+    household_id: HOUSEHOLD,
+    recipe_id: 'c0000000-0000-0000-0000-000000000001',
+    name: 'Chopped tomatoes',
+    quantity: '2 tins',
+    aisle_id: null,
+    sort_order: 1,
+    deleted_at: null,
+    created_at: STAMP,
+    updated_at: STAMP,
+    ...overrides
+  }
+}
+
+function planEntry(overrides: Partial<PlanEntryRow> = {}): PlanEntryRow {
+  return {
+    id: 'e0000000-0000-0000-0000-000000000001',
+    household_id: HOUSEHOLD,
+    date: '2026-08-04',
+    meal: 'dinner',
+    recipe_id: 'c0000000-0000-0000-0000-000000000001',
+    servings: 2,
+    note: null,
+    deleted_at: null,
+    created_at: STAMP,
+    updated_at: STAMP,
     ...overrides
   }
 }
@@ -284,5 +347,108 @@ describe('drainQueue', () => {
       expect(order[order.length - 1]).toEqual(server.rows.get('row-1'))
       await scratch.delete()
     }
+  })
+})
+
+describe('the synced table registry', () => {
+  it('routes every table to its own cache store', async () => {
+    await db.cacheFor('aisles').put({
+      id: 'a-1', household_id: HOUSEHOLD, name: 'Chilled', sort_order: 1,
+      deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
+    await db.cacheFor('recipes').put(recipe({ id: 'r-1' }))
+    await db.cacheFor('recipe_ingredients').put(line({ id: 'l-1' }))
+    await db.cacheFor('meal_plan_entries').put(planEntry({ id: 'p-1' }))
+    await db.cacheFor('shopping_list_items').put(item({ id: 'i-1' }))
+
+    // Each row lands in exactly one store, and nothing collides.
+    for (const table of SYNC_TABLE_NAMES) {
+      expect(await db.cacheFor(table).count()).toBe(1)
+    }
+    expect((await db.cacheFor('recipes').get('r-1'))?.name).toBe('Chilli')
+  })
+
+  it('keeps shopping list items in the store they have always lived in', async () => {
+    // The remote table is shopping_list_items; the Dexie store is `items`, from
+    // before the registry existed. Renaming it would mean migrating every device.
+    await db.cacheFor('shopping_list_items').put(item({ id: 'i-1' }))
+    expect(await db.items.get('i-1')).toBeTruthy()
+  })
+
+  it('round-trips a row of every type through the queue', async () => {
+    const server = fakeServer()
+    await enqueueMutation(db, 'recipes', recipe({ id: 'r-1' }))
+    await enqueueMutation(db, 'recipe_ingredients', line({ id: 'l-1' }))
+    await enqueueMutation(db, 'meal_plan_entries', planEntry({ id: 'p-1' }))
+    await enqueueMutation(db, 'shopping_list_items', item({ id: 'i-1' }))
+
+    const result = await drainQueue(db, server.upsert)
+
+    expect(result.synced).toBe(4)
+    expect(server.calls.map(c => c.table)).toEqual([
+      'recipes', 'recipe_ingredients', 'meal_plan_entries', 'shopping_list_items'
+    ])
+  })
+
+  it('drains parents before the rows that reference them', async () => {
+    // A recipe must exist before its ingredient lines, and a plan entry before
+    // the items derived from it, or the server rejects the child on a foreign
+    // key. The queue is global and strictly FIFO, so writing them in that order
+    // on the device is what guarantees it.
+    const server = fakeServer()
+    await enqueueMutation(db, 'recipes', recipe({ id: 'r-1' }))
+    await enqueueMutation(db, 'recipe_ingredients', line({ id: 'l-1', recipe_id: 'r-1' }))
+    await enqueueMutation(db, 'meal_plan_entries', planEntry({ id: 'p-1', recipe_id: 'r-1' }))
+    await enqueueMutation(db, 'shopping_list_items', item({
+      id: 'i-1', source: 'plan', plan_entry_id: 'p-1', recipe_ingredient_id: 'l-1'
+    }))
+
+    await drainQueue(db, server.upsert)
+
+    const order = server.calls.map(c => c.id)
+    expect(order.indexOf('r-1')).toBeLessThan(order.indexOf('l-1'))
+    expect(order.indexOf('r-1')).toBeLessThan(order.indexOf('p-1'))
+    expect(order.indexOf('p-1')).toBeLessThan(order.indexOf('i-1'))
+  })
+
+  it('settles rows independently across tables', async () => {
+    const server = fakeServer()
+    const settled: string[] = []
+    await enqueueMutation(db, 'recipes', recipe({ id: 'r-1' }))
+    await enqueueMutation(db, 'shopping_list_items', item({ id: 'i-1' }))
+
+    await drainQueue(db, server.upsert, { onRowSettled: id => settled.push(id) })
+
+    expect(settled.sort()).toEqual(['i-1', 'r-1'])
+    expect(await db.mutations.count()).toBe(0)
+  })
+})
+
+describe('the Dexie v1 to v2 upgrade', () => {
+  it('keeps cached rows and queued mutations from before Phase 2', async () => {
+    const name = `upgrade-${++dbCount}`
+
+    // A device running the Phase 1 build: three stores, some list data, and a
+    // write that never made it to the server.
+    const v1 = new Dexie(name)
+    v1.version(1).stores({ items: 'id', aisles: 'id', mutations: '++seq, rowId' })
+    await v1.open()
+    await v1.table('items').put(item({ id: 'i-1', name: 'Milk' }))
+    await v1.table('mutations').add({
+      table: 'shopping_list_items', rowId: 'i-1', payload: item({ id: 'i-1' }), ts: 1, attempts: 0
+    })
+    v1.close()
+
+    // The same device after the Phase 2 build lands.
+    const v2 = new AppDatabase(name)
+    await v2.open()
+
+    expect((await v2.items.get('i-1'))?.name).toBe('Milk')
+    expect(await v2.mutations.count()).toBe(1)
+    // And the new stores exist, empty, ready to be filled by the first pull.
+    expect(await v2.recipes.count()).toBe(0)
+    expect(await v2.meal_plan_entries.count()).toBe(0)
+
+    await v2.delete()
   })
 })

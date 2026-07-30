@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { db, type AisleRow, type ItemRow, type SyncTable, type SyncedRow } from '../utils/db'
 import {
-  cacheTableFor,
   drainQueue,
   enqueueMutation,
   plainCopy,
@@ -93,9 +92,16 @@ export const useListStore = defineStore('list', () => {
     return result
   })
 
+  // This store owns two of the synced tables; the rest belong to other stores.
   function applyLocal(table: SyncTable, row: SyncedRow) {
     if (table === 'aisles') aisles.value.set(row.id, row as AisleRow)
-    else items.value.set(row.id, row as ItemRow)
+    else if (table === 'shopping_list_items') items.value.set(row.id, row as ItemRow)
+  }
+
+  function localRow(table: SyncTable, id: string) {
+    if (table === 'aisles') return aisles.value.get(id)
+    if (table === 'shopping_list_items') return items.value.get(id)
+    return undefined
   }
 
   /** Load everything from IndexedDB. The app is fully usable once this resolves. */
@@ -151,10 +157,10 @@ export const useListStore = defineStore('list', () => {
   }
 
   function applyServerRow(table: SyncTable, row: SyncedRow) {
-    const local = table === 'aisles' ? aisles.value.get(row.id) : items.value.get(row.id)
+    const local = localRow(table, row.id)
     if (!shouldApplyServerRow(row, local, queued.value)) return
     applyLocal(table, plainCopy(row))
-    void cacheTableFor(db, table).put(plainCopy(row) as never)
+    void db.cacheFor(table).put(plainCopy(row) as never)
   }
 
   /**
