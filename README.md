@@ -23,7 +23,7 @@ Useful local URLs:
 
 | What | Where |
 |---|---|
-| App | http://localhost:3000 |
+| App | http://localhost:4000 |
 | Supabase Studio | http://127.0.0.1:54323 |
 | Mailpit (catches magic-link emails) | http://127.0.0.1:54324 |
 
@@ -53,7 +53,8 @@ pnpm generate && pnpm acceptance
 ```
 
 It needs the local Supabase stack running, and it serves the built bundle itself on
-port 3000 (so stop `pnpm dev` first). Each run creates its own household, so it is
+port 4001 — deliberately not the dev server's 4000, so `pnpm dev` can stay up while
+this runs. Each run creates its own household, so it is
 safe to run repeatedly without resetting the database. This is the check to run
 before deploying anything that touches the sync layer.
 
@@ -119,7 +120,7 @@ Once you have created a Supabase project (free tier) and a Netlify site:
 3. **Auth redirect allowlist.** In the Supabase dashboard under Authentication →
    URL Configuration:
    - Site URL: `https://<your-site>.netlify.app`
-   - Additional redirect URLs: the same, plus `http://localhost:3000`
+   - Additional redirect URLs: the same, plus `http://localhost:4000`
 
    Magic links refuse to redirect anywhere not on this list, which is the usual
    cause of a link that signs you in and then dumps you straight back to login.

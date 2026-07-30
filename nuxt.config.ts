@@ -17,6 +17,13 @@ export default defineNuxtConfig({
     enabled: true
   },
 
+  // 4000 for dev, 4001 for the acceptance harness, so a dev server left running
+  // cannot quietly steal the port the tests serve the production bundle on. Both
+  // ports are in the auth redirect allow-list in supabase/config.toml.
+  devServer: {
+    port: 4000
+  },
+
   app: {
     head: {
       htmlAttrs: { lang: 'en' },

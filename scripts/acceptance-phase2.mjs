@@ -25,7 +25,8 @@ try {
   // Fall back to whatever is already exported.
 }
 
-const PORT = 3000
+// See the note in acceptance.mjs: 4001 for tests, 4000 for the dev server.
+const PORT = 4001
 const ORIGIN = `http://localhost:${PORT}`
 const ROOT = '.output/public'
 const API = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54321'
