@@ -65,6 +65,10 @@ function input(overrides: Partial<DeriveInput> = {}): DeriveInput {
     ingredients: [line()],
     planItems: [],
     rememberAisle: () => null,
+    // Default to a household that has not canonicalised anything, so every case
+    // below still describes the Phase 2 behaviour it was written for.
+    resolveIngredientId: () => null,
+    ingredientAisle: () => null,
     now: NOW,
     ...overrides
   }
@@ -231,6 +235,70 @@ describe('derive', () => {
 
     const fromMemory = derive(input({ rememberAisle: () => 'aisle-remembered' }))
     expect(fromMemory.creates[0]!.aisle_id).toBe('aisle-remembered')
+  })
+
+  describe('stamping the canonical ingredient', () => {
+    const resolved = { resolveIngredientId: () => 'ing-tomatoes' }
+
+    it('stamps it on a new item', () => {
+      expect(derive(input(resolved)).creates[0]!.ingredient_id).toBe('ing-tomatoes')
+    })
+
+    it('leaves it null when nothing known matches the line', () => {
+      expect(derive(input()).creates[0]!.ingredient_id).toBeNull()
+    })
+
+    it('stamps an item that predates the ingredient, on the next derive', () => {
+      // The adoption path: a library canonicalised after the week was derived
+      // catches up on the next press of the button, with nothing migrated.
+      const existing = applied([], derive(input()))
+      expect(existing[0]!.ingredient_id).toBeNull()
+
+      const result = derive(input({ ...resolved, planItems: existing }))
+      expect(result.updates).toHaveLength(1)
+      expect(result.updates[0]!.ingredient_id).toBe('ing-tomatoes')
+    })
+
+    it('never unstamps an item, even if resolution goes quiet', () => {
+      // A device that has not pulled the ingredient row yet must not un-group a
+      // line that another device already grouped.
+      const stamped = applied([], derive(input(resolved)))
+      const result = derive(input({ planItems: stamped, resolveIngredientId: () => null }))
+      expect(result.updates).toHaveLength(0)
+    })
+
+    it('leaves the stamp on a checked item frozen along with the rest of it', () => {
+      const checked = applied([], derive(input())).map(i => ({ ...i, checked: true }))
+      const result = derive(input({ ...resolved, planItems: checked }))
+      expect(result.updates).toHaveLength(0)
+    })
+
+    it('is still a strict no-op the second time', () => {
+      const existing = applied([], derive(input(resolved)))
+      const again = derive(input({ ...resolved, planItems: existing }))
+      expect(again).toEqual({ creates: [], updates: [], removes: [] })
+    })
+
+    it('prefers the ingredient aisle over the one on the recipe line', () => {
+      // Somebody filed the ingredient deliberately, and that holds for every
+      // recipe that uses it.
+      const result = derive(input({
+        ...resolved,
+        ingredients: [line({ aisle_id: 'aisle-from-recipe' })],
+        ingredientAisle: () => 'aisle-from-ingredient'
+      }))
+      expect(result.creates[0]!.aisle_id).toBe('aisle-from-ingredient')
+    })
+
+    it('still never overrules an aisle a person chose mid-shop', () => {
+      const existing = applied([], derive(input())).map(i => ({ ...i, aisle_id: 'aisle-chosen' }))
+      const result = derive(input({
+        ...resolved,
+        planItems: existing,
+        ingredientAisle: () => 'aisle-from-ingredient'
+      }))
+      expect(result.updates[0]!.aisle_id).toBe('aisle-chosen')
+    })
   })
 
   it('leaves the items of another week completely alone', () => {
