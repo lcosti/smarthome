@@ -1,11 +1,17 @@
 # Household meal planner
 
 An offline-first meal planner for one household, described in
-[CLAUDE.md](./CLAUDE.md). Phases 1 to 3 are built: the shopping list, a recipe
-library with a manual weekly plan the list is derived from, and canonical
-ingredients so that two recipes wanting the same thing become one line to buy.
+[CLAUDE.md](./CLAUDE.md). Phases 1 to 4 are built: the shopping list, a recipe
+library with a weekly plan the list is derived from, canonical ingredients so that
+two recipes wanting the same thing become one line to buy, and a generator that
+fills the week from the library.
 
-The generator (phase 4) and recipe import from URLs (phase 5) are not built.
+The household roster feeds the generator: people (children and babies included,
+with no login), what each of them cannot or will not eat, and who is home on which
+night. Life stage is derived from a date of birth every time it is read, so the
+baby ages up on its own.
+
+Recipe import from URLs (phase 5) is not built.
 
 Nuxt 4 SPA (`ssr: false`) + Supabase, deployed as a static bundle to Netlify.
 State lives in Pinia, persists to IndexedDB via Dexie, and syncs through a
@@ -43,8 +49,8 @@ pnpm generate      # static build into .output/public
 
 ### The acceptance tests
 
-Three of them, each driving a real browser against the production bundle. They are
-the check to run before deploying anything that touches the sync layer.
+Each drives a real browser against the production bundle. They are the check to
+run before deploying anything that touches the sync layer.
 
 `pnpm acceptance` is the bar CLAUDE.md sets: create a household, add items, go
 offline, add and tick more, kill the app, reopen it still offline, come back
@@ -64,9 +70,20 @@ merged, the list healing with no re-derive, "800g · 2 tins", and ticking the li
 taking both rows behind it. It reads IndexedDB as well as the screen, because "one
 line" and "one row" are different claims and only one of them is visible.
 
+`pnpm acceptance:roster` adds a child, checks the life stage was derived rather
+than typed, records an allergy, and marks them out on one night. Its load-bearing
+assertion is about a row that does not exist: no row means present, so marking one
+child out must write exactly one row and say nothing about anybody at home.
+
+`pnpm acceptance:generator` builds a library, records a peanut allergy, chooses one
+night by hand and fills the rest. It checks that nothing repeats, that the allergen
+never reaches the plan or the list, that the hand-chosen night survives, and that
+servings came from the roster rather than the recipe default.
+
 ```bash
 pnpm exec playwright install chromium   # once
 pnpm generate && pnpm acceptance && pnpm acceptance:phase2 && pnpm acceptance:phase3
+pnpm acceptance:roster && pnpm acceptance:generator
 ```
 
 They need the local Supabase stack running, and each serves the built bundle itself
@@ -178,8 +195,13 @@ Once you have created a Supabase project (free tier) and a Netlify site:
 
 The first person to sign in creates the household; everyone else joins with the
 six-character invite code shown on the settings screen. There are no accounts for
-children — `people` rows simply have no `auth_user_id`, which is what the generator
-will build on when it adapts a meal per person present.
+children — `people` rows simply have no `auth_user_id`, and are added on the
+**People** screen behind settings along with their dates of birth and anything they
+cannot or will not eat.
+
+Who is home is set per night, in the plan's night editor. Nothing is written until
+somebody is marked out: no row means present, so a quiet week costs no writes and a
+newly added baby is counted before anybody touches a toggle.
 
 ## Icons
 
