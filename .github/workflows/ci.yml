@@ -70,11 +70,20 @@ jobs:
 
       - name: Export the local stack's keys
         run: |
-          STATUS="$(supabase status -o json 2>/dev/null | tail -n 1)"
+          set -euo pipefail
+          # Depending on CLI version, -o json is one line or pretty-printed, and
+          # human-readable noise can precede it. Keep everything from the first
+          # brace and let jq do the rest.
+          STATUS_JSON="$(supabase status -o json | sed -n '/{/,$p')"
+          SUPABASE_URL="$(jq -r '.API_URL // empty' <<<"$STATUS_JSON")"
+          SUPABASE_KEY="$(jq -r '.PUBLISHABLE_KEY // empty' <<<"$STATUS_JSON")"
+          SUPABASE_SECRET_KEY="$(jq -r '.SECRET_KEY // empty' <<<"$STATUS_JSON")"
+          # Fail here, loudly, rather than three steps later with a blank env.
+          test -n "$SUPABASE_URL" -a -n "$SUPABASE_KEY" -a -n "$SUPABASE_SECRET_KEY"
           {
-            echo "SUPABASE_URL=$(echo "$STATUS" | jq -r .API_URL)"
-            echo "SUPABASE_KEY=$(echo "$STATUS" | jq -r .PUBLISHABLE_KEY)"
-            echo "SUPABASE_SECRET_KEY=$(echo "$STATUS" | jq -r .SECRET_KEY)"
+            echo "SUPABASE_URL=$SUPABASE_URL"
+            echo "SUPABASE_KEY=$SUPABASE_KEY"
+            echo "SUPABASE_SECRET_KEY=$SUPABASE_SECRET_KEY"
           } >> "$GITHUB_ENV"
 
       - name: Install a browser
