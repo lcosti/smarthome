@@ -127,6 +127,18 @@ and why. Current sanctioned exceptions:
 - `ChecklistRow` — full-row tap target containing a nested action button
   (a `<label>` wrapping a button double-fires on iOS), plus a third `covered`
   state `UCheckbox` has no room for.
+- **Card and row tap targets** whose content is a laid-out block rather than a
+  label — `RecipeRow`, `RecipeStepRow`, `IngredientLineRow`, `PlanNightRow`,
+  `PlanNightCard`, `BoardRecipeCard`, `BoardPersonChip`. A `UButton` renders its
+  content through `label`/slot inside a flex row; these need their own internal
+  grid, and wrapping one in a button is cheaper than overriding four slots.
+  A row whose content *is* a label is a `UButton` — see `people.vue`,
+  `ingredients.vue`.
+- `IngredientSuggest` — the suggestion list only. `UInputMenu` calls
+  `highlightFirstItem()` on every change, so an open menu owns the enter key;
+  this field's rule is that enter always submits what was typed.
+- The hidden `<input type="file">` in `recipes/index.vue` — invisible plumbing
+  behind a `UButton`, not a control.
 
 ---
 

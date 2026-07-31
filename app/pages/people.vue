@@ -62,9 +62,11 @@ async function addPerson() {
             v-for="person in store.people"
             :key="person.id"
           >
-            <button
-              type="button"
-              class="flex w-full min-w-0 items-center gap-2 px-3 py-3 text-left min-h-12 active:bg-elevated/60"
+            <UButton
+              color="neutral"
+              variant="ghost"
+              block
+              class="min-h-12 min-w-0 gap-2 px-3 py-3 text-left font-normal"
               @click="edit(person.id)"
             >
               <span class="min-w-0 flex-1">
@@ -84,7 +86,7 @@ async function addPerson() {
                   {{ constraint.tag }}
                 </UBadge>
               </span>
-            </button>
+            </UButton>
           </li>
         </ul>
 

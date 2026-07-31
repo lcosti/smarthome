@@ -117,9 +117,10 @@ const unlinkedCount = computed(() =>
             :key="ingredient.id"
             class="flex items-center gap-2"
           >
-            <button
-              type="button"
-              class="flex min-w-0 flex-1 items-center gap-2 px-3 py-3 text-left min-h-12 active:bg-elevated/60"
+            <UButton
+              color="neutral"
+              variant="ghost"
+              class="min-h-12 min-w-0 flex-1 gap-2 px-3 py-3 text-left font-normal"
               @click="edit(ingredient.id)"
             >
               <span class="min-w-0 flex-1">
@@ -140,7 +141,7 @@ const unlinkedCount = computed(() =>
                 v-if="aisleNameFor(ingredient.aisle_id)"
                 class="shrink-0 text-xs text-dimmed"
               >{{ aisleNameFor(ingredient.aisle_id) }}</span>
-            </button>
+            </UButton>
           </li>
         </ul>
 

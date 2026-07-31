@@ -275,41 +275,35 @@ onUnmounted(() => {
             v-for="line in lines"
             :key="line.id"
           >
-            <button
-              type="button"
-              class="flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-default/60"
-              @click="toggleLine(line.id)"
+            <UCheckbox
+              :model-value="checked.has(line.id)"
+              size="lg"
+              :ui="{
+                root: 'items-center rounded-md px-2 py-2.5 transition-colors hover:bg-default/60',
+                base: line.id === activeLineId ? 'ring-primary' : '',
+                wrapper: 'ms-3'
+              }"
+              @update:model-value="toggleLine(line.id)"
             >
-              <span
-                v-if="checked.has(line.id)"
-                class="flex size-5 shrink-0 items-center justify-center rounded bg-primary"
-              >
-                <UIcon
-                  name="i-lucide-check"
-                  class="size-3.5 text-inverted"
-                />
-              </span>
-              <span
-                v-else
-                class="size-5 shrink-0 rounded bg-transparent ring"
-                :class="line.id === activeLineId ? 'ring-primary' : 'ring-accented'"
-              />
+              <template #label>
+                <span class="flex items-center gap-3">
+                  <span
+                    class="min-w-0 flex-1 text-base font-normal"
+                    :class="checked.has(line.id)
+                      ? 'text-dimmed line-through'
+                      : line.id === activeLineId
+                        ? 'font-medium text-highlighted'
+                        : 'text-default'"
+                  >{{ line.name }}</span>
 
-              <span
-                class="min-w-0 flex-1 text-base"
-                :class="checked.has(line.id)
-                  ? 'text-dimmed line-through'
-                  : line.id === activeLineId
-                    ? 'font-medium text-highlighted'
-                    : 'text-default'"
-              >{{ line.name }}</span>
-
-              <span
-                v-if="line.quantity"
-                class="shrink-0 whitespace-nowrap font-mono text-sm"
-                :class="checked.has(line.id) ? 'text-dimmed' : 'text-muted'"
-              >{{ line.quantity }}</span>
-            </button>
+                  <span
+                    v-if="line.quantity"
+                    class="shrink-0 whitespace-nowrap font-mono text-sm"
+                    :class="checked.has(line.id) ? 'text-dimmed' : 'text-muted'"
+                  >{{ line.quantity }}</span>
+                </span>
+              </template>
+            </UCheckbox>
           </li>
         </ul>
 

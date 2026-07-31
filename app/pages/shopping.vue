@@ -146,17 +146,16 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
           class="mt-8"
         >
           <div class="mb-1 flex items-center gap-2">
-            <button
-              type="button"
-              class="flex flex-1 items-center gap-1 text-xs font-medium uppercase tracking-wide text-dimmed"
+            <UButton
+              color="neutral"
+              variant="link"
+              size="xs"
+              :icon="showDone ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+              :label="`Done (${store.checkedItems.length})`"
+              :aria-expanded="showDone"
+              class="flex-1 justify-start p-0 uppercase tracking-wide text-dimmed"
               @click="showDone = !showDone"
-            >
-              <UIcon
-                :name="showDone ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
-                class="size-4"
-              />
-              Done ({{ store.checkedItems.length }})
-            </button>
+            />
             <UButton
               size="xs"
               color="neutral"
