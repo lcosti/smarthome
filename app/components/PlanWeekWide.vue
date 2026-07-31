@@ -113,9 +113,12 @@ async function pick(date: string, recipeId: string) {
           aria-label="Previous week"
           @click="emit('step', -1)"
         />
-        <button
-          type="button"
-          class="min-w-[9rem] px-2 py-1 text-center text-sm font-medium text-default"
+        <UButton
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          block
+          class="min-w-[9rem]"
           :aria-label="thisWeek ? undefined : 'Back to this week'"
           @click="emit('reset')"
         >
@@ -124,7 +127,7 @@ async function pick(date: string, recipeId: string) {
             v-if="!thisWeek"
             class="ml-1 text-dimmed"
           >· this week</span>
-        </button>
+        </UButton>
         <UButton
           icon="i-lucide-chevron-right"
           color="neutral"

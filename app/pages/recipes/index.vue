@@ -131,7 +131,12 @@ async function land(recipeId: string | null) {
             aria-label="Add recipe from a photo"
             @click="photoInput?.click()"
           />
-          <!-- No `capture` attribute: on iOS it forces the camera and silently
+          <!-- A bare input rather than UFileUpload, because nothing here is
+               visible: the control people see is the UButton above, and this is
+               only the file picker it opens. UFileUpload brings a dropzone and a
+               model this flow has no use for.
+
+               No `capture` attribute: on iOS it forces the camera and silently
                drops `multiple`, and a cookbook recipe often needs two photos.
                Without it the phone offers camera or library, both of which work. -->
           <input

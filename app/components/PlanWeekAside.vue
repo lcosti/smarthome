@@ -70,6 +70,26 @@ const roster = computed(() =>
   })
 )
 
+/**
+ * One person's week as a menu of checkboxes, headed by whose week it is.
+ *
+ * `checked` is read straight off the roster rather than held separately, so the
+ * menu shows attendance rather than a copy of it that can drift.
+ */
+function nightItems(person: { id: string, name: string, nights: { date: string, label: string, present: boolean }[] }) {
+  return [
+    [{ label: `${person.name} is eating`, type: 'label' as const }],
+    person.nights.map(night => ({
+      label: night.label,
+      type: 'checkbox' as const,
+      checked: night.present,
+      onUpdateChecked: (checked: boolean) => {
+        attendance.setPresence(person.id, night.date, checked)
+      }
+    }))
+  ]
+}
+
 const dayName = computed(() => {
   if (!target) return null
   const [year, month, day] = target.split('-').map(Number)
@@ -133,7 +153,15 @@ function reasonFor(candidate: RankedCandidate): string {
                 {{ person.present }}/{{ person.total }}
               </span>
 
-              <UPopover :ui="{ content: 'p-1.5' }">
+              <!--
+                A checkbox menu rather than a popover full of buttons: seven
+                nights each independently on or off is exactly what it models,
+                and it brings the keyboard handling and the roles with it.
+              -->
+              <UDropdownMenu
+                :items="nightItems(person)"
+                :ui="{ content: 'p-1.5' }"
+              >
                 <UButton
                   color="neutral"
                   :variant="person.away ? 'subtle' : 'ghost'"
@@ -142,30 +170,7 @@ function reasonFor(candidate: RankedCandidate): string {
                   class="shrink-0 rounded-md px-2 py-1 text-xs"
                   :class="person.away ? 'text-default' : 'text-dimmed'"
                 />
-
-                <template #content>
-                  <p class="px-2 pb-1 pt-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-dimmed">
-                    {{ person.name }} is eating
-                  </p>
-                  <button
-                    v-for="night in person.nights"
-                    :key="night.date"
-                    type="button"
-                    class="flex w-full items-center gap-3 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-elevated"
-                    @click="attendance.setPresence(person.id, night.date, !night.present)"
-                  >
-                    <UIcon
-                      :name="night.present ? 'i-lucide-check' : 'i-lucide-minus'"
-                      class="size-4 shrink-0"
-                      :class="night.present ? 'text-primary' : 'text-dimmed'"
-                    />
-                    <span
-                      class="font-mono text-xs"
-                      :class="night.present ? 'text-default' : 'text-dimmed line-through'"
-                    >{{ night.label }}</span>
-                  </button>
-                </template>
-              </UPopover>
+              </UDropdownMenu>
             </div>
 
             <!--

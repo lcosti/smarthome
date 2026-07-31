@@ -107,9 +107,11 @@ async function derive() {
           aria-label="Previous week"
           @click="weekOffset--"
         />
-        <button
-          type="button"
-          class="flex-1 py-2 text-center text-sm font-medium active:bg-elevated/60"
+        <UButton
+          color="neutral"
+          variant="ghost"
+          block
+          class="flex-1"
           @click="weekOffset = 0"
         >
           {{ weekLabel(monday) }}
@@ -117,7 +119,7 @@ async function derive() {
             v-if="weekOffset !== 0"
             class="ml-1 text-dimmed"
           >· this week</span>
-        </button>
+        </UButton>
         <UButton
           icon="i-lucide-chevron-right"
           color="neutral"

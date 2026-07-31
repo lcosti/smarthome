@@ -21,6 +21,7 @@ const draftIngredient = ref('')
 const draftStep = ref('')
 const editingLineId = ref<string | null>(null)
 const editorOpen = ref(false)
+const confirmDelete = ref(false)
 const editingStepId = ref<string | null>(null)
 const stepEditorOpen = ref(false)
 const ingredientInput = useTemplateRef<{ focus: () => void }>('ingredientInput')
@@ -311,14 +312,20 @@ async function removeRecipe() {
         </section>
 
         <section>
-          <UButton
-            icon="i-lucide-trash-2"
-            color="error"
-            variant="subtle"
-            @click="removeRecipe"
+          <ConfirmModal
+            v-model:open="confirmDelete"
+            :title="`Delete ${recipe.name}?`"
+            description="The recipe, its ingredients and its method go with it. Nights already planned from it keep their name but lose the link."
+            confirm-label="Delete recipe"
+            @confirm="removeRecipe"
           >
-            Delete recipe
-          </UButton>
+            <UButton
+              icon="i-lucide-trash-2"
+              color="error"
+              variant="subtle"
+              label="Delete recipe"
+            />
+          </ConfirmModal>
         </section>
       </template>
     </main>

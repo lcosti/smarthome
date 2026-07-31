@@ -365,12 +365,11 @@ onUnmounted(() => {
           <!-- No time in the prose, no timer. A guess is not worth a button. -->
           <div v-if="duration">
             <div class="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                class="flex h-14 items-center gap-4 rounded-lg px-5 transition-opacity duration-[80ms] active:opacity-85 lg:h-16 lg:gap-5 lg:px-6"
-                :class="timerPhase === 'finished'
-                  ? 'bg-primary text-inverted'
-                  : 'bg-primary/10 text-primary ring ring-primary/25'"
+              <UButton
+                color="primary"
+                :variant="timerPhase === 'finished' ? 'solid' : 'subtle'"
+                size="xl"
+                class="h-14 gap-4 lg:h-16 lg:gap-5 lg:px-6"
                 @click="startTimer()"
               >
                 <span class="size-2.5 shrink-0 rounded-full bg-current" />
@@ -386,7 +385,7 @@ onUnmounted(() => {
                 </span>
                 <span class="h-7 w-px shrink-0 bg-current opacity-25" />
                 <span class="font-mono text-xl tabular-nums lg:text-2xl">{{ formatCountdown(remaining) }}</span>
-              </button>
+              </UButton>
 
               <UButton
                 color="neutral"
@@ -407,15 +406,14 @@ onUnmounted(() => {
           </div>
 
           <!-- The aside the recipe wrote in its own paragraph, kept as an aside. -->
-          <div
+          <UAlert
             v-if="content.tip"
-            class="flex items-start gap-3.5 rounded-lg bg-default/60 px-5 py-4 ring ring-default"
-          >
-            <span class="mt-2.5 size-2 shrink-0 rounded-full bg-primary" />
-            <p class="whitespace-pre-line text-pretty text-base leading-[1.45] text-default">
-              {{ content.tip }}
-            </p>
-          </div>
+            color="neutral"
+            variant="subtle"
+            icon="i-lucide-lightbulb"
+            :description="content.tip"
+            :ui="{ description: 'whitespace-pre-line text-pretty text-base leading-[1.45] text-default' }"
+          />
 
           <!--
             The step is set at the top and the slack falls to the bottom. A step
