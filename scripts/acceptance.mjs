@@ -272,6 +272,7 @@ try {
   await page.getByPlaceholder('Luke').fill('Acceptance')
   await page.getByRole('button', { name: 'Create household' }).click()
   await page.waitForURL(ORIGIN + '/', { timeout: 20_000 })
+  await page.goto(ORIGIN + '/shopping')
   await page.getByText('Nothing on the list').waitFor({ timeout: 20_000 })
 
   log(`adding ${ONLINE_ITEMS.length} items while online`)
@@ -311,7 +312,7 @@ try {
   await page.close()
   const reopened = await context.newPage()
   reopened.on('pageerror', error => console.error('     page error:', error.message))
-  await reopened.goto(ORIGIN, { waitUntil: 'domcontentloaded' })
+  await reopened.goto(`${ORIGIN}/shopping`, { waitUntil: 'domcontentloaded' })
 
   await doneToggle(reopened).waitFor({ timeout: 25_000 })
   assert(!reopened.url().includes('/login'), 'app opens without a login prompt while offline')
@@ -366,7 +367,8 @@ try {
   await reopened.getByRole('link', { name: 'Settings' }).click()
   const inviteCode = (await reopened.locator('code').innerText()).trim()
   assert(/^[A-Z0-9]{6}$/.test(inviteCode), `invite code looks like a code (got "${inviteCode}")`)
-  await reopened.getByRole('link', { name: 'Back to list' }).click()
+  await reopened.getByRole('link', { name: 'Back to today' }).click()
+  await reopened.goto(`${ORIGIN}/shopping`)
 
   // A separate browser context means separate storage: a genuinely different
   // device, signed in as a different person.
@@ -379,6 +381,7 @@ try {
   await partner.getByPlaceholder('Luke').fill('Partner')
   await partner.getByRole('button', { name: 'Join household' }).click()
   await partner.waitForURL(ORIGIN + '/', { timeout: 20_000 })
+  await partner.goto(ORIGIN + '/shopping')
 
   await partner.getByRole('button', { name: `Done (${TO_TICK.length})` }).waitFor({ timeout: 20_000 })
   log('the second device sees the shared list')

@@ -59,12 +59,22 @@ export const SYNC_TABLES = {
   // the service role, and pulled here like anything else. It is in this registry
   // for the pull and the realtime subscription, not for the queue — nothing on a
   // client ever commits one.
-  calendar_events: { cache: 'calendar_events' }
+  calendar_events: { cache: 'calendar_events', readOnly: true }
 } as const
 
 export type SyncTable = keyof typeof SYNC_TABLES
 
 export const SYNC_TABLE_NAMES = Object.keys(SYNC_TABLES) as SyncTable[]
+
+/**
+ * The tables a client may push. Everything except the server-owned ones, whose
+ * rows arrive by pull and must never be sent back — the calendar function prunes
+ * old events with a hard delete, so a device that still had one would otherwise
+ * keep offering to re-create it.
+ */
+export const WRITABLE_TABLE_NAMES = SYNC_TABLE_NAMES.filter(
+  table => !('readOnly' in SYNC_TABLES[table])
+)
 
 /** The row type each synced table holds, so `cacheFor` and `commit` stay typed. */
 export interface RowOf {

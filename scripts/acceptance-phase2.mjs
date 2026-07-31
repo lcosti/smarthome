@@ -98,8 +98,10 @@ try {
   await page.getByPlaceholder('Luke').fill('Luke')
   await page.getByRole('button', { name: 'Create household' }).click()
   await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
-  // The redirect lands before the list has hydrated; clicking a tab mid-mount
-  // is a race this test should not be exercising.
+  // Straight to the list rather than tapping the tab: the board lands before it
+  // has hydrated, and clicking a tab mid-mount is a race this test should not
+  // be exercising.
+  await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 15_000 })
   log('signed in and created a household')
 
@@ -144,7 +146,7 @@ try {
   log('derived the week onto the shopping list')
 
   await page.getByRole('link', { name: 'List' }).click()
-  await page.waitForURL(`${ORIGIN}/`)
+  await page.waitForURL(`${ORIGIN}/shopping`)
   const listed = await mainText()
   for (const name of INGREDIENTS) assert(listed.includes(name), `${name} is on the list`)
   assert(listed.includes('Chilli con carne'), 'items say which recipe they came from')
@@ -172,7 +174,7 @@ try {
   log('removed the night and re-derived')
 
   await page.getByRole('link', { name: 'List' }).click()
-  await page.waitForURL(`${ORIGIN}/`)
+  await page.waitForURL(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 10_000 })
   const after = await mainText()
   assert(!after.includes('Beef mince'), 'unticked derived items came off with the night')

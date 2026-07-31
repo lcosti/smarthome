@@ -67,27 +67,7 @@ async function remove() {
         </UFormField>
 
         <UFormField label="Aisle">
-          <!-- Chips rather than a select: one tap instead of open-then-tap. -->
-          <div class="flex flex-wrap gap-2">
-            <UButton
-              size="sm"
-              color="neutral"
-              :variant="aisleId === null ? 'solid' : 'outline'"
-              @click="aisleId = null"
-            >
-              Other
-            </UButton>
-            <UButton
-              v-for="aisle in store.sortedAisles"
-              :key="aisle.id"
-              size="sm"
-              :color="aisleId === aisle.id ? 'primary' : 'neutral'"
-              :variant="aisleId === aisle.id ? 'solid' : 'outline'"
-              @click="aisleId = aisle.id"
-            >
-              {{ aisle.name }}
-            </UButton>
-          </div>
+          <AislePicker v-model="aisleId" />
         </UFormField>
       </div>
     </template>

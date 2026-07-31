@@ -1,7 +1,7 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { usePantryStore } from '../stores/pantry'
 import { useSyncStore } from '../stores/sync'
-import { SYNC_TABLE_NAMES, type SyncedRow } from '../utils/db'
+import { SYNC_TABLE_NAMES, type SyncedRow, type SyncTable } from '../utils/db'
 import { clearIdentity, readIdentity, writeIdentity } from '../utils/identity'
 import type { UpsertFn } from '../utils/sync'
 
@@ -30,6 +30,14 @@ export function useSync() {
   let connecting = false
 
   const upsert: UpsertFn = async (table, payload) => {
+    // Without a session supabase-js signs the request with the anon key instead,
+    // and anon is granted nothing — so every row comes back 42501, which carries
+    // a code and therefore reads as permanent, and the queue eats itself. A
+    // phone opened after its token expired is the ordinary case, not an edge
+    // one. Reported code-less so the drain treats it as an unreachable server:
+    // the queue is left whole and the existing retries pick it up once the
+    // session refreshes.
+    if (!session.value) return { error: { message: 'no session' } }
     const { error } = await supabase.from(table).upsert(payload as never)
     return { error }
   }
@@ -76,10 +84,17 @@ export function useSync() {
     }
     // Applied in registry order, so a recipe is in local state before the plan
     // entry and derived items that point at it.
+    const serverIds = {} as Record<SyncTable, Set<string>>
     SYNC_TABLE_NAMES.forEach((table, i) => {
-      for (const row of results[i]!.data ?? []) store.applyServerRow(table, row as SyncedRow as never)
+      const rows = results[i]!.data ?? []
+      serverIds[table] = new Set(rows.map(row => (row as SyncedRow).id))
+      for (const row of rows) store.applyServerRow(table, row as SyncedRow as never)
     })
     store.reachable = true
+    // Safe here and nowhere else: this is the one place holding a complete,
+    // wholly successful picture of what the server has, which is what makes the
+    // rows it is missing meaningful rather than just unfetched.
+    await store.requeueStranded(serverIds)
     // Everything on screen was true as of now. This is the only place that can
     // say so, which is why the wall board's "last synced" comes from here.
     store.markSynced()
@@ -220,10 +235,15 @@ export function useSync() {
     watch(
       () => store.dropped,
       (count, previous) => {
-        if (count <= (previous ?? 0)) return
+        const added = count - (previous ?? 0)
+        if (added <= 0) return
         toast.add({
-          title: 'Something could not be saved',
-          description: 'A change was rejected by the server and has been discarded.',
+          title: added === 1
+            ? 'Something could not be saved'
+            : `${added} changes could not be saved`,
+          description: added === 1
+            ? 'A change was rejected by the server and has been discarded.'
+            : 'They were rejected by the server and have been discarded.',
           color: 'warning',
           icon: 'i-lucide-cloud-alert'
         })

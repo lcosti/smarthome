@@ -89,12 +89,7 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
     </AppPageHeader>
 
     <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 pb-6 lg:max-w-5xl lg:px-6 lg:pb-12">
-      <div
-        v-if="!sync.hydrated"
-        class="py-16 text-center text-sm text-muted"
-      >
-        Loading…
-      </div>
+      <LoadingState v-if="!sync.hydrated" />
 
       <!--
         The redirect in useSync handles this when it can. This is the fallback for

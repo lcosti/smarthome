@@ -60,10 +60,14 @@ Deno.serve(async (req) => {
   const guard = guardMethod(req)
   if (guard) return guard
 
-  // Unset locally, where the function is only reachable from the machine it runs
-  // on. Set in production, where the whole internet can see the URL.
+  // This function runs as the service role and verify_jwt is off, so the shared
+  // secret is the only thing standing between it and the whole internet. Fail
+  // closed: an unset secret has to be an outage rather than an open door, or
+  // forgetting to set it in production silently publishes the service role.
+  // Serving locally therefore needs it too — see supabase/functions/.env.example.
   const expected = Deno.env.get('SYNC_SECRET')
-  if (expected && req.headers.get('x-sync-secret') !== expected) {
+  if (!expected) return json(500, { error: 'SYNC_SECRET is not configured' })
+  if (req.headers.get('x-sync-secret') !== expected) {
     return json(401, { error: 'bad or missing x-sync-secret' })
   }
 

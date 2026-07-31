@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AppDatabase,
   SYNC_TABLE_NAMES,
+  WRITABLE_TABLE_NAMES,
   type IngredientAliasRow,
   type IngredientRow,
   type ItemRow,
@@ -19,6 +20,7 @@ import {
   enqueueMutation,
   isPermanentSyncError,
   queuedRowIds,
+  rowsNeedingRequeue,
   shouldApplyServerRow,
   type SyncError,
   type UpsertFn
@@ -229,9 +231,51 @@ describe('isPermanentSyncError', () => {
   })
 
   it('treats a coded PostgREST rejection as permanent', () => {
+    // 42501 stays permanent on purpose. A retryable error halts the whole queue,
+    // so a row that genuinely fails its RLS check would sit at the head of it
+    // blocking every write behind it forever.
     expect(isPermanentSyncError(rlsError)).toBe(true)
     expect(isPermanentSyncError({ code: 'PGRST204' })).toBe(true)
     expect(isPermanentSyncError({ code: '23503' })).toBe(true)
+  })
+
+  // An expired token fails identically every time right up until it refreshes,
+  // which is the one code-bearing failure a retry actually cures.
+  it('treats an expired or invalid token as retryable', () => {
+    expect(isPermanentSyncError({ code: 'PGRST301', message: 'JWT expired' })).toBe(false)
+    expect(isPermanentSyncError({ code: 'PGRST302' })).toBe(false)
+  })
+})
+
+describe('rowsNeedingRequeue', () => {
+  const local = [item({ id: 'a' }), item({ id: 'b' }), item({ id: 'c' })]
+
+  it('returns the rows the server does not have', () => {
+    const missing = rowsNeedingRequeue(local, new Set(['a']), new Set())
+    expect(missing.map(r => r.id)).toEqual(['b', 'c'])
+  })
+
+  it('leaves rows the server already has alone', () => {
+    expect(rowsNeedingRequeue(local, new Set(['a', 'b', 'c']), new Set())).toEqual([])
+  })
+
+  // Already queued means it is on its way; queueing it twice would push the same
+  // row again behind itself.
+  it('skips rows with a write already waiting', () => {
+    const missing = rowsNeedingRequeue(local, new Set(), new Set(['a', 'b']))
+    expect(missing.map(r => r.id)).toEqual(['c'])
+  })
+
+  /**
+   * Re-queueing reads "the server does not have it" as "it never landed", which
+   * only holds where deletes are soft. calendar_events is the exception: the
+   * sync-calendar function prunes old events with a real delete, so a device
+   * still holding one must not offer to re-create it.
+   */
+  it('excludes server-owned tables from the writable set', () => {
+    expect(WRITABLE_TABLE_NAMES).not.toContain('calendar_events')
+    expect(WRITABLE_TABLE_NAMES).toContain('shopping_list_items')
+    expect(WRITABLE_TABLE_NAMES).toHaveLength(SYNC_TABLE_NAMES.length - 1)
   })
 })
 
@@ -342,6 +386,38 @@ describe('drainQueue', () => {
     expect(final).toEqual({ synced: 0, dropped: 1, halted: false })
     expect(await db.mutations.count()).toBe(0)
     expect(onDropped).toHaveBeenCalledOnce()
+  })
+
+  /**
+   * The bug this guards against: a phone opened after its token expired pushed
+   * with the anon key, which is granted nothing, and every row came back 42501.
+   * Coded, so permanent, so a whole boot's worth of writes was discarded after
+   * five passes. Both halves of the fix are asserted here — the composable now
+   * reports a missing session code-less, and an expired token is retryable — and
+   * either one alone is enough to keep the queue.
+   */
+  it('keeps the queue when the session is missing or expired rather than discarding it', async () => {
+    for (const failure of [{ message: 'no session' }, { code: 'PGRST301', message: 'JWT expired' }]) {
+      const server = fakeServer()
+      server.fail(failure)
+      const onDropped = vi.fn()
+      await enqueueMutation(db, 'shopping_list_items', item({ id: 'unauthenticated' }))
+
+      // Well past MAX_SYNC_ATTEMPTS: no amount of retrying may consume the write.
+      for (let pass = 0; pass < MAX_SYNC_ATTEMPTS + 2; pass++) {
+        const result = await drainQueue(db, server.upsert, { onDropped })
+        expect(result).toEqual({ synced: 0, dropped: 0, halted: true })
+      }
+
+      expect(onDropped).not.toHaveBeenCalled()
+      expect(await db.mutations.count()).toBe(1)
+
+      // And it lands once the session is back.
+      server.fail(null)
+      expect(await drainQueue(db, server.upsert)).toEqual({ synced: 1, dropped: 0, halted: false })
+      expect(server.rows.has('unauthenticated')).toBe(true)
+      await db.mutations.clear()
+    }
   })
 
   it('does not let a rejected write hold up the writes behind it', async () => {

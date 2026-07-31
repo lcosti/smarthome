@@ -202,8 +202,8 @@ swapped in rather than rendered twice and hidden with CSS.
 
 | Route | What it is for |
 |---|---|
-| `/today` | Tonight's meal, who is eating it, the schedule, the list, the week |
-| `/` | The shopping list — the page that has to open instantly on a phone |
+| `/` | Today: tonight's meal, who is eating it, the schedule, the list, the week |
+| `/shopping` | The shopping list — the page that has to open instantly on a phone |
 | `/plan` | Seven nights; tap one to choose, adjust or clear a recipe |
 | `/recipes` | The library, and `/recipes/<id>/cook` for a recipe at hob size |
 
@@ -278,30 +278,37 @@ job inside a paused database cannot unpause it, so the external ping stays.
 
 Once you have created a Supabase project (free tier) and a Netlify site:
 
-1. **Push the schema and the Edge Functions.**
+1. **Push the schema and the Edge Functions.** Secrets first, then one deploy —
+   the functions read them at run time, and a function deployed without its
+   secret is a function that answers every call with an error.
    ```bash
    pnpm supabase login
    pnpm supabase link --project-ref <ref>
    pnpm supabase db push
-   pnpm supabase functions deploy keepalive
-   pnpm supabase functions deploy import-recipe-photo
-   pnpm supabase secrets set ANTHROPIC_API_KEY=<key>
-   ```
-
-   The two import functions need an Anthropic key, so deploy them only once it is
-   set. Without it, typing and photographing still work, and a pasted link still
-   works for any page that publishes JSON-LD — only the fallback needs the model.
-   ```bash
    pnpm supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-   pnpm supabase functions deploy import-recipe-photo import-recipe-url
+   pnpm supabase secrets set SYNC_SECRET="$(openssl rand -hex 32)"
+   pnpm deploy:functions
    ```
 
-   `pnpm supabase functions list` should show both. Until `import-recipe-photo`
-   is deployed the camera button fails on every photo: the project answers the
-   call with its own 404, which carries none of the CORS headers the function
-   would have set, so the browser blocks the response and the app can only say
-   the photo could not be read. Nothing else in the app touches it — everything
-   but photo import works with no functions deployed at all.
+   `deploy:functions` deploys all four at once. Re-run it after any change under
+   `supabase/functions/` — including `_shared/`, which is bundled into each
+   function rather than deployed on its own.
+
+   The import functions want the Anthropic key, but only for the fallback:
+   without it, typing and photographing still work, and a pasted link still works
+   for any page that publishes JSON-LD. `SYNC_SECRET` is not optional —
+   `sync-calendar` runs as the service role with `verify_jwt` off, and refuses
+   every request until it is set. It must match the `sync_calendar_secret` vault
+   entry created in `supabase/migrations/20260730000005_calendar_events.sql`.
+
+   `pnpm supabase functions list` should show all four as `ACTIVE`. **If an
+   import fails with a message ending in "check your signal", check that list
+   before checking the wifi.** A function that was never deployed is answered by
+   the project's own 404, which carries none of the CORS headers the function
+   would have set — so the browser blocks the response, the app never gets to
+   read the real error, and the only honest thing left to say is that the network
+   failed. That is indistinguishable, in the app, from actually having no signal.
+   Everything but the two import buttons works with no functions deployed at all.
 
 2. **Netlify.** Create a site from this repo. `netlify.toml` sets the build
    command and publish directory. Set these site environment variables **before

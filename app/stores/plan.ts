@@ -12,7 +12,7 @@ import {
 import { derivePantryReservations } from '../utils/pantry'
 import { deriveLifeStage } from '../utils/people'
 import { plainCopy } from '../utils/sync'
-import { addDays, isoDate, weekDates } from '../utils/week'
+import { addDays, isoDate, todayIso, weekDates } from '../utils/week'
 import { useAttendanceStore } from './attendance'
 import { asBaseUnit, useIngredientsStore } from './ingredients'
 import { useListStore } from './list'
@@ -371,8 +371,12 @@ export const usePlanStore = defineStore('plan', () => {
   function weekSuggestions(weekStart: string, limit = 3): Map<string, RankedCandidate[]> {
     const input = generatorInput(weekDatesFrom(weekStart))
     const context = buildContext(input)
+    const today = todayIso()
     const byDate = new Map<string, RankedCandidate[]>()
     for (const night of input.nights) {
+      // A night that has been and gone is not short of ideas. Offering Monday a
+      // dinner on Friday is the panel asking for a decision nobody can make.
+      if (night.date < today) continue
       if (entriesOn(night.date).length || !eaters(night.people).length) continue
       byDate.set(night.date, topCandidates(context, night, limit))
     }
@@ -390,9 +394,17 @@ export const usePlanStore = defineStore('plan', () => {
     if (!sync.householdId) return { filled: 0, skipped: 0 }
 
     const dates = weekDatesFrom(weekStart)
+    const today = todayIso()
     const planned = new Set(dates.filter(date => entriesOn(date).length))
 
-    const picks = generateWeek(generatorInput(dates))
+    // The whole week goes in and only the nights still ahead come out to be
+    // planned: what was eaten on Monday still counts against repeats and towards
+    // ingredient overlap, but Monday itself is not a gap Friday can fill.
+    const input = generatorInput(dates)
+    const picks = generateWeek({
+      ...input,
+      nights: input.nights.filter(night => night.date >= today)
+    })
 
     // In date order, because a leftovers night names the night it came from by
     // date and the entry that date will become does not exist until it is
@@ -412,7 +424,8 @@ export const usePlanStore = defineStore('plan', () => {
     // A night is only "skipped" if somebody was eating and nothing could be
     // found — an empty night nobody is home for is the right plan, not a gap.
     const skipped = dates.filter(date =>
-      !planned.has(date)
+      date >= today
+      && !planned.has(date)
       && !picks.some(pick => pick.date === date)
       && attendance.presentOn(date).some(person => deriveLifeStage(person.date_of_birth, date) !== 'baby')
     ).length
@@ -420,10 +433,12 @@ export const usePlanStore = defineStore('plan', () => {
     return { filled: picks.length, skipped }
   }
 
-  /** Whether there is an empty night this week that somebody is eating on. */
+  /** Whether there is an empty night still ahead this week that somebody is eating on. */
   function hasGapsFor(weekStart: string): boolean {
+    const today = todayIso()
     return weekDatesFrom(weekStart).some(date =>
-      !entriesOn(date).length
+      date >= today
+      && !entriesOn(date).length
       && attendance.presentOn(date).some(person => deriveLifeStage(person.date_of_birth, date) !== 'baby')
     )
   }

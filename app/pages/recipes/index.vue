@@ -154,12 +154,7 @@ async function land(recipeId: string | null) {
     </AppPageHeader>
 
     <main class="mx-auto w-full max-w-xl min-h-0 flex-1 overflow-y-auto px-3 pb-6">
-      <div
-        v-if="!sync.hydrated"
-        class="py-16 text-center text-sm text-muted"
-      >
-        Loading…
-      </div>
+      <LoadingState v-if="!sync.hydrated" />
 
       <div
         v-else-if="!store.recipes.length"

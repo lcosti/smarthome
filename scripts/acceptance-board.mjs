@@ -119,7 +119,7 @@ const boardText = async () => (await frame().innerText()).replace(/[\n\t]+/g, ' 
 const boardState = () => board().getAttribute('data-board-state')
 
 async function openBoard() {
-  await page.goto(`${ORIGIN}/today`)
+  await page.goto(`${ORIGIN}/`)
   await board().waitFor({ timeout: 20_000 })
 }
 
@@ -137,6 +137,7 @@ try {
   await page.getByPlaceholder('Luke').fill('Luke')
   await page.getByRole('button', { name: 'Create household' }).click()
   await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
+  await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 15_000 })
   log('signed in and created a household')
 
@@ -217,7 +218,7 @@ try {
   }
   log('gave it three ingredients and three steps, from the phone')
 
-  await page.goto(`${ORIGIN}/`)
+  await page.goto(`${ORIGIN}/shopping`)
   for (const item of ['Nappies', 'Bin bags']) {
     await page.getByPlaceholder('Add an item').fill(item)
     await page.keyboard.press('Enter')
@@ -287,7 +288,7 @@ try {
   // across the move rather than on either side of it.
   const headerBefore = await page.locator('body > div > header').first().innerText()
   await frame().getByRole('link', { name: 'List', exact: true }).click()
-  await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
+  await page.waitForURL(`${ORIGIN}/shopping`, { timeout: 20_000 })
   const headerAfter = await page.locator('body > div > header').first().innerText()
   assert(headerBefore === headerAfter, 'the header is unchanged by navigating')
   assert(!(await page.locator('nav a[href="/plan"]').count()),
@@ -445,7 +446,7 @@ try {
   log('the method walks one step at a time, forwards and back')
 
   await frame().getByRole('link', { name: 'Exit' }).click()
-  await page.waitForURL(`${ORIGIN}/today`, { timeout: 20_000 })
+  await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
   await board().waitFor({ timeout: 20_000 })
   log('and leaving it puts the whole app back')
 
@@ -453,7 +454,7 @@ try {
   await page.waitForURL('**/recipes', { timeout: 20_000 })
 
   await frame().getByRole('link', { name: 'Today', exact: true }).click()
-  await page.waitForURL(`${ORIGIN}/today`, { timeout: 20_000 })
+  await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
   await board().waitFor({ timeout: 20_000 })
   log('and every view is one press from every other')
 
@@ -482,7 +483,7 @@ try {
   log('the Today card ticks items off and clears them without leaving the page')
 
   // --- emptylist: only the shopping card changes ----------------------------
-  await page.goto(`${ORIGIN}/`)
+  await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 20_000 })
   for (let guard = 0; guard < 20; guard++) {
     const left = await page.locator('main li > button').count()
@@ -544,7 +545,7 @@ try {
   assert(narrow.scrollW <= narrow.clientW + 1, `and nothing overflows sideways: ${JSON.stringify(narrow)}`)
   await shoot('phone-today')
 
-  await page.goto(`${ORIGIN}/`)
+  await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 20_000 })
   await shoot('phone-list')
   log('the same routes answer at 390x844 with the tab bar instead of the header')

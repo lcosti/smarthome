@@ -111,9 +111,10 @@ export default defineNuxtConfig({
         { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
         { src: '/pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
       ],
-      // Long-press the home screen icon. The list stays start_url — it is what
-      // the app is for — but the other two are one press away.
+      // Long-press the home screen icon. Today is start_url — it answers
+      // "what's going on" without being asked — and the rest are one press away.
       shortcuts: [
+        { name: 'Shopping list', short_name: 'Shopping', url: '/shopping' },
         { name: 'Plan the week', short_name: 'Plan', url: '/plan' },
         { name: 'Recipes', short_name: 'Recipes', url: '/recipes' }
       ]

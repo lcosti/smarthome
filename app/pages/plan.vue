@@ -149,12 +149,7 @@ async function derive() {
       v-else
       class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 pb-6"
     >
-      <div
-        v-if="!sync.hydrated"
-        class="py-16 text-center text-sm text-muted"
-      >
-        Loading…
-      </div>
+      <LoadingState v-if="!sync.hydrated" />
 
       <template v-else>
         <!-- All seven nights always render: an empty one is the invitation. -->

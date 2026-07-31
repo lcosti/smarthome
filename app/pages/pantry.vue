@@ -109,12 +109,7 @@ async function setTo(entry: PantryEntry, text: string) {
     </AppPageHeader>
 
     <main class="mx-auto min-h-0 w-full max-w-xl flex-1 space-y-6 overflow-y-auto px-3 py-4 lg:max-w-3xl">
-      <div
-        v-if="!sync.hydrated"
-        class="py-16 text-center text-sm text-muted"
-      >
-        Loading…
-      </div>
+      <LoadingState v-if="!sync.hydrated" />
 
       <template v-else>
         <p

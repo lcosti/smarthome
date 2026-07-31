@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import {
   db,
   SYNC_TABLE_NAMES,
+  WRITABLE_TABLE_NAMES,
   type AisleRow,
   type AttendanceRow,
   type CalendarEventRow,
@@ -26,6 +27,7 @@ import {
   enqueueMutation,
   plainCopy,
   queuedRowIds,
+  rowsNeedingRequeue,
   shouldApplyServerRow,
   type UpsertFn
 } from '../utils/sync'
@@ -130,8 +132,31 @@ export const useSyncStore = defineStore('sync', () => {
     try {
       const result = await drainQueue(db, upsert, {
         onRowSettled: id => queued.value.delete(id),
-        onDropped: () => dropped.value++
+        onDropped: (mutation, error) => {
+          // Losing a write is the one failure in this app that costs somebody
+          // something, and the toast it raises is deliberately too short to say
+          // why. Log the whole thing: which row, and the code the server gave —
+          // without it a dropped write is unattributable after the fact.
+          console.error(
+            'sync dropped a write', mutation.table, mutation.rowId,
+            error.code, error.message, mutation.payload
+          )
+          // Take the row out with the write. Keeping it would leave something
+          // that reads exactly like a synced row but exists nowhere else: it is
+          // handed out as a foreign key by resolve/linkFor, and every child
+          // written against it is rejected in turn, so one lost row quietly
+          // becomes a growing batch of them. The server is the authority, so
+          // anything real comes back on the next pull.
+          rowsOf(mutation.table).delete(mutation.rowId)
+          void db.cacheFor(mutation.table).delete(mutation.rowId)
+        }
       })
+      // Once for the whole drain, not once per row. A batch that fails tends to
+      // fail together — five rows queued at the same moment reach the attempt
+      // limit on the same pass — and five separate increments mean five separate
+      // toasts burying the screen. One bump gives the watcher a delta it can
+      // report as a single message.
+      if (result.dropped > 0) dropped.value += result.dropped
       if (result.halted) reachable.value = false
       else if (result.synced > 0 || result.dropped > 0) reachable.value = true
     } finally {
@@ -151,6 +176,36 @@ export const useSyncStore = defineStore('sync', () => {
     await enqueueMutation(db, table, next)
     void drain()
     return next
+  }
+
+  /**
+   * Queue every local row a completed pull did not bring back.
+   *
+   * Repairs a device that lost writes: the mutation was discarded but the row
+   * stayed in the cache, so it survives as something that looks synced and is
+   * not. Given the full server picture, the rows it does not mention are ones
+   * that never landed, and pushing them again is the only way they ever will.
+   *
+   * Called only after a pull that fully succeeded — a partial one would read as
+   * "the server has nothing" and queue the entire database. Server-owned tables
+   * are skipped: their rows are pruned with a real delete, so a missing one means
+   * gone rather than never sent.
+   */
+  async function requeueStranded(serverIds: Record<SyncTable, Set<string>>) {
+    let count = 0
+    for (const table of WRITABLE_TABLE_NAMES) {
+      const stranded = rowsNeedingRequeue(rowsOf(table).values(), serverIds[table], queued.value)
+      for (const row of stranded) {
+        queued.value.add(row.id)
+        await enqueueMutation(db, table, row)
+        count++
+      }
+    }
+    if (count > 0) {
+      console.warn('sync re-queued rows the server did not have', count)
+      void drain()
+    }
+    return count
   }
 
   function applyServerRow<T extends SyncTable>(table: T, row: RowOf[T]) {
@@ -192,6 +247,7 @@ export const useSyncStore = defineStore('sync', () => {
     sync,
     drain,
     commit,
+    requeueStranded,
     applyServerRow,
     reset
   }

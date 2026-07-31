@@ -33,13 +33,30 @@ export function plainCopy<T extends object>(row: T): T {
 }
 
 /**
+ * An expired or missing token. PostgREST reports these with a code like anything
+ * else, but they are the one code-bearing class that a retry genuinely fixes:
+ * the answer changes the moment the session refreshes.
+ */
+const RETRYABLE_CODES = new Set(['PGRST301', 'PGRST302'])
+
+/**
  * PostgREST rejections carry a code (a Postgres SQLSTATE, or a PGRST* code) and
  * will fail again identically no matter how often they are retried. A transport
  * failure carries no code, so it is treated as retryable — an unrecognised
  * failure must never cost someone their write.
+ *
+ * The exception is authentication. A code is not on its own proof of permanence:
+ * an expired token fails every attempt until it is refreshed and then succeeds,
+ * so retrying it is the whole point. Note what is deliberately absent — 42501,
+ * permission denied, stays permanent. A retryable error halts the entire queue,
+ * and a row that genuinely fails its RLS check would sit at the head of it
+ * blocking every write behind it forever. The unauthenticated 42501 that used to
+ * reach here is now stopped at the upsert instead, where a missing session is
+ * reported code-less; what is left is a real authorisation bug worth dropping.
  */
 export function isPermanentSyncError(error: SyncError | null): boolean {
-  return typeof error?.code === 'string' && error.code.length > 0
+  if (typeof error?.code !== 'string' || error.code.length === 0) return false
+  return !RETRYABLE_CODES.has(error.code)
 }
 
 /**
@@ -82,6 +99,31 @@ export async function queuedRowIds(db: AppDatabase): Promise<Set<string>> {
   const ids = new Set<string>()
   await db.mutations.each(m => ids.add(m.rowId))
   return ids
+}
+
+/**
+ * Local rows a completed pull did not bring back, and which nothing is waiting to
+ * push — writes that were dropped while their row stayed in the cache. They look
+ * like ordinary rows and are handed out as foreign keys, so until they are pushed
+ * again everything pointing at them is rejected too.
+ *
+ * Safe only because every delete in this app is soft: a delete commits
+ * `deleted_at` and the row is still returned by a pull. A row the server has
+ * never heard of was therefore never inserted, not deliberately removed. **If a
+ * hard delete is ever added, this turns into a resurrection bug** — the deleted
+ * row would come back on the next boot of every device that still had it.
+ */
+export function rowsNeedingRequeue<T extends { id: string }>(
+  local: Iterable<T>,
+  serverIds: ReadonlySet<string>,
+  queued: ReadonlySet<string>
+): T[] {
+  const missing: T[] = []
+  for (const row of local) {
+    if (serverIds.has(row.id) || queued.has(row.id)) continue
+    missing.push(row)
+  }
+  return missing
 }
 
 /**

@@ -234,8 +234,8 @@ try {
   await page.waitForTimeout(4000)
 
   const VIEWS = [
-    ['today', '/today'],
-    ['list', '/'],
+    ['today', '/'],
+    ['list', '/shopping'],
     ['week', '/plan'],
     ['recipes', '/recipes'],
     // Cook mode, on the one recipe seeded with a method worth reading.
