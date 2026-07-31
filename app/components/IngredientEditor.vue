@@ -180,22 +180,22 @@ async function remove() {
               size="lg"
             >
               {{ alias.alias }}
-              <button
+              <UButton
                 type="button"
-                class="ml-1 text-dimmed"
+                icon="i-lucide-x"
+                color="neutral"
+                variant="link"
+                size="xs"
                 :aria-label="`Remove ${alias.alias}`"
+                :ui="{ base: 'p-0 ms-1' }"
                 @click="store.removeAlias(alias.id)"
-              >
-                <UIcon
-                  name="i-lucide-x"
-                  class="size-3.5"
-                />
-              </button>
+              />
             </UBadge>
           </div>
-          <form
+          <UForm
+            :state="{ newAlias }"
             class="mt-2 flex gap-2"
-            @submit.prevent="addAlias"
+            @submit="addAlias"
           >
             <UInput
               v-model="newAlias"
@@ -211,7 +211,7 @@ async function remove() {
               :disabled="!newAlias.trim()"
               aria-label="Add name"
             />
-          </form>
+          </UForm>
         </UFormField>
 
         <UFormField
@@ -240,9 +240,10 @@ async function remove() {
               />
             </li>
           </ul>
-          <form
+          <UForm
+            :state="{ unitName, unitAmount }"
             class="flex gap-2"
-            @submit.prevent="addUnit"
+            @submit="addUnit"
           >
             <UInput
               v-model="unitName"
@@ -265,7 +266,7 @@ async function remove() {
               :disabled="!unitName.trim() || !unitAmount.trim()"
               aria-label="Add purchase unit"
             />
-          </form>
+          </UForm>
         </UFormField>
 
         <UFormField

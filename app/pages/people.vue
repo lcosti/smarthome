@@ -88,9 +88,10 @@ async function addPerson() {
           </li>
         </ul>
 
-        <form
+        <UForm
+          :state="{ newName, newDob }"
           class="mt-4 space-y-2 rounded-lg border border-default p-3"
-          @submit.prevent="addPerson"
+          @submit="addPerson"
         >
           <UInput
             v-model="newName"
@@ -118,7 +119,7 @@ async function addPerson() {
             The date of birth is optional, but without it everybody is assumed to
             be an adult.
           </p>
-        </form>
+        </UForm>
       </template>
     </main>
 

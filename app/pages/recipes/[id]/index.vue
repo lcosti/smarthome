@@ -204,9 +204,10 @@ async function removeRecipe() {
             Nothing yet. Add the first ingredient below.
           </p>
 
-          <form
+          <UForm
+            :state="{ draftIngredient }"
             class="mt-2 flex gap-2"
-            @submit.prevent="addIngredient(draftIngredient.trim(), null)"
+            @submit="addIngredient(draftIngredient.trim(), null)"
           >
             <IngredientSuggest
               ref="ingredientInput"
@@ -221,7 +222,7 @@ async function removeRecipe() {
               :disabled="!draftIngredient.trim()"
               aria-label="Add ingredient"
             />
-          </form>
+          </UForm>
         </section>
 
         <section>
@@ -287,9 +288,10 @@ async function removeRecipe() {
             No method yet. Add the first step below.
           </p>
 
-          <form
+          <UForm
+            :state="{ draftStep }"
             class="mt-2 flex items-end gap-2"
-            @submit.prevent="addStep"
+            @submit="addStep"
           >
             <!--
               A textarea, so enter means a new line the way it does everywhere
@@ -312,7 +314,7 @@ async function removeRecipe() {
               :disabled="!draftStep.trim()"
               aria-label="Add step"
             />
-          </form>
+          </UForm>
         </section>
 
         <!-- Notes is notes again: what the method left out, not the method. -->

@@ -66,9 +66,10 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
       title="Shopping"
       content-class="max-w-xl lg:max-w-5xl"
     >
-      <form
+      <UForm
+        :state="{ draft }"
         class="flex gap-2"
-        @submit.prevent="add"
+        @submit="add"
       >
         <UInput
           v-model="draft"
@@ -85,7 +86,7 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
           :disabled="!draft.trim()"
           aria-label="Add"
         />
-      </form>
+      </UForm>
     </AppPageHeader>
 
     <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 pb-6 lg:max-w-5xl lg:px-6 lg:pb-12">

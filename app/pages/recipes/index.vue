@@ -100,9 +100,10 @@ async function land(recipeId: string | null) {
   >
     <AppPageHeader :title="swapDate ? `Pick a meal for ${dayLabel(swapDate)}` : 'Recipes'">
       <div>
-        <form
+        <UForm
+          :state="{ draft }"
           class="flex gap-2"
-          @submit.prevent="add"
+          @submit="add"
         >
           <UInput
             v-model="draft"
@@ -142,7 +143,7 @@ async function land(recipeId: string | null) {
             data-testid="recipe-photo-input"
             @change="onPhotosPicked"
           >
-        </form>
+        </UForm>
 
         <p
           v-if="recipeImport.progress.value"

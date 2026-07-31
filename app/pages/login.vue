@@ -46,20 +46,23 @@ async function requestLink() {
           :description="`We sent a sign-in link to ${email.trim()}. Open it on this device.`"
         />
 
-        <form
+        <UForm
           v-else
+          :state="{ email }"
           class="space-y-3"
-          @submit.prevent="requestLink"
+          @submit="requestLink"
         >
-          <UInput
-            v-model="email"
-            type="email"
-            autocomplete="email"
-            size="xl"
-            placeholder="you@example.com"
-            class="w-full"
-            :disabled="pending"
-          />
+          <UFormField label="Email">
+            <UInput
+              v-model="email"
+              type="email"
+              autocomplete="email"
+              size="xl"
+              placeholder="you@example.com"
+              class="w-full"
+              :disabled="pending"
+            />
+          </UFormField>
           <UButton
             type="submit"
             size="xl"
@@ -69,13 +72,13 @@ async function requestLink() {
           >
             Email me a link
           </UButton>
-          <p
+          <UAlert
             v-if="errorMessage"
-            class="text-sm text-error"
-          >
-            {{ errorMessage }}
-          </p>
-        </form>
+            color="error"
+            variant="subtle"
+            :description="errorMessage"
+          />
+        </UForm>
       </div>
     </div>
   </div>

@@ -29,11 +29,11 @@ const preview = computed(() => {
   return age ? `${stage} · ${age}` : stage
 })
 
-const KINDS: { value: ConstraintKind, label: string, help: string }[] = [
-  { value: 'allergy', label: 'Allergy', help: 'Never planned.' },
-  { value: 'intolerance', label: 'Intolerance', help: 'Never planned.' },
-  { value: 'dislike', label: 'Dislike', help: 'Planned less often.' },
-  { value: 'preference', label: 'Preference', help: 'Planned more often.' }
+const KINDS: { value: ConstraintKind, label: string, description: string }[] = [
+  { value: 'allergy', label: 'Allergy', description: 'Never planned.' },
+  { value: 'intolerance', label: 'Intolerance', description: 'Never planned.' },
+  { value: 'dislike', label: 'Dislike', description: 'Planned less often.' },
+  { value: 'preference', label: 'Preference', description: 'Planned more often.' }
 ]
 
 watch(open, (isOpen) => {
@@ -124,36 +124,37 @@ async function remove() {
             >
               {{ constraint.tag }}
               <span class="ml-1 text-xs opacity-70">{{ constraint.kind }}</span>
-              <button
+              <UButton
                 type="button"
-                class="ml-1 text-dimmed"
+                icon="i-lucide-x"
+                color="neutral"
+                variant="link"
+                size="xs"
                 :aria-label="`Remove ${constraint.tag}`"
+                :ui="{ base: 'p-0 ms-1' }"
                 @click="store.removeConstraint(constraint.id)"
-              >
-                <UIcon
-                  name="i-lucide-x"
-                  class="size-3.5"
-                />
-              </button>
+              />
             </UBadge>
           </div>
 
-          <div class="flex flex-wrap gap-2">
-            <UButton
-              v-for="option in KINDS"
-              :key="option.value"
-              :color="kind === option.value ? 'primary' : 'neutral'"
-              :variant="kind === option.value ? 'solid' : 'subtle'"
-              size="lg"
-              @click="kind = option.value"
-            >
-              {{ option.label }}
-            </UButton>
-          </div>
+          <!--
+            A radio group rather than four buttons, which is what this always
+            was: one choice out of four, and the cards are where the difference
+            between an allergy and a dislike finally gets said out loud instead
+            of sitting unread in KINDS.
+          -->
+          <URadioGroup
+            v-model="kind"
+            :items="KINDS"
+            variant="card"
+            orientation="horizontal"
+            :ui="{ fieldset: 'flex-wrap gap-2', item: 'flex-1 basis-40' }"
+          />
 
-          <form
+          <UForm
+            :state="{ tag }"
             class="mt-2 flex gap-2"
-            @submit.prevent="addConstraint"
+            @submit="addConstraint"
           >
             <UInput
               v-model="tag"
@@ -169,7 +170,7 @@ async function remove() {
               :disabled="!tag.trim()"
               aria-label="Add"
             />
-          </form>
+          </UForm>
         </UFormField>
       </div>
     </template>

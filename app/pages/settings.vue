@@ -111,9 +111,10 @@ async function copyInviteCode() {
           </li>
         </ul>
 
-        <form
+        <UForm
+          :state="{ newAisle }"
           class="flex gap-2"
-          @submit.prevent="addAisle"
+          @submit="addAisle"
         >
           <UInput
             v-model="newAisle"
@@ -126,7 +127,7 @@ async function copyInviteCode() {
             :disabled="!newAisle.trim()"
             aria-label="Add aisle"
           />
-        </form>
+        </UForm>
       </section>
 
       <section class="space-y-2">
