@@ -1,20 +1,21 @@
 <script setup lang="ts">
-import { useAttendanceStore } from '../../stores/attendance'
-import { useListStore } from '../../stores/list'
-import { usePeopleStore } from '../../stores/people'
-import { usePlanStore } from '../../stores/plan'
-import { useRecipesStore } from '../../stores/recipes'
-import { useSyncStore } from '../../stores/sync'
-import { buildBoard, type BoardEvent, type BoardToBuyLine } from '../../utils/board'
-import { addDays, isoDate, mondayOf } from '../../utils/week'
+import { useAttendanceStore } from '../stores/attendance'
+import { useListStore } from '../stores/list'
+import { usePeopleStore } from '../stores/people'
+import { usePlanStore } from '../stores/plan'
+import { useRecipesStore } from '../stores/recipes'
+import { useSyncStore } from '../stores/sync'
+import { buildBoard, type BoardEvent, type BoardToBuyLine } from '../utils/board'
+import { addDays, isoDate, mondayOf } from '../utils/week'
 
 /**
  * Today: what's for dinner, who's eating it, what else is happening, what needs
  * buying, and what the rest of the week looks like.
  *
- * The default view, and the one the board exists for. Everything on it is
- * derived by `buildBoard` — one pure function, one view model, seven content
- * states that fall out of the facts rather than being seven templates.
+ * The view the kitchen tablet sits on all day, and the same view on a phone in
+ * a column. Everything on it is derived by `buildBoard` — one pure function,
+ * one view model, seven content states that fall out of the facts rather than
+ * being seven templates.
  */
 
 const sync = useSyncStore()
@@ -99,13 +100,13 @@ const generating = ref(false)
 
 async function generate() {
   if (generating.value) return
-  // No spinner and no overlay — the button's own label changes and the board
+  // No spinner and no overlay — the button's own label changes and the page
   // keeps its content, which is the rule everywhere on this screen.
   generating.value = true
   try {
     // From tonight forward, not from Monday: on a Friday, filling the calendar
     // week would spend most of its effort on nights that have already been and
-    // gone, and leave the weekend the board is actually showing still empty.
+    // gone, and leave the weekend the page is actually showing still empty.
     await plan.fillWeek(isoDate(now.value))
   } finally {
     generating.value = false
@@ -113,9 +114,9 @@ async function generate() {
 }
 
 function openRecipe() {
-  // Into the board's own recipe view, not the phone page: this is a kiosk, and
-  // a max-w-xl column under a 1280px header would be a different application.
-  if (board.value.hero.recipeId) navigateTo(`/board/recipes/${board.value.hero.recipeId}`)
+  // Cook mode, not the recipe's edit page: the thing you want from tonight's
+  // dinner while standing in the kitchen is the method, at a readable size.
+  if (board.value.hero.recipeId) navigateTo(`/recipes/${board.value.hero.recipeId}/cook`)
 }
 
 function togglePerson(personId: string) {
@@ -150,22 +151,21 @@ async function sendToList() {
 
 /** Swapping is a choice from the library, and the library is a whole view. */
 function swapMeal() {
-  navigateTo(`/board/recipes?swap=${board.value.hero.date}`)
+  navigateTo(`/recipes?swap=${board.value.hero.date}`)
 }
 </script>
 
 <template>
   <div
     :data-board-state="board.state"
-    class="flex min-h-0 flex-1 flex-col gap-4"
+    class="mx-auto flex max-w-xl flex-col gap-4 px-3 pb-28 pt-3 lg:max-w-none lg:px-6 lg:pb-6"
   >
     <!--
-      The main row absorbs all the leftover height, which is what makes Tonight's
-      footer line up with the bottom of the Shopping card and leaves the week
-      strip flush against the bottom of the frame. The floor is for short
-      viewports: below it the body scrolls rather than the cards being crushed.
+      One column on a phone, two on a wide screen. The hero is the reason this
+      page exists, so it gets the larger share and the two smaller cards stack
+      beside it rather than under it.
     -->
-    <div class="grid min-h-[440px] flex-1 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-stretch gap-4">
+    <div class="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <BoardHero
         :hero="board.hero"
         :generating="generating"

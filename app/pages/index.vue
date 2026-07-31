@@ -62,8 +62,12 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
 
 <template>
   <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
-      <div class="mx-auto max-w-xl px-3 pt-3 pb-2">
+    <!--
+      Sticky on a phone, where it is the only thing at the top of the screen;
+      static on a wide one, where the app header already occupies top-0.
+    -->
+    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur lg:static">
+      <div class="mx-auto max-w-xl px-3 pt-3 pb-2 lg:max-w-5xl lg:px-6">
         <div class="mb-2 flex items-center gap-2">
           <h1 class="flex-1 truncate text-lg font-semibold">
             Shopping
@@ -86,11 +90,13 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
             Saving
           </UBadge>
 
+          <!-- The wide layout already has one in the app header. -->
           <UButton
             to="/settings"
             icon="i-lucide-settings"
             color="neutral"
             variant="ghost"
+            class="lg:hidden"
             aria-label="Settings"
           />
         </div>
@@ -118,7 +124,7 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
       </div>
     </header>
 
-    <main class="mx-auto max-w-xl px-3 pb-28">
+    <main class="mx-auto max-w-xl px-3 pb-28 lg:max-w-5xl lg:px-6 lg:pb-12">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"
@@ -163,25 +169,33 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
       </div>
 
       <template v-else>
-        <section
-          v-for="group in store.groups"
-          :key="group.id"
-          class="mt-5 first:mt-3"
-        >
-          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
-            {{ group.name }}
-          </h2>
-          <ul class="rounded-lg border border-default bg-elevated/30">
-            <ListEntryRow
-              v-for="entry in group.entries"
-              :key="entry.key"
-              :entry="entry"
-              :source-label="store.sourceLabelForEntry(entry)"
-              @toggle="store.toggleEntry(entry)"
-              @edit="openEntry(entry)"
-            />
-          </ul>
-        </section>
+        <!--
+          One column on a phone, walked top to bottom in aisle order. Three on a
+          wide screen, where the whole shop fits on one screen and reading order
+          matters less than seeing all of it at once. `items-start` so a short
+          aisle does not stretch to the height of the longest one beside it.
+        -->
+        <div class="lg:grid lg:grid-cols-3 lg:items-start lg:gap-x-4">
+          <section
+            v-for="group in store.groups"
+            :key="group.id"
+            class="mt-5 first:mt-3 lg:mt-4 lg:first:mt-4"
+          >
+            <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
+              {{ group.name }}
+            </h2>
+            <ul class="rounded-lg border border-default bg-elevated/30">
+              <ListEntryRow
+                v-for="entry in group.entries"
+                :key="entry.key"
+                :entry="entry"
+                :source-label="store.sourceLabelForEntry(entry)"
+                @toggle="store.toggleEntry(entry)"
+                @edit="openEntry(entry)"
+              />
+            </ul>
+          </section>
+        </div>
 
         <section
           v-if="store.checkedItems.length"

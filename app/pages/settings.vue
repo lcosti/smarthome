@@ -9,6 +9,8 @@ const supabase = useSupabaseClient()
 const signOut = useSignOut()
 const toast = useToast()
 
+const alwaysOn = useAlwaysOn()
+
 const household = ref<{ name: string, invite_code: string } | null>(null)
 const newAisle = ref('')
 const drafts = ref(new Map<string, string>())
@@ -52,8 +54,8 @@ async function copyInviteCode() {
 
 <template>
   <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
-      <div class="mx-auto flex max-w-xl items-center gap-2 px-3 py-3">
+    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur lg:static">
+      <div class="mx-auto flex max-w-xl lg:max-w-3xl items-center gap-2 px-3 py-3">
         <UButton
           to="/"
           icon="i-lucide-arrow-left"
@@ -67,7 +69,7 @@ async function copyInviteCode() {
       </div>
     </header>
 
-    <main class="mx-auto max-w-xl space-y-8 px-3 py-5 pb-28">
+    <main class="mx-auto max-w-xl lg:max-w-3xl space-y-8 px-3 py-5 pb-28">
       <section class="space-y-2">
         <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
           Aisles
@@ -201,23 +203,25 @@ async function copyInviteCode() {
 
       <section class="space-y-2">
         <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
-          Wall board
+          Always-on display
         </h2>
-        <p class="text-sm text-muted">
-          Tonight's meal, the shopping list, the week and the recipes, at a size
-          you can read across the kitchen. Press F for fullscreen; browser back
-          to leave.
-        </p>
-        <UButton
-          to="/board"
-          color="neutral"
-          variant="subtle"
-          size="lg"
-          block
-          trailing-icon="i-lucide-chevron-right"
-        >
-          Open the board
-        </UButton>
+        <div class="flex items-start gap-3 rounded-lg border border-default p-3">
+          <USwitch
+            v-model="alwaysOn"
+            class="mt-0.5"
+            aria-label="Always-on display"
+          />
+          <div class="space-y-1">
+            <p class="text-sm">
+              This screen never sleeps
+            </p>
+            <p class="text-sm text-muted">
+              For a tablet left on in the kitchen. Everything drifts a pixel at a
+              time so the layout never burns into the panel — slowly enough that
+              nobody sees it move. Press F for fullscreen.
+            </p>
+          </div>
+        </div>
       </section>
 
       <section class="space-y-2">

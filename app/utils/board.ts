@@ -18,7 +18,7 @@
 
 import { deriveLifeStage, type LifeStage } from './people'
 import { personHue } from './person-colors'
-import { addDays, isoDate, isoWeekNumber } from './week'
+import { addDays, isoDate, isoWeekNumber, mondayOf, weekDates } from './week'
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -242,6 +242,103 @@ export interface BoardHeaderInput {
   offline: boolean
   lastSyncedAt: string | null
   weather: BoardWeather | null
+}
+
+// --- the library ------------------------------------------------------------
+
+/** A recipe as the library reads it. The rows, minus what only an editor needs. */
+export interface LibraryRecipe {
+  id: string
+  name: string
+  image_url: string | null
+  base_servings: number
+  prep_minutes: number | null
+  cook_minutes: number | null
+}
+
+/** One ingredient line, for searching, listing, and diffing against the list. */
+export interface LibraryLine {
+  id: string
+  recipe_id: string
+  name: string
+  quantity: string | null
+  aisle_id: string | null
+}
+
+/** A night this recipe was, or will be, cooked. Past and future both matter. */
+export interface LibraryPlanEntry {
+  date: string
+  recipe_id: string | null
+}
+
+/**
+ * What is on the shopping list right now.
+ *
+ * Ticked items included: something already in the trolley is emphatically not
+ * missing, and a button offering to buy the feta again on the walk home is the
+ * kind of thing that gets an app deleted.
+ */
+export interface LibraryListItem {
+  name: string
+}
+
+export type LibraryFacet = 'all' | 'quick' | 'batch' | 'planned' | 'never'
+export type LibrarySort = 'recent' | 'quickest' | 'cooked'
+
+export interface LibraryInput {
+  recipes: LibraryRecipe[]
+  lines: LibraryLine[]
+  planEntries: LibraryPlanEntry[]
+  listItems: LibraryListItem[]
+  now: Date
+  /** Free text over recipe names and their ingredients. Trimmed here, not by the caller. */
+  query: string
+  facet: LibraryFacet
+  sort: LibrarySort
+  /** What the pane is showing, or null to mean "whatever is first". */
+  selectedId: string | null
+}
+
+export interface LibraryCard {
+  id: string
+  name: string
+  image: string | null
+  servings: number
+  /** Prep plus cook, or null when the recipe does not say. */
+  minutes: number | null
+  cookedCount: number
+  /** 'FRI' when it is on this week's plan, else null. */
+  plannedDay: string | null
+  /** '30 min · serves 4 · cooked 6×'. */
+  meta: string
+  /** The facets this recipe is in, minus 'all' — the chips drawn on the card. */
+  chips: string[]
+  selected: boolean
+}
+
+export interface LibraryDetail {
+  id: string
+  name: string
+  image: string | null
+  /** 'LIBRARY · LAST COOKED 5 DAYS AGO' — the pane's eyebrow, already shouted. */
+  eyebrow: string
+  /** '35 min · serves 4 · cooked 11 times'. */
+  meta: string
+  ingredients: { id: string, name: string, quantity: string | null, onList: boolean }[]
+  /** The lines not already on the list, which is exactly what the button sends. */
+  missing: { id: string, name: string, quantity: string | null, aisleId: string | null }[]
+  /** 'Send 2 items to the shopping list', or null when there is nothing to send. */
+  sendLabel: string | null
+  /** When it was last cooked, most recent first. '26 Jul' beside '5 days ago'. */
+  history: { date: string, dateLabel: string, label: string }[]
+}
+
+export interface LibraryModel {
+  cards: LibraryCard[]
+  facets: { key: LibraryFacet, label: string, count: number }[]
+  detail: LibraryDetail | null
+  /** True when the household has recipes but this search matches none of them. */
+  noMatches: boolean
 }
 
 export interface BoardModel {
@@ -903,5 +1000,243 @@ export function buildBoard(input: BoardInput): BoardModel {
       countLabel: plural(input.shopping.count, 'item')
     },
     week
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The library
+// ---------------------------------------------------------------------------
+
+/** Under this, a recipe is a weeknight one. */
+const QUICK_MINUTES = 30
+
+/** At or above this, it is worth cooking for a table rather than a plate. */
+const BATCH_SERVINGS = 4
+
+/** How many past nights the detail pane lists. Enough to see a habit, not a log. */
+const MAX_HISTORY = 4
+
+const FACET_LABELS: Record<LibraryFacet, string> = {
+  all: 'All',
+  quick: 'Quick',
+  batch: 'Big batch',
+  planned: 'On the plan',
+  never: 'Never cooked'
+}
+
+/** Loose enough that 'Feta ' and 'feta' are the same shopping trip. */
+function libraryKey(name: string): string {
+  return name.trim().toLowerCase()
+}
+
+function totalMinutes(recipe: LibraryRecipe): number | null {
+  return (recipe.prep_minutes ?? 0) + (recipe.cook_minutes ?? 0) || null
+}
+
+/** Whole days between two 'YYYY-MM-DD' dates, ignoring clocks and DST alike. */
+function daysBetween(from: string, to: string): number {
+  const parse = (date: string) => {
+    const [year, month, day] = date.split('-').map(Number)
+    return Date.UTC(year!, month! - 1, day!)
+  }
+  return Math.round((parse(to) - parse(from)) / 86_400_000)
+}
+
+/** 'today' / 'yesterday' / '5 days ago' / '3 weeks ago'. Coarse, like the header. */
+function agoLabel(date: string, today: string): string {
+  const days = daysBetween(date, today)
+  if (days <= 0) return 'today'
+  if (days === 1) return 'yesterday'
+  if (days < 14) return `${days} days ago`
+  const weeks = Math.floor(days / 7)
+  return weeks < 9 ? `${weeks} weeks ago` : 'months ago'
+}
+
+/** '26 Jul' — the history rows. */
+function shortDate(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  return new Date(year!, month! - 1, day!).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short'
+  })
+}
+
+/**
+ * The recipe library, as the board reads it.
+ *
+ * Everything the mockup asks for is derived rather than stored. There is no tags
+ * column and no pantry table, and this is deliberately not the change that adds
+ * them: how long a recipe takes, how many it serves, how often it has been
+ * cooked and what is already on the list are all facts the app has, and they
+ * answer the same questions — quick tonight? feeds everyone? had it recently?
+ * what would I have to buy?
+ *
+ * Cooked counts come from the plan rather than from a counter, so they are true
+ * of what actually happened without anything having to be recorded. A future
+ * night is not a time it was cooked; a past one is.
+ */
+export function buildRecipeLibrary(input: LibraryInput): LibraryModel {
+  const today = isoDate(input.now)
+  const query = libraryKey(input.query)
+
+  // --- lines, grouped once ---------------------------------------------------
+  const linesBy = new Map<string, LibraryLine[]>()
+  for (const line of input.lines) {
+    const group = linesBy.get(line.recipe_id)
+    if (group) group.push(line)
+    else linesBy.set(line.recipe_id, [line])
+  }
+
+  // --- when each recipe has been cooked, and when it is next on ---------------
+  const cookedOn = new Map<string, string[]>()
+  const plannedThisWeek = new Map<string, string>()
+  const thisWeek = new Set(weekDates(mondayOf(input.now)))
+
+  for (const entry of input.planEntries) {
+    if (!entry.recipe_id) continue
+    if (entry.date < today) {
+      const dates = cookedOn.get(entry.recipe_id)
+      if (dates) dates.push(entry.date)
+      else cookedOn.set(entry.recipe_id, [entry.date])
+    }
+    // The badge is this week's, not the next time it appears: the grid sits
+    // under a header about this week, and 'FRI' meaning a Friday five weeks out
+    // would be read wrong every time.
+    if (thisWeek.has(entry.date) && !plannedThisWeek.has(entry.recipe_id)) {
+      plannedThisWeek.set(entry.recipe_id, shortDay(entry.date).toUpperCase())
+    }
+  }
+
+  const onList = new Set(input.listItems.map(item => libraryKey(item.name)))
+
+  // --- one pass, everything a card needs -------------------------------------
+  const rows = input.recipes.map((recipe) => {
+    const lines = linesBy.get(recipe.id) ?? []
+    const history = (cookedOn.get(recipe.id) ?? []).sort().reverse()
+    const minutes = totalMinutes(recipe)
+
+    const facets = new Set<LibraryFacet>(['all'])
+    if (minutes !== null && minutes <= QUICK_MINUTES) facets.add('quick')
+    if (recipe.base_servings >= BATCH_SERVINGS) facets.add('batch')
+    if (plannedThisWeek.has(recipe.id)) facets.add('planned')
+    if (!history.length) facets.add('never')
+
+    return {
+      recipe,
+      lines,
+      history,
+      minutes,
+      facets,
+      cookedCount: history.length,
+      lastCooked: history[0] ?? null,
+      // Searching the ingredients as well as the name is the difference between
+      // a filter and a way of answering "what can I do with the feta".
+      haystack: [recipe.name, ...lines.map(line => line.name)].join(' ').toLowerCase()
+    }
+  })
+
+  const matching = query ? rows.filter(row => row.haystack.includes(query)) : rows
+
+  // Counts describe the search you are in, not the library — a chip promising
+  // four when the grid under it can only show one is a chip that lies.
+  const facets = (Object.keys(FACET_LABELS) as LibraryFacet[]).map(key => ({
+    key,
+    label: FACET_LABELS[key],
+    count: matching.filter(row => row.facets.has(key)).length
+  }))
+
+  const filtered = matching.filter(row => row.facets.has(input.facet))
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (input.sort === 'quickest') {
+      // A recipe that never said how long it takes cannot be the quickest one.
+      const left = a.minutes ?? Infinity
+      const right = b.minutes ?? Infinity
+      if (left !== right) return left - right
+    }
+    if (input.sort === 'cooked' && a.cookedCount !== b.cookedCount) {
+      return b.cookedCount - a.cookedCount
+    }
+    if (input.sort === 'recent' && a.lastCooked !== b.lastCooked) {
+      // Never cooked sorts last rather than first: "recent" is a question about
+      // things that have happened.
+      if (!a.lastCooked) return 1
+      if (!b.lastCooked) return -1
+      return b.lastCooked.localeCompare(a.lastCooked)
+    }
+    return a.recipe.name.localeCompare(b.recipe.name)
+  })
+
+  // A selection that has been searched away, or deleted on a phone. Falling to
+  // the first card keeps the pane full, which is what the layout is for.
+  const selected = sorted.find(row => row.recipe.id === input.selectedId) ?? sorted[0] ?? null
+
+  const cards: LibraryCard[] = sorted.map(row => ({
+    id: row.recipe.id,
+    name: row.recipe.name,
+    image: row.recipe.image_url,
+    servings: row.recipe.base_servings,
+    minutes: row.minutes,
+    cookedCount: row.cookedCount,
+    plannedDay: plannedThisWeek.get(row.recipe.id) ?? null,
+    meta: [
+      row.minutes ? `${row.minutes} min` : null,
+      `serves ${row.recipe.base_servings}`,
+      row.cookedCount ? `cooked ${row.cookedCount}×` : null
+    ].filter(Boolean).join(' · '),
+    chips: (['quick', 'batch'] as const)
+      .filter(key => row.facets.has(key))
+      .map(key => FACET_LABELS[key]),
+    selected: row.recipe.id === selected?.recipe.id
+  }))
+
+  let detail: LibraryDetail | null = null
+
+  if (selected) {
+    const ingredients = selected.lines.map(line => ({
+      id: line.id,
+      name: line.name,
+      quantity: line.quantity,
+      onList: onList.has(libraryKey(line.name))
+    }))
+    const missing = selected.lines
+      .filter(line => !onList.has(libraryKey(line.name)))
+      .map(line => ({
+        id: line.id,
+        name: line.name,
+        quantity: line.quantity,
+        aisleId: line.aisle_id
+      }))
+
+    detail = {
+      id: selected.recipe.id,
+      name: selected.recipe.name,
+      image: selected.recipe.image_url,
+      eyebrow: selected.lastCooked
+        ? `Library · last cooked ${agoLabel(selected.lastCooked, today)}`
+        : 'Library · never cooked',
+      meta: [
+        selected.minutes ? `${selected.minutes} min` : null,
+        `serves ${selected.recipe.base_servings}`,
+        selected.cookedCount ? `cooked ${plural(selected.cookedCount, 'time')}` : null
+      ].filter(Boolean).join(' · '),
+      ingredients,
+      missing,
+      sendLabel: missing.length
+        ? `Send ${plural(missing.length, 'item')} to the shopping list`
+        : null,
+      history: selected.history.slice(0, MAX_HISTORY).map(date => ({
+        date,
+        dateLabel: shortDate(date),
+        label: agoLabel(date, today)
+      }))
+    }
+  }
+
+  return {
+    cards,
+    facets,
+    detail,
+    noMatches: input.recipes.length > 0 && cards.length === 0
   }
 }

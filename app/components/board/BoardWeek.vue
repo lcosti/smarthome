@@ -2,7 +2,7 @@
 import type { WeekSlot } from '../../utils/board'
 
 /**
- * Six days of context under the hero, so the board answers "and then what" as
+ * Six days of context under the hero, so the page answers "and then what" as
  * well as "what tonight".
  *
  * A night with nothing planned says "No meal" on a recessed tile rather than
@@ -11,8 +11,9 @@ import type { WeekSlot } from '../../utils/board'
  * room.
  *
  * Generating lives here rather than only in the hero, because this is the card
- * the empty nights are on. Six fixed tracks, never `repeat(auto-fit, …)` — that
- * orphaned a single card onto its own row at some widths.
+ * the empty nights are on. Fixed track counts at each width, never
+ * `repeat(auto-fit, …)` — that orphaned a single card onto its own row at some
+ * widths. Six divides evenly by two and three, so no row is ever short.
  */
 defineProps<{ week: WeekSlot[], generating?: boolean }>()
 
@@ -25,7 +26,7 @@ defineEmits<{ generate: [] }>()
     :ui="{
       root: 'flex-none overflow-hidden rounded-lg bg-elevated/50 divide-y divide-default ring ring-default',
       header: 'flex items-center justify-between gap-3 px-6 py-4 sm:px-6',
-      body: 'grid grid-cols-6 gap-3 px-6 pb-6 pt-5 sm:p-6 sm:pb-6 sm:pt-5'
+      body: 'grid grid-cols-2 gap-3 px-4 pb-4 pt-3 sm:grid-cols-3 sm:p-6 sm:pb-6 sm:pt-5 lg:grid-cols-6'
     }"
   >
     <template #header>

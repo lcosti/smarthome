@@ -96,15 +96,17 @@ names, every line is canonicalised, and pasting the same address again lands on
 the recipe it already made instead of a second copy. The Edge Function is stubbed
 at the network seam; its JSON-LD reader is covered by `pnpm test`.
 
-`pnpm acceptance:board` opens the wall dashboard at 1920×1200 — the size it will
-actually hang at — and drives it through five of its states: a brand-new
-household with nothing set up, no plan and the one filled button, pressing it to
-get a real week, an empty shopping list, and the network dropping. It also walks
-all four views, ticking an item off the list and planning a night from the wall,
-and checks the header survives every move without changing. It checks the frame does not scroll in either direction, that
-the roster adapts by derived life stage, and that going offline keeps every fact
-on screen while removing the now-marker, with no spinner and no error screen
-anywhere. Screenshots of each state land in `.acceptance/board/`.
+`pnpm acceptance:board` opens the app at 1280×800 — a landscape kitchen tablet —
+and drives it through five of its states: a brand-new household with nothing set
+up, no plan and the one filled button, pressing it to get a real week, an empty
+shopping list, and the network dropping. It also walks all four sections, ticking
+an item off the list and planning a night from the wide week grid, and checks the
+header survives every move without changing. It checks the roster adapts by
+derived life stage, that nothing overflows sideways, and that going offline keeps
+every fact on screen while removing the now-marker, with no spinner and no error
+screen anywhere. It finishes with a short pass at 390×844 to confirm the same
+routes answer at phone width with the tab bar instead of the header. Screenshots
+land in `.acceptance/board/`.
 
 ```bash
 pnpm exec playwright install chromium   # once
@@ -184,32 +186,36 @@ tomatoes after the line was ticked could never surface, because a checked row is
 frozen. Grouping at render time has none of that, and it means a merge, a parser
 improvement or a new purchase unit applies retroactively with nothing rewritten.
 
-## The wall dashboard
+## Two shapes, one app
 
-`/board` is a display rather than a page: one fixed 1920×1200 frame for an
-always-on kitchen tablet, with no scrolling, no spinners and no error screens.
-It has no phone tab bar, and it forces dark mode while it is open.
+There is no separate dashboard. Every route answers at both sizes: a phone column
+with a tab bar along the bottom, and a desktop layout with the navigation in a
+sticky header. The line is 1024px — Tailwind's `lg` — and `app/composables/
+useWide.ts` is the single place that asks, so the pages that adapt with `lg:`
+classes and the components swapped with `v-if` cannot disagree about where it is.
 
-It is a shell with four views, linked from the middle of the header:
+Most pages are one DOM at two widths. Two are not: the plan (seven rows on a
+phone, seven columns on a wide screen) and the recipe library (a list, or master
+and detail) are genuinely different trees with different scripts, so
+`app/components/PlanWeekWide.vue` and `app/components/RecipeLibraryWide.vue` are
+swapped in rather than rendered twice and hidden with CSS.
 
-| View | What it is for |
+| Route | What it is for |
 |---|---|
-| `/board` | Today: tonight's meal, who is eating it, the schedule, the list, the week |
-| `/board/list` | The shopping list at wall size — tap a line to tick it off |
-| `/board/week` | Seven nights from tonight; tap one to choose or clear a recipe |
-| `/board/recipes` | The library, and a recipe at hob-readable size |
+| `/today` | Tonight's meal, who is eating it, the schedule, the list, the week |
+| `/` | The shopping list — the page that has to open instantly on a phone |
+| `/plan` | Seven nights; tap one to choose, adjust or clear a recipe |
+| `/recipes` | The library, and `/recipes/<id>/cook` for a recipe at hob size |
 
-The header is the constant: `app/pages/board.vue` owns the frame, the clock and
-that strip, and each view is a child route rendered under it, so switching views
-never repaints the top of the screen. `buildHeader` is split out of `buildBoard`
-for the same reason — the shell needs the header without deriving a hero first.
+Cook mode is chromeless at both widths, declared as `chromeless: true` in its own
+page meta rather than the shell matching on a path — `/recipes` keeps its chrome
+and `/recipes/<id>/cook` does not, and that is a distinction a regex gets wrong
+the first time either route moves.
 
-The week view deliberately runs from tonight rather than Monday to Sunday. The
-phone plans calendar weeks, because that is how a shop is planned; a wall on a
-Friday offering to cook four nights that have already passed is offering
-nothing.
+`buildHeader` is split out of `buildBoard` so `AppHeader` can derive the strip
+along the top without deriving a hero first.
 
-Everything it shows is derived in `app/utils/board.ts` — one pure function, one
+Everything the Today page shows is derived in `app/utils/board.ts` — one pure function, one
 view model. Its seven content states (setup, nominal, no plan, empty list,
 offline, nobody home, late evening) are **not** seven templates: they fall out of
 the facts, which is why offline and an empty list can be true at the same time as
@@ -227,16 +233,20 @@ cleared, not one never used; the schedule says `No calendar connected` rather
 than blaming staleness for an absence that predates it; and a device that has
 never completed a sync is new, not stale, so it gets no offline pill.
 
-The board re-derives on a 30-second tick, so it moves from tonight's meal to
+Today re-derives on a 30-second tick, so it moves from tonight's meal to
 tomorrow's on its own once dinner is an hour and a half behind it. Person colours
 come from `app/utils/person-colors.ts`, which rotates hue at fixed lightness and
-chroma — a fifth household member is one entry in `HUES`, not a new palette. The
-whole frame drifts a pixel at a time on a slow loop, which is burn-in mitigation
-for a screen that never turns off.
+chroma — a fifth household member is one entry in `HUES`, not a new palette.
+
+**Always-on display** is a switch in Settings, for a tablet left on in the
+kitchen. It drifts the whole app a pixel at a time around a slow loop, which is
+burn-in mitigation; `F` toggles fullscreen anywhere in the app, except while you
+are typing. It is stored per device in localStorage, not in the database — the
+kitchen tablet is always on and a phone is not.
 
 Today's calendar comes from `calendar_events`, a read-only synced table written
 only by the `sync-calendar` Edge Function (see below). Weather comes from
-Open-Meteo, cached in localStorage so the offline board keeps the last reading.
+Open-Meteo, cached in localStorage so an offline device keeps the last reading.
 
 ### Google Calendar
 

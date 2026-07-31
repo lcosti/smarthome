@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { useIngredientsStore } from '../../stores/ingredients'
-import { useListStore } from '../../stores/list'
-import { useRecipesStore } from '../../stores/recipes'
-import { useSyncStore } from '../../stores/sync'
-import type { IngredientRow } from '../../utils/db'
+import { useIngredientsStore } from '../../../stores/ingredients'
+import { useListStore } from '../../../stores/list'
+import { useRecipesStore } from '../../../stores/recipes'
+import { useSyncStore } from '../../../stores/sync'
+import type { IngredientRow } from '../../../utils/db'
 
 const route = useRoute()
 const store = useRecipesStore()
@@ -92,8 +92,8 @@ async function removeRecipe() {
 
 <template>
   <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
-      <div class="mx-auto flex max-w-xl items-center gap-1 px-3 py-2">
+    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur lg:static">
+      <div class="mx-auto flex max-w-xl items-center gap-1 px-3 py-2 lg:max-w-3xl lg:px-6">
         <UButton
           to="/recipes"
           icon="i-lucide-arrow-left"
@@ -111,6 +111,16 @@ async function removeRecipe() {
           @blur="renameOnBlur"
           @keydown.enter="renameOnBlur"
         />
+        <!-- This page is for editing a recipe; cook mode is for standing at the
+             hob with it. One press between them, from either direction. -->
+        <UButton
+          v-if="recipe"
+          :to="`/recipes/${recipe.id}/cook`"
+          icon="i-lucide-chef-hat"
+          color="neutral"
+          variant="ghost"
+          aria-label="Cook this recipe"
+        />
         <!-- Imported recipes keep their address: the page has the photographs,
              the comments and whatever the method left out. -->
         <UButton
@@ -126,7 +136,7 @@ async function removeRecipe() {
       </div>
     </header>
 
-    <main class="mx-auto max-w-xl space-y-8 px-3 py-5 pb-28">
+    <main class="mx-auto max-w-xl space-y-8 px-3 py-5 pb-28 lg:max-w-3xl lg:px-6 lg:pb-12">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"

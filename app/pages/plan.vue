@@ -10,6 +10,12 @@ const recipes = useRecipesStore()
 const sync = useSyncStore()
 const toast = useToast()
 
+// The two shapes are seven rows and seven columns. Everything else — which week
+// is on screen, filling it, deriving the list, the night editor — is the same
+// either way and stays here, so neither shape can grow an opinion the other
+// does not have.
+const isWide = useWide()
+
 // Week offset rather than a route param: deep-linking a week is not a real use
 // case, and back should leave the page rather than walk backwards through weeks.
 const weekOffset = ref(0)
@@ -83,13 +89,18 @@ async function derive() {
 
 <template>
   <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
-      <div class="mx-auto max-w-xl px-3 pt-3 pb-2">
+    <!--
+      Sticky on a phone, where it is the only thing at the top of the screen;
+      static on a wide one, where the app header already occupies top-0 and two
+      bars stacking on top of each other would overlap.
+    -->
+    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur lg:static">
+      <div class="mx-auto max-w-xl px-3 pt-3 pb-2 lg:max-w-6xl lg:px-6">
         <h1 class="mb-2 text-lg font-semibold">
           Plan
         </h1>
 
-        <div class="flex items-center gap-1">
+        <div class="flex items-center gap-1 lg:max-w-md">
           <UButton
             icon="i-lucide-chevron-left"
             color="neutral"
@@ -119,7 +130,7 @@ async function derive() {
       </div>
     </header>
 
-    <main class="mx-auto max-w-xl px-3 pb-28">
+    <main class="mx-auto max-w-xl px-3 pb-28 lg:max-w-6xl lg:px-6 lg:pb-8">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"
@@ -129,7 +140,18 @@ async function derive() {
 
       <template v-else>
         <!-- All seven nights always render: an empty one is the invitation. -->
-        <ul class="mt-3 rounded-lg border border-default bg-elevated/30">
+        <PlanWeekWide
+          v-if="isWide"
+          class="mt-3"
+          :nights="nights"
+          :today="today"
+          @open="openNight"
+        />
+
+        <ul
+          v-else
+          class="mt-3 rounded-lg border border-default bg-elevated/30"
+        >
           <PlanNightRow
             v-for="night in nights"
             :key="night.date"
@@ -140,38 +162,42 @@ async function derive() {
         </ul>
 
         <!--
-          Above the derive button because it comes first in the week: suggest,
-          adjust what you don't fancy, then shop.
+          Fill is above derive because it comes first in the week: suggest,
+          adjust what you don't fancy, then shop. Stacked full-width on a phone
+          where they are the bottom of a column, side by side and sized to their
+          labels on a wide screen where a 1000px button is a wall.
         -->
-        <UButton
-          v-if="canFill"
-          class="mt-4 justify-center"
-          size="xl"
-          color="neutral"
-          variant="subtle"
-          block
-          icon="i-lucide-wand-sparkles"
-          :loading="filling"
-          @click="fill"
-        >
-          Fill the empty nights
-        </UButton>
+        <div class="mt-4 flex flex-col gap-3 lg:flex-row lg:gap-2">
+          <UButton
+            v-if="canFill"
+            class="justify-center"
+            size="xl"
+            color="neutral"
+            variant="subtle"
+            :block="!isWide"
+            icon="i-lucide-wand-sparkles"
+            :loading="filling"
+            @click="fill"
+          >
+            Fill the empty nights
+          </UButton>
 
-        <UButton
-          class="mt-3 justify-center"
-          size="xl"
-          block
-          icon="i-lucide-shopping-cart"
-          :disabled="!canDerive"
-          :loading="deriving"
-          @click="derive"
-        >
-          Add to shopping list
-        </UButton>
+          <UButton
+            class="justify-center"
+            size="xl"
+            :block="!isWide"
+            icon="i-lucide-shopping-cart"
+            :disabled="!canDerive"
+            :loading="deriving"
+            @click="derive"
+          >
+            Add to shopping list
+          </UButton>
+        </div>
 
         <p
           v-if="!canDerive"
-          class="mt-2 text-center text-sm text-dimmed"
+          class="mt-2 text-center text-sm text-dimmed lg:text-left"
         >
           Plan a night first, then this puts its ingredients on the list.
         </p>

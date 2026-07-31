@@ -8,7 +8,7 @@ import { useListStore } from '../../stores/list'
  * The list itself, not a summary of it.
  *
  * This card used to show a count and the next three lines, and send you to the
- * full view to do anything. On a board standing in the kitchen that was one
+ * full view to do anything. Standing at a tablet in the kitchen that was one
  * press too many for the commonest action in the whole app — somebody unpacking
  * a bag ticking things off. The rows are here now, and ticking is idempotent, so
  * two people doing it from different rooms is a non-event.
@@ -110,9 +110,9 @@ async function add() {
       <!--
         The whole of an ad-hoc item, not just its name. Quantity and aisle are
         what make a line actionable in a shop — "Feta, 200 g, Chilled" is walked
-        past once, "Feta" is walked past twice — and the board is the one place
-        with room to ask for them. The phone keeps its one-field quick add,
-        because there the thing being beaten is a WhatsApp message.
+        past once, "Feta" is walked past twice — and a modal has room to ask for
+        them. The list page keeps its one-field quick add, because there the
+        thing being beaten is a WhatsApp message.
 
         Both are still optional: name alone submits, and the aisle already has a
         sensible answer in it.
@@ -223,9 +223,15 @@ async function add() {
       </div>
     </div>
 
+    <!--
+      The rows scroll inside the card rather than growing it. Without the cap a
+      forty-item list would push the week strip a screen and a half down the
+      page, and this card is a summary you can act on — the full list has its
+      own view.
+    -->
     <div
       v-else
-      class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-4 pb-4 pt-2"
+      class="flex max-h-[420px] min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-4 pb-4 pt-2"
     >
       <button
         v-for="entry in outstanding"

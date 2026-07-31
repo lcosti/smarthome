@@ -47,10 +47,15 @@ function readCache(): CachedWeather | null {
   }
 }
 
+const REFRESH_MS = 600_000
+
+let timer: ReturnType<typeof setInterval> | undefined
+let subscribers = 0
+
 export function useWeather() {
   const config = useRuntimeConfig()
   const cached = readCache()
-  const weather = ref<BoardWeather | null>(
+  const weather = useState<BoardWeather | null>('app.weather', () =>
     cached ? { icon: cached.icon, temperature: cached.temperature } : null
   )
 
@@ -82,6 +87,25 @@ export function useWeather() {
       // Keep whatever was last known, silently. There is no error state on this
       // board, and yesterday's temperature is closer to the truth than a blank.
     }
+  }
+
+  // The refresh loop belongs here rather than in whoever renders a temperature:
+  // the header and the Today page both want it, and two callers each running
+  // their own interval would hit Open-Meteo twice as often for one reading.
+  // First to ask starts it, last to leave stops it.
+  if (import.meta.client) {
+    subscribers++
+    if (!timer) {
+      void refresh()
+      timer = setInterval(() => void refresh(), REFRESH_MS)
+    }
+    onScopeDispose(() => {
+      subscribers--
+      if (subscribers <= 0 && timer) {
+        clearInterval(timer)
+        timer = undefined
+      }
+    })
   }
 
   return { weather, refresh }

@@ -1,14 +1,16 @@
-// The wall board, driven end to end in a real browser at the size it will
-// actually hang on a wall:
+// The desktop view, driven end to end in a real browser at the size a kitchen
+// tablet actually is:
 //
 //   a planned night -> no plan and the one button -> an empty list -> the wifi drops
 //
 // The parts worth checking here are the ones a unit test cannot reach: that the
-// board paints inside 1280x800 without scrolling, that its states change because
-// the underlying data changed rather than because a prop was set, and — the
-// load-bearing one — that pulling the network out leaves every fact on screen
-// and adds an honest caption, instead of producing the spinner or error screen
-// the design forbids.
+// app's states change because the underlying data changed rather than because a
+// prop was set, and — the load-bearing one — that pulling the network out leaves
+// every fact on screen and adds an honest caption, instead of producing the
+// spinner or error screen the design forbids.
+//
+// A short pass at phone width runs at the end, because the same routes have to
+// answer at both shapes now.
 //
 // Runs against the production bundle in .output/public. Each run creates its own
 // household, so it needs no seed data and can be repeated.
@@ -35,9 +37,12 @@ const SHOTS = '.acceptance/board'
 const API = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54321'
 const SECRET = process.env.SUPABASE_SECRET_KEY
 
-// The board is designed for exactly one display in exactly one orientation, so
-// this is not an arbitrary viewport — it is the product.
+// A landscape kitchen tablet: comfortably over the 1024px line where the app
+// switches to the desktop layout, and the size the display is actually read at.
 const FRAME = { width: 1280, height: 800 }
+
+// And a phone, for the pass at the end.
+const PHONE = { width: 390, height: 844 }
 
 if (!SECRET) {
   console.error('SUPABASE_SECRET_KEY is not set. Add it to .env — run `pnpm supabase status` for the local stack\'s keys.')
@@ -105,41 +110,20 @@ const readTable = table => page.evaluate(name => new Promise((resolve) => {
   open.onerror = () => resolve([])
 }), table)
 
-// The frame is the shell, present on every view; the state attribute belongs to
-// Today, which is the only view with content states.
-const frame = () => page.locator('[data-board-frame]')
+// The frame is everything the app paints, header included, because the header
+// carries facts these assertions read. The state attribute belongs to Today,
+// which is the only view with content states.
+const frame = () => page.locator('body')
 const board = () => page.locator('[data-board-state]')
 const boardText = async () => (await frame().innerText()).replace(/[\n\t]+/g, ' ')
 const boardState = () => board().getAttribute('data-board-state')
 
 async function openBoard() {
-  await page.goto(`${ORIGIN}/board`)
+  await page.goto(`${ORIGIN}/today`)
   await board().waitFor({ timeout: 20_000 })
 }
 
-/** Nothing may overflow the frame: it is one fixed screen that cannot scroll. */
-async function assertFits(view) {
-  const fit = await page.evaluate(() => {
-    const el = document.querySelector('[data-board-frame]')
-    return {
-      x: el.scrollWidth > el.clientWidth + 1,
-      y: el.scrollHeight > el.clientHeight + 1,
-      doc: document.documentElement.scrollHeight > window.innerHeight
-    }
-  })
-  assert(!fit.x && !fit.y && !fit.doc, `${view} fits the frame without scrolling: ${JSON.stringify(fit)}`)
-}
-
-/**
- * Press something inside the board frame.
- *
- * Forced, because the frame is a transformed and clipped subtree: Chromium's
- * scrollIntoViewIfNeeded is a no-op inside it, so Playwright's actionability
- * check retries forever on elements that are plainly visible. The board is one
- * fixed screen that never scrolls, so there is nothing for that check to
- * protect against here — every assertion around these presses still has to hold.
- */
-const press = locator => locator.click({ force: true })
+const press = locator => locator.click()
 
 async function shoot(name) {
   await page.screenshot({ path: join(SHOTS, `${name}.png`) })
@@ -250,18 +234,15 @@ try {
   assert(text.includes('Generate this week'), 'the one filled button is offered')
   assert((await board().getByText('No meal').count()) >= 6, 'the week strip is six quiet no-meals')
   await shoot('noplan')
-  log('with nothing planned the board offers exactly one action')
+  log('with nothing planned Today offers exactly one action')
 
-  // --- The board fits, and does not scroll ----------------------------------
+  // Sideways is still a fault at any width — a column wider than the window is
+  // a layout that has gone wrong. Downwards is now simply scrolling.
   const overflow = await page.evaluate(() => ({
     scrollW: document.documentElement.scrollWidth,
-    scrollH: document.documentElement.scrollHeight,
-    clientW: document.documentElement.clientWidth,
-    clientH: document.documentElement.clientHeight
+    clientW: document.documentElement.clientWidth
   }))
   assert(overflow.scrollW <= overflow.clientW, `nothing overflows sideways: ${JSON.stringify(overflow)}`)
-  assert(overflow.scrollH <= overflow.clientH, `nothing overflows downwards: ${JSON.stringify(overflow)}`)
-  log('the frame fits 1280x800 exactly, with no scrolling in either direction')
 
   // --- Pressing it generates a real plan ------------------------------------
   await board().getByRole('button', { name: /Generate this week/ }).click()
@@ -304,55 +285,90 @@ try {
   //
   // The header is the one thing that survives a view change, so it is asserted
   // across the move rather than on either side of it.
-  const headerBefore = await frame().locator('header').innerText()
+  const headerBefore = await page.locator('body > div > header').first().innerText()
   await frame().getByRole('link', { name: 'List', exact: true }).click()
-  await page.waitForURL('**/board/list', { timeout: 20_000 })
-  const headerAfter = await frame().locator('header').innerText()
+  await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
+  const headerAfter = await page.locator('body > div > header').first().innerText()
   assert(headerBefore === headerAfter, 'the header is unchanged by navigating')
-  assert(!(await page.locator('nav a[href="/plan"]').count()), 'and the phone tab bar stays away')
+  assert(!(await page.locator('nav a[href="/plan"]').count()),
+    'and the phone tab bar stays away at this width')
 
   text = await boardText()
-  assert(/Chicken thighs|Squash|things to buy/.test(text), `the list view shows the list, saw: ${text.slice(0, 300)}`)
-  await assertFits('the list view')
+  assert(/Chicken thighs|Squash|Nappies|Bin bags/.test(text), `the list view shows the list, saw: ${text.slice(0, 300)}`)
 
   // Ticking is the reason this view exists.
-  const beforeTick = await frame().locator('[role="checkbox"]').count()
-  await frame().locator('[role="checkbox"]').first().click()
+  const listRows = () => page.locator('main li > button').first()
+  const beforeTick = await page.locator('main li').count()
+  await listRows().click()
   await page.waitForTimeout(1500)
-  const afterTick = await frame().locator('[role="checkbox"]').count()
+  const afterTick = await page.locator('main li').count()
   assert(afterTick === beforeTick - 1, `ticking removed one line, got ${beforeTick} then ${afterTick}`)
   await shoot('view-list')
-  log('the list view ticks items off at wall size, and the header never moved')
+  log('the list ticks items off at desktop width, and the header never moved')
 
-  await frame().getByRole('link', { name: 'Week', exact: true }).click()
-  await page.waitForURL('**/board/week', { timeout: 20_000 })
-  await assertFits('the week view')
-  // Seven nights from tonight, never a calendar week: a wall does not offer to
-  // cook something that has already not happened.
-  const weekText = await boardText()
-  assert(weekText.includes('The week ahead'), `the week view is forward-looking, saw: ${weekText.slice(0, 200)}`)
+  await frame().getByRole('link', { name: 'Plan', exact: true }).click()
+  await page.waitForURL('**/plan', { timeout: 20_000 })
+  // Seven columns rather than seven rows: the wide layout swapped the component,
+  // not just the widths.
+  assert(await page.locator('main .grid-cols-7 > *').count() === 7,
+    'the wide plan is seven nights across')
 
-  const empties = frame().locator('button').filter({ hasText: 'Add dinner' })
+  const empties = page.locator('main button').filter({ hasText: 'Add dinner' })
   if (await empties.count()) {
     await empties.first().click()
     await page.waitForTimeout(800)
-    assert((await boardText()).includes('What are we having?'), 'tapping an empty night opens the library')
-    await press(frame().getByText('Chicken traybake', { exact: true }).first())
+    await press(page.getByRole('dialog').getByText('Chicken traybake', { exact: true }).first())
     await page.waitForTimeout(1500)
-    assert((await boardText()).includes('Chicken traybake'), 'and choosing a recipe plans that night')
-    log('the week view plans a night from the wall')
+    assert((await page.locator('main').innerText()).includes('Chicken traybake'),
+      'tapping an empty night and choosing a recipe plans it')
+    log('the wide plan plans a night through the same editor the phone uses')
   }
   await shoot('view-week')
 
+  // --- the library: pick on the left, decide on the right --------------------
   await frame().getByRole('link', { name: 'Recipes', exact: true }).click()
-  await page.waitForURL('**/board/recipes', { timeout: 20_000 })
-  await assertFits('the recipe library')
+  await page.waitForURL('**/recipes', { timeout: 20_000 })
   assert((await boardText()).includes('Chicken traybake'), 'the library lists the recipes')
-  // The card's own anchor is a zero-size focus proxy with an ::after overlay,
-  // so click what a person would click — the title.
-  await press(frame().getByText('Chicken traybake', { exact: true }).first())
-  await page.waitForURL('**/board/recipes/**', { timeout: 20_000 })
-  await assertFits('cook mode')
+
+  const cards = () => frame().locator('[data-recipe-card]')
+  const detail = () => frame().locator('[data-detail-name]')
+
+  await press(cards().first())
+  await page.waitForTimeout(400)
+  assert(await detail().innerText() === 'Chicken traybake', 'picking a card fills the pane beside it')
+  assert(await page.url().endsWith('/recipes'), 'and nothing navigated — choosing is not leaving')
+
+  text = await boardText()
+  assert(text.includes('chicken thighs'), `the pane reads out the ingredients, saw: ${text.slice(0, 400)}`)
+  assert(/not on the list yet/i.test(text), 'and says which of them nobody has put on the list')
+
+  // Searching reaches into the recipes, not just across their names.
+  const search = frame().getByTestId('recipe-search')
+  await search.fill('squash')
+  await page.waitForTimeout(300)
+  assert(await cards().count() === 1, 'searching an ingredient finds the recipe it is in')
+  await search.fill('lamb')
+  await page.waitForTimeout(300)
+  assert(await cards().count() === 0 && /nothing matches/i.test(await boardText()),
+    'and a search for something nobody cooks says so rather than emptying the library')
+  await search.fill('')
+  await page.waitForTimeout(300)
+  assert(await cards().count() === 1, 'clearing the search puts the library back')
+  await shoot('view-recipes')
+
+  // The one write this view makes: what the recipe needs, onto the list.
+  await press(frame().getByTestId('recipe-send-list'))
+  await page.waitForTimeout(1500)
+  const shopped = (await readTable('items')).filter(i => !i.deleted_at).map(i => i.name.toLowerCase())
+  assert(shopped.includes('chicken thighs') && shopped.includes('squash'),
+    `sending the missing lines put them on the list, got ${JSON.stringify(shopped)}`)
+  await page.waitForTimeout(500)
+  assert(!(await frame().getByTestId('recipe-send-list').count()),
+    'and having sent them, it stops offering to send them again')
+  log('the library picks a recipe, reads it out, and shops for it without leaving')
+
+  await press(frame().getByTestId('recipe-cook'))
+  await page.waitForURL('**/cook', { timeout: 20_000 })
 
   // --- cook mode: one step at a time, and the header gets out of the way -----
   const cook = () => frame().locator('[data-cook-mode]')
@@ -360,7 +376,7 @@ try {
 
   assert(await cook().count() === 1, 'opening a recipe opens cook mode')
   assert(!(await frame().getByRole('link', { name: 'Today', exact: true }).count()),
-    'and the board header is gone — at the hob you are doing one thing')
+    'and the app header is gone — at the hob you are doing one thing')
 
   text = await boardText()
   // Case-insensitive: the headings are uppercased in CSS, and innerText
@@ -428,16 +444,16 @@ try {
   assert(await atStep() === '2/3', `and Previous goes back, got ${await atStep()}`)
   log('the method walks one step at a time, forwards and back')
 
-  await frame().getByRole('link', { name: 'Exit cook mode' }).click()
-  await page.waitForURL(`${ORIGIN}/board`, { timeout: 20_000 })
+  await frame().getByRole('link', { name: 'Exit' }).click()
+  await page.waitForURL(`${ORIGIN}/today`, { timeout: 20_000 })
   await board().waitFor({ timeout: 20_000 })
-  log('and leaving it puts the whole board back')
+  log('and leaving it puts the whole app back')
 
   await frame().getByRole('link', { name: 'Recipes', exact: true }).click()
-  await page.waitForURL('**/board/recipes', { timeout: 20_000 })
+  await page.waitForURL('**/recipes', { timeout: 20_000 })
 
   await frame().getByRole('link', { name: 'Today', exact: true }).click()
-  await page.waitForURL(`${ORIGIN}/board`, { timeout: 20_000 })
+  await page.waitForURL(`${ORIGIN}/today`, { timeout: 20_000 })
   await board().waitFor({ timeout: 20_000 })
   log('and every view is one press from every other')
 
@@ -463,18 +479,18 @@ try {
   await page.waitForTimeout(1200)
   assert((await readTable('items')).some(i => i.checked && i.deleted_at),
     'and Clear done removed it')
-  log('the Today card ticks items off and clears them without leaving the board')
+  log('the Today card ticks items off and clears them without leaving the page')
 
   // --- emptylist: only the shopping card changes ----------------------------
-  await page.goto(`${ORIGIN}/board/list`)
-  await frame().waitFor({ timeout: 20_000 })
+  await page.goto(`${ORIGIN}/`)
+  await page.getByPlaceholder('Add an item').waitFor({ timeout: 20_000 })
   for (let guard = 0; guard < 20; guard++) {
-    const left = await frame().locator('[role="checkbox"]').count()
+    const left = await page.locator('main li > button').count()
     if (!left) break
-    await frame().locator('[role="checkbox"]').first().click()
+    await page.locator('main li > button').first().click()
     await page.waitForTimeout(700)
   }
-  assert(!(await frame().locator('[role="checkbox"]').count()), 'the list is empty now')
+  assert(!(await page.locator('main li > button').count()), 'the list is empty now')
 
   await openBoard()
   text = await boardText()
@@ -507,7 +523,33 @@ try {
   assert((await boardText()).length > 0, 'and it comes back')
   log('and it recovers when the network does')
 
-  console.log(`\n  PASS — one frame, four states, no spinners and no error screens`)
+  // --- the same routes at phone width ---------------------------------------
+  //
+  // Not a second copy of the run above: the point is only that the narrow shape
+  // is the other layout of the same pages, on the same data, with the tab bar
+  // instead of the header.
+  await page.setViewportSize(PHONE)
+  await openBoard()
+  assert(await page.locator('nav a[href="/plan"]').count() === 1,
+    'at phone width the tab bar is back')
+  assert(!(await page.getByRole('link', { name: 'Today', exact: true }).and(page.locator('header a')).count()),
+    'and the desktop header is gone')
+  text = await boardText()
+  assert(text.includes('Chicken traybake'), `Today is the same page on a phone, saw: ${text.slice(0, 300)}`)
+
+  const narrow = await page.evaluate(() => ({
+    scrollW: document.documentElement.scrollWidth,
+    clientW: document.documentElement.clientWidth
+  }))
+  assert(narrow.scrollW <= narrow.clientW + 1, `and nothing overflows sideways: ${JSON.stringify(narrow)}`)
+  await shoot('phone-today')
+
+  await page.goto(`${ORIGIN}/`)
+  await page.getByPlaceholder('Add an item').waitFor({ timeout: 20_000 })
+  await shoot('phone-list')
+  log('the same routes answer at 390x844 with the tab bar instead of the header')
+
+  console.log(`\n  PASS — two shapes, four states, no spinners and no error screens`)
   console.log(`  screenshots in ${SHOTS}/\n`)
 } catch (e) {
   console.error(`\n  ${e.message.split('\n').slice(0, 8).join('\n  ')}\n`)

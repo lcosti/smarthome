@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildBoard,
+  buildRecipeLibrary,
   type BoardEvent,
   type BoardInput,
   type BoardNight,
-  type BoardPerson
+  type BoardPerson,
+  type LibraryInput,
+  type LibraryLine,
+  type LibraryRecipe
 } from '../app/utils/board'
 
 // One household, four people, so that every state below is the same family under
@@ -513,5 +517,202 @@ describe('the hero when offline', () => {
   it('says the plan is local rather than pretending it is live', () => {
     const board = buildBoard(input({ offline: true }))
     expect(board.hero.foot).toBe('stored locally')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The library
+// ---------------------------------------------------------------------------
+
+function recipe(
+  id: string,
+  name: string,
+  extra: Partial<LibraryRecipe> = {}
+): LibraryRecipe {
+  return {
+    id,
+    name,
+    image_url: null,
+    base_servings: 4,
+    prep_minutes: 10,
+    cook_minutes: 25,
+    ...extra
+  }
+}
+
+function line(id: string, recipeId: string, name: string, quantity: string | null = null): LibraryLine {
+  return { id, recipe_id: recipeId, name, quantity, aisle_id: 'chilled' }
+}
+
+const ORZO = recipe('orzo', 'Lemon chicken with orzo', { prep_minutes: 10, cook_minutes: 25 })
+const RISOTTO = recipe('risotto', 'Mushroom risotto', { prep_minutes: 5, cook_minutes: 25 })
+const PORK = recipe('pork', 'Slow-roast pork tacos', {
+  prep_minutes: 20, cook_minutes: 160, base_servings: 6
+})
+const SALMON = recipe('salmon', 'Miso salmon and greens', {
+  prep_minutes: 5, cook_minutes: 20, base_servings: 2
+})
+
+const LIBRARY_RECIPES = [ORZO, RISOTTO, PORK, SALMON]
+
+const LIBRARY_LINES = [
+  line('orzo-1', 'orzo', 'Chicken thighs', '1 kg'),
+  line('orzo-2', 'orzo', 'Feta', '200 g'),
+  line('orzo-3', 'orzo', 'Orzo', '500 g'),
+  line('risotto-1', 'risotto', 'Chestnut mushrooms', '400 g')
+]
+
+function library(over: Partial<LibraryInput> = {}): LibraryInput {
+  return {
+    recipes: LIBRARY_RECIPES,
+    lines: LIBRARY_LINES,
+    planEntries: [],
+    listItems: [],
+    now: at('16:30'),
+    query: '',
+    facet: 'all',
+    sort: 'recent',
+    selectedId: null,
+    ...over
+  }
+}
+
+/** Cooked on these dates, all of them before the Thursday the tests sit on. */
+const COOKED = [
+  { date: '2026-07-26', recipe_id: 'orzo' },
+  { date: '2026-07-09', recipe_id: 'orzo' },
+  { date: '2026-07-20', recipe_id: 'risotto' },
+  // Next Monday. On the plan, but not yet a time it was cooked.
+  { date: '2026-08-03', recipe_id: 'salmon' }
+]
+
+describe('the recipe library', () => {
+  it('counts a recipe as cooked only on nights that have already happened', () => {
+    const model = buildRecipeLibrary(library({ planEntries: COOKED }))
+    const card = (id: string) => model.cards.find(c => c.id === id)!
+
+    expect(card('orzo').cookedCount).toBe(2)
+    expect(card('orzo').meta).toBe('35 min · serves 4 · cooked 2×')
+    // Planned for Monday, never actually cooked.
+    expect(card('salmon').cookedCount).toBe(0)
+    expect(card('salmon').meta).toBe('25 min · serves 2')
+  })
+
+  it('badges the recipes on this week, and only this week', () => {
+    const model = buildRecipeLibrary(library({
+      planEntries: [
+        // The Friday of the week the tests sit in.
+        { date: '2026-07-31', recipe_id: 'pork' },
+        // Five weeks out. A 'FRI' badge for this would be read as tomorrow.
+        { date: '2026-09-04', recipe_id: 'risotto' }
+      ]
+    }))
+
+    expect(model.cards.find(c => c.id === 'pork')?.plannedDay).toBe('FRI')
+    expect(model.cards.find(c => c.id === 'risotto')?.plannedDay).toBe(null)
+  })
+
+  it('counts each facet against the search, not against the library', () => {
+    const all = buildRecipeLibrary(library({ planEntries: COOKED }))
+    const count = (model: typeof all, key: string) =>
+      model.facets.find(f => f.key === key)!.count
+
+    expect(count(all, 'all')).toBe(4)
+    // 35, 30, 180, 25 minutes: the risotto and the salmon.
+    expect(count(all, 'quick')).toBe(2)
+    // Serves 4, 4, 6, 2.
+    expect(count(all, 'batch')).toBe(3)
+    expect(count(all, 'never')).toBe(2)
+
+    const searched = buildRecipeLibrary(library({ planEntries: COOKED, query: 'salmon' }))
+    expect(count(searched, 'all')).toBe(1)
+    expect(count(searched, 'quick')).toBe(1)
+    expect(count(searched, 'batch')).toBe(0)
+  })
+
+  it('finds a recipe by something in it, not just by its name', () => {
+    const model = buildRecipeLibrary(library({ query: 'feta' }))
+    expect(model.cards.map(c => c.id)).toEqual(['orzo'])
+    expect(model.noMatches).toBe(false)
+  })
+
+  it('says so when a search matches nothing, without claiming the library is empty', () => {
+    const model = buildRecipeLibrary(library({ query: 'lamb' }))
+    expect(model.cards).toHaveLength(0)
+    expect(model.noMatches).toBe(true)
+    expect(buildRecipeLibrary(library({ recipes: [] })).noMatches).toBe(false)
+  })
+
+  it('sorts by when it was last cooked, putting the never-cooked last', () => {
+    const model = buildRecipeLibrary(library({ planEntries: COOKED, sort: 'recent' }))
+    // Orzo on the 26th, risotto on the 20th, then the two nobody has cooked
+    // — alphabetically between themselves.
+    expect(model.cards.map(c => c.id)).toEqual(['orzo', 'risotto', 'salmon', 'pork'])
+  })
+
+  it('sorts by time, and by how often it gets cooked', () => {
+    expect(buildRecipeLibrary(library({ sort: 'quickest' })).cards.map(c => c.id))
+      .toEqual(['salmon', 'risotto', 'orzo', 'pork'])
+
+    // The two nobody has cooked tie, and fall back to alphabetical: Miso, Slow-roast.
+    expect(buildRecipeLibrary(library({ planEntries: COOKED, sort: 'cooked' })).cards.map(c => c.id))
+      .toEqual(['orzo', 'risotto', 'salmon', 'pork'])
+  })
+
+  it('cannot call a recipe quick when it never said how long it takes', () => {
+    const vague = recipe('vague', 'Something of Nanna’s', {
+      prep_minutes: null, cook_minutes: null
+    })
+    const model = buildRecipeLibrary(library({ recipes: [...LIBRARY_RECIPES, vague], sort: 'quickest' }))
+
+    expect(model.facets.find(f => f.key === 'quick')?.count).toBe(2)
+    expect(model.cards.at(-1)?.id).toBe('vague')
+    expect(model.cards.find(c => c.id === 'vague')?.meta).toBe('serves 4')
+  })
+
+  it('shows what the recipe still needs, counting a ticked item as bought', () => {
+    const model = buildRecipeLibrary(library({
+      selectedId: 'orzo',
+      // ' feta ' rather than 'Feta': the same shopping trip, typed by somebody else.
+      listItems: [{ name: ' feta ' }, { name: 'Orzo' }]
+    }))
+
+    expect(model.detail?.missing.map(l => l.name)).toEqual(['Chicken thighs'])
+    expect(model.detail?.ingredients.map(l => l.onList)).toEqual([false, true, true])
+    expect(model.detail?.sendLabel).toBe('Send 1 item to the shopping list')
+    expect(model.detail?.missing[0]?.aisleId).toBe('chilled')
+  })
+
+  it('offers nothing to send when the list already has all of it', () => {
+    const model = buildRecipeLibrary(library({
+      selectedId: 'risotto',
+      listItems: [{ name: 'Chestnut mushrooms' }]
+    }))
+    expect(model.detail?.sendLabel).toBe(null)
+  })
+
+  it('reads out when it was last cooked, most recent first', () => {
+    const model = buildRecipeLibrary(library({ selectedId: 'orzo', planEntries: COOKED }))
+
+    expect(model.detail?.eyebrow).toBe('Library · last cooked 4 days ago')
+    expect(model.detail?.meta).toBe('35 min · serves 4 · cooked 2 times')
+    expect(model.detail?.history.map(h => h.date)).toEqual(['2026-07-26', '2026-07-09'])
+    expect(model.detail?.history[0]?.label).toBe('4 days ago')
+    expect(model.detail?.history[1]?.label).toBe('3 weeks ago')
+  })
+
+  it('says so plainly when a recipe has never been cooked', () => {
+    const model = buildRecipeLibrary(library({ selectedId: 'pork' }))
+    expect(model.detail?.eyebrow).toBe('Library · never cooked')
+    expect(model.detail?.history).toEqual([])
+  })
+
+  it('falls back to the first card when the selection is searched away', () => {
+    const model = buildRecipeLibrary(library({ selectedId: 'pork', query: 'risotto' }))
+
+    expect(model.detail?.id).toBe('risotto')
+    expect(model.cards[0]?.selected).toBe(true)
+    // Nothing to select at all is a pane with nothing in it, not a crash.
+    expect(buildRecipeLibrary(library({ recipes: [], lines: [] })).detail).toBe(null)
   })
 })

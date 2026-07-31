@@ -2,6 +2,7 @@
 const route = useRoute()
 
 const tabs = [
+  { to: '/today', icon: 'i-lucide-home', label: 'Today' },
   { to: '/', icon: 'i-lucide-shopping-cart', label: 'List' },
   { to: '/plan', icon: 'i-lucide-calendar-days', label: 'Plan' },
   { to: '/recipes', icon: 'i-lucide-book-open', label: 'Recipes' }
@@ -15,7 +16,7 @@ function isActive(to: string) {
 
 <template>
   <!--
-    Hand-rolled rather than UNavigationMenu: this is three links and a safe-area
+    Hand-rolled rather than UNavigationMenu: this is four links and a safe-area
     inset, and fighting a menu component's layout costs more than it saves.
     pb-[env(safe-area-inset-bottom)] keeps the labels off the iPhone home
     indicator — the only place in the app that needs it.

@@ -27,37 +27,37 @@
 }
 
 /*
-  Scrollbars, on the wall board only.
+  Scrollbars. One kind, everywhere something scrolls.
 
-  A native scrollbar is browser chrome, and the board spends a good deal of
-  effort not having any: no address bar, no tab strip, no cursor. A pale grey
-  9px trough down the side of a card is the one piece that gets in anyway, and
-  on a display seen from across a room it reads as a rendering fault rather
-  than as an affordance.
+  A native scrollbar is browser chrome, and a pale grey 9px trough down the side
+  of a card reads as a rendering fault rather than as an affordance — most of
+  all on a tablet across the kitchen, which is where these were first quietened.
 
-  It is quietened rather than removed. The board is a touchscreen and does not
-  need the handle to drag, but the ingredients list is the one thing here
-  allowed to scroll, and a list that continues past the fold with nothing at
-  all to say so is a list you stop at the bottom of.
+  Quietened rather than removed. These are touchscreens and nobody drags the
+  handle, but a list that continues past the fold with nothing at all to say so
+  is a list you stop at the bottom of.
 
-  Deliberately not applied to the phone: iOS overlays its own scrollbar and
-  takes it away again on its own, which is already the right behaviour.
+  Global rather than scoped to one surface: every scrolling area in the app —
+  the ingredient list at the hob, the recipe pane, the shopping card — is the
+  same kind of thing, and a second style for the next one would be a second
+  answer to a settled question. iOS overlay scrollbars ignore this and keep
+  their own behaviour, which is already right.
 */
-[data-board-frame] {
+:root {
   scrollbar-width: thin;
   scrollbar-color: var(--ui-border-accented) transparent;
 }
 
-[data-board-frame] ::-webkit-scrollbar {
+::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-[data-board-frame] ::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: transparent;
 }
 
-[data-board-frame] ::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   border-radius: 3px;
   background: var(--ui-border-accented);
 }

@@ -1,10 +1,40 @@
 <script setup lang="ts">
+import { usePlanStore } from '../../stores/plan'
 import { useRecipesStore } from '../../stores/recipes'
 import { useSyncStore } from '../../stores/sync'
 import { looksLikeUrl } from '../../utils/recipe-import'
+import { dayLabel } from '../../utils/week'
 
 const store = useRecipesStore()
 const sync = useSyncStore()
+const plan = usePlanStore()
+const route = useRoute()
+
+// A wide screen gets master and detail, which is a different tree with a
+// different script rather than the same one at another width.
+const isWide = useWide()
+
+/**
+ * `?swap=YYYY-MM-DD` turns the library into a picker for that night, which is
+ * what Tonight's "Swap meal" opens. Handled at both widths, because Tonight is
+ * at both widths.
+ */
+const swapDate = computed(() => {
+  const value = route.query.swap
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
+})
+
+async function pick(recipeId: string) {
+  const date = swapDate.value
+  if (!date) {
+    await navigateTo(`/recipes/${recipeId}`)
+    return
+  }
+  await plan.setNight(date, recipeId)
+  // Back where the errand started, rather than leaving somebody on the library
+  // to find their own way home.
+  await navigateTo('/today')
+}
 
 // One box does three jobs. Typing narrows the library; pressing add turns what
 // you typed into a recipe; and a pasted link is fetched rather than made the
@@ -62,11 +92,16 @@ async function land(recipeId: string | null) {
 </script>
 
 <template>
-  <div class="min-h-dvh">
+  <RecipeLibraryWide v-if="isWide" />
+
+  <div
+    v-else
+    class="min-h-dvh"
+  >
     <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
       <div class="mx-auto max-w-xl px-3 pt-3 pb-2">
         <h1 class="mb-2 text-lg font-semibold">
-          Recipes
+          {{ swapDate ? `Pick a meal for ${dayLabel(swapDate)}` : 'Recipes' }}
         </h1>
 
         <form
@@ -165,7 +200,7 @@ async function land(recipeId: string | null) {
           :ingredient-count="store.ingredientsFor(item.id).length"
           :servings="item.base_servings"
           :image-url="item.image_url"
-          @select="navigateTo(`/recipes/${item.id}`)"
+          @select="pick(item.id)"
         />
       </ul>
     </main>

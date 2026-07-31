@@ -5,15 +5,15 @@ import { findStepDuration, formatCountdown, splitStepBody } from '../../../utils
 /**
  * Cook mode: one step at a time, at the size you can read from the hob.
  *
- * This used to be the whole recipe on one screen, which is the right way to
- * read a recipe and the wrong way to cook one. Standing at the pan with your
- * hands full you are doing exactly one thing, and finding your place again in a
- * numbered list of nine is the thing that actually goes wrong.
+ * The recipe page is the right way to read a recipe and the wrong way to cook
+ * one. Standing at the pan with your hands full you are doing exactly one thing,
+ * and finding your place again in a numbered list of nine is the thing that
+ * actually goes wrong.
  *
- * So the step is enormous and there is only ever one of it. The ingredients
- * stay visible beside it because you check them off before you start and glance
- * back mid-way, and the timer is here because the alternative is the oven clock
- * across the room and a memory of when you set it.
+ * So the step is enormous and there is only ever one of it. The ingredients stay
+ * visible because you check them off before you start and glance back mid-way,
+ * and the timer is here because the alternative is the oven clock across the
+ * room and a memory of when you set it.
  *
  * Everything the cook touches — ticks, which step, a running timer — is session
  * state, deliberately. None of it belongs to the recipe, and a checkbox that
@@ -21,8 +21,10 @@ import { findStepDuration, formatCountdown, splitStepBody } from '../../../utils
  */
 
 definePageMeta({
-  // Read by the board shell, which drops its header for this view.
-  boardCookMode: true
+  // Read by the app shell, which drops its chrome for this view: the header —
+  // clock, weather, the four other places you could be — is four things you are
+  // not doing.
+  chromeless: true
 })
 
 const route = useRoute()
@@ -78,7 +80,7 @@ function goTo(index: number) {
   stepIndex.value = Math.min(Math.max(index, 0), Math.max(steps.value.length - 1, 0))
 }
 
-// A step edited away on the phone while the board sits on it. Not an error, and
+// A step edited away on another device while this sits on it. Not an error, and
 // not worth throwing the cook back to step one over.
 watch(() => steps.value.length, (length) => {
   if (stepIndex.value > length - 1) goTo(length - 1)
@@ -121,8 +123,9 @@ function startTimer() {
   nowMs.value = Date.now()
   endings.set(step.id, nowMs.value + spec.seconds * 1000)
 
-  // The second hand only runs while something is counting. A board left on this
-  // view for an hour after dinner should not be waking the tab every second.
+  // The second hand only runs while something is counting. A tablet left on
+  // this view for an hour after dinner should not be waking the tab every
+  // second.
   if (!tick) {
     tick = setInterval(() => {
       nowMs.value = Date.now()
@@ -167,7 +170,7 @@ function stopTick() {
 
 // --- keys ----------------------------------------------------------------------
 
-// The wall is a touchscreen, but the design gets reviewed on a laptop and
+// The kitchen screen is a touchscreen, but this gets used on a laptop too, and
 // reaching for the mouse between nine steps is how you stop looking at it.
 function onKey(event: KeyboardEvent) {
   if (event.key === 'ArrowRight') goTo(stepIndex.value + 1)
@@ -186,13 +189,13 @@ onUnmounted(() => {
     v-if="recipe"
     data-cook-mode
     :data-cook-step="`${steps.length ? stepIndex + 1 : 0}/${steps.length}`"
-    class="flex h-full min-h-0 flex-col"
+    class="flex min-h-dvh flex-col lg:h-dvh lg:min-h-0"
   >
-    <div class="flex shrink-0 items-center justify-between gap-5 border-b border-default px-6 py-3.5">
+    <div class="flex shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 border-b border-default px-4 py-3 lg:px-6 lg:py-3.5">
       <div class="flex min-w-0 items-center gap-3.5">
-        <span class="text-[22px] font-semibold tracking-[-0.02em] text-highlighted">{{ dayName }}</span>
+        <span class="text-lg font-semibold tracking-[-0.02em] text-highlighted lg:text-xl">{{ dayName }}</span>
         <span class="h-5 w-px shrink-0 bg-accented" />
-        <span class="text-[22px] text-muted">{{ dateLabel }}</span>
+        <span class="text-lg text-muted lg:text-xl">{{ dateLabel }}</span>
         <UBadge
           color="primary"
           variant="outline"
@@ -201,7 +204,7 @@ onUnmounted(() => {
         />
       </div>
 
-      <div class="flex shrink-0 items-center gap-4">
+      <div class="flex shrink-0 items-center gap-3 lg:gap-4">
         <!--
           A timer left running on another step. Amber while it counts, solid
           when it goes off, and pressing it takes you back to the pan.
@@ -216,48 +219,49 @@ onUnmounted(() => {
           @click="goTo(timer.index)"
         >
           <span class="size-2 shrink-0 rounded-full bg-current" />
-          <span class="text-[15px] font-medium">{{ timer.name }}</span>
-          <span class="font-mono text-[15px] tabular-nums">{{ formatCountdown(timer.left) }}</span>
+          <span class="text-sm font-medium">{{ timer.name }}</span>
+          <span class="font-mono text-sm tabular-nums">{{ formatCountdown(timer.left) }}</span>
         </button>
 
-        <span class="font-mono text-[15px] text-dimmed">
+        <span class="hidden font-mono text-sm text-dimmed sm:inline">
           <template v-if="minutes">{{ minutes }} min · </template>serves {{ recipe.base_servings }}
         </span>
         <UButton
-          to="/board"
+          to="/today"
           color="neutral"
           variant="subtle"
-          size="xl"
-          label="Exit cook mode"
-          class="h-[44px] shrink-0 rounded-lg px-5 text-[16px]"
+          size="lg"
+          label="Exit"
+          class="shrink-0"
         />
       </div>
     </div>
 
-    <div class="grid min-h-0 flex-1 grid-cols-[1fr_1.9fr] gap-[15px] overflow-hidden p-6">
+    <!--
+      The step first on a phone and the ingredients under it; side by side with
+      room to spare on a wide screen. Cooking is the step — the ingredients are
+      what you glance back at — and on a narrow screen whichever comes first is
+      the one you are looking at.
+    -->
+    <div class="flex min-h-0 flex-1 flex-col gap-4 p-4 lg:grid lg:grid-cols-[1fr_1.9fr] lg:gap-4 lg:overflow-hidden lg:p-6">
       <UCard
         variant="outline"
         :ui="{
-          root: 'flex min-h-0 flex-col overflow-hidden rounded-lg bg-elevated',
+          root: 'order-2 flex min-h-0 flex-col overflow-hidden rounded-lg bg-elevated lg:order-1',
           header: 'px-5 py-4 sm:px-5',
           body: 'flex min-h-0 flex-1 flex-col p-0 sm:p-0',
           footer: 'flex flex-none items-center justify-between px-5 py-3.5 sm:px-5'
         }"
       >
         <template #header>
-          <h3 class="font-mono text-[13px] uppercase tracking-[0.14em] text-dimmed">
+          <h3 class="font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
             Ingredients
           </h3>
-          <h2 class="mt-1.5 truncate text-[24px] font-semibold tracking-[-0.02em] text-highlighted">
+          <h2 class="mt-1.5 truncate text-xl font-semibold tracking-[-0.02em] text-highlighted">
             {{ recipe.name }}
           </h2>
         </template>
 
-        <!--
-          The one thing on this screen allowed to scroll. Everywhere else on the
-          board clips rather than shrinks, but half a shopping list is worse than
-          a list you push with a thumb, and the frame itself still never moves.
-        -->
         <ul
           v-if="lines.length"
           class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-2"
@@ -287,7 +291,7 @@ onUnmounted(() => {
               />
 
               <span
-                class="min-w-0 flex-1 text-[17px]"
+                class="min-w-0 flex-1 text-base"
                 :class="checked.has(line.id)
                   ? 'text-dimmed line-through'
                   : line.id === activeLineId
@@ -297,7 +301,7 @@ onUnmounted(() => {
 
               <span
                 v-if="line.quantity"
-                class="shrink-0 whitespace-nowrap font-mono text-[15px]"
+                class="shrink-0 whitespace-nowrap font-mono text-sm"
                 :class="checked.has(line.id) ? 'text-dimmed' : 'text-muted'"
               >{{ line.quantity }}</span>
             </button>
@@ -306,28 +310,28 @@ onUnmounted(() => {
 
         <p
           v-else
-          class="px-5 py-4 text-[16px] text-dimmed"
+          class="px-5 py-4 text-base text-dimmed"
         >
           No ingredients listed.
         </p>
 
         <template #footer>
-          <span class="text-[15px] text-muted">Checked off</span>
-          <span class="font-mono text-[15px] text-default">{{ checkedCount }} / {{ lines.length }}</span>
+          <span class="text-sm text-muted">Checked off</span>
+          <span class="font-mono text-sm text-default">{{ checkedCount }} / {{ lines.length }}</span>
         </template>
       </UCard>
 
       <UCard
         variant="outline"
         :ui="{
-          root: 'flex min-h-0 flex-col overflow-hidden rounded-lg bg-elevated',
-          header: 'flex items-center gap-6 px-6 py-4 sm:px-6',
-          body: 'flex min-h-0 flex-1 flex-col gap-6 px-6 py-6 sm:p-0 sm:px-6 sm:py-6',
-          footer: 'flex flex-none items-center justify-between gap-4 px-6 py-4 sm:px-6'
+          root: 'order-1 flex min-h-0 flex-col overflow-hidden rounded-lg bg-elevated lg:order-2',
+          header: 'flex items-center gap-6 px-5 py-4 sm:px-6',
+          body: 'flex min-h-0 flex-1 flex-col gap-6 px-5 py-5 sm:p-0 sm:px-6 sm:py-6',
+          footer: 'flex flex-none items-center justify-between gap-4 px-5 py-4 sm:px-6'
         }"
       >
         <template #header>
-          <h3 class="shrink-0 font-mono text-[13px] uppercase tracking-[0.14em] text-dimmed">
+          <h3 class="shrink-0 font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
             Step {{ steps.length ? stepIndex + 1 : 0 }} of {{ steps.length }}
           </h3>
           <!--
@@ -349,16 +353,16 @@ onUnmounted(() => {
         </template>
 
         <template v-if="content">
-          <p class="text-pretty text-[44px] font-semibold leading-[1.15] tracking-[-0.02em] text-highlighted">
+          <p class="text-pretty text-2xl font-semibold leading-[1.15] tracking-[-0.02em] text-highlighted lg:text-4xl">
             {{ content.main }}
           </p>
 
           <!-- No time in the prose, no timer. A guess is not worth a button. -->
           <div v-if="duration">
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                class="flex h-[64px] items-center gap-5 rounded-lg px-6 transition-opacity duration-[80ms] active:opacity-85"
+                class="flex h-14 items-center gap-4 rounded-lg px-5 transition-opacity duration-[80ms] active:opacity-85 lg:h-16 lg:gap-5 lg:px-6"
                 :class="timerPhase === 'finished'
                   ? 'bg-primary text-inverted'
                   : 'bg-primary/10 text-primary ring ring-primary/25'"
@@ -370,13 +374,13 @@ onUnmounted(() => {
                   once it is running — at that point the number beside it is
                   the sentence, and repeating how long it was is noise.
                 -->
-                <span class="text-[18px] font-medium">
+                <span class="text-base font-medium lg:text-lg">
                   {{ timerPhase === 'idle'
                     ? `Start ${duration.name ? `${duration.name.toLowerCase()} ` : ''}${duration.label}`
                     : timerPhase === 'running' ? (duration.name ?? 'Timer') : `${duration.name ?? 'Timer'} done` }}
                 </span>
                 <span class="h-7 w-px shrink-0 bg-current opacity-25" />
-                <span class="font-mono text-[24px] tabular-nums">{{ formatCountdown(remaining) }}</span>
+                <span class="font-mono text-xl tabular-nums lg:text-2xl">{{ formatCountdown(remaining) }}</span>
               </button>
 
               <UButton
@@ -385,13 +389,13 @@ onUnmounted(() => {
                 size="xl"
                 label="Reset"
                 :disabled="timerPhase === 'idle'"
-                class="h-[64px] shrink-0 rounded-lg px-6 text-[16px]"
+                class="h-14 shrink-0 lg:h-16"
                 @click="resetTimer()"
               />
             </div>
             <p
               v-if="timerPhase === 'idle'"
-              class="mt-2 text-[14px] text-dimmed"
+              class="mt-2 text-sm text-dimmed"
             >
               Tap to start
             </p>
@@ -403,7 +407,7 @@ onUnmounted(() => {
             class="flex items-start gap-3.5 rounded-lg bg-default/60 px-5 py-4 ring ring-default"
           >
             <span class="mt-2.5 size-2 shrink-0 rounded-full bg-primary" />
-            <p class="whitespace-pre-line text-pretty text-[17px] leading-[1.45] text-default">
+            <p class="whitespace-pre-line text-pretty text-base leading-[1.45] text-default">
               {{ content.tip }}
             </p>
           </div>
@@ -418,9 +422,9 @@ onUnmounted(() => {
 
         <p
           v-else
-          class="text-[17px] text-dimmed"
+          class="text-base text-dimmed"
         >
-          No method written down. It is on the phone, or in somebody's head.
+          No method written down. It is on the recipe page, or in somebody's head.
         </p>
 
         <template
@@ -434,18 +438,18 @@ onUnmounted(() => {
             size="xl"
             label="Previous"
             :disabled="stepIndex === 0"
-            class="h-[56px] rounded-lg px-6 text-[17px]"
+            class="h-14"
             @click="goTo(stepIndex - 1)"
           />
           <UButton
             v-if="isLastStep"
-            to="/board"
+            to="/today"
             color="primary"
             variant="solid"
             size="xl"
             label="Finish"
             trailing-icon="i-lucide-check"
-            class="h-[56px] rounded-lg px-6 text-[17px] font-semibold"
+            class="h-14 font-semibold"
           />
           <UButton
             v-else
@@ -454,7 +458,7 @@ onUnmounted(() => {
             size="xl"
             label="Next step"
             trailing-icon="i-lucide-arrow-right"
-            class="h-[56px] rounded-lg px-6 text-[17px]"
+            class="h-14"
             @click="goTo(stepIndex + 1)"
           />
         </template>
@@ -468,12 +472,12 @@ onUnmounted(() => {
     icon="i-lucide-book-open"
     title="That recipe is gone"
     description="It was deleted on another device while this was open."
-    :actions="[{ label: 'All recipes', to: '/board/recipes', color: 'neutral', variant: 'subtle', size: 'xl' }]"
-    class="h-full p-6"
+    :actions="[{ label: 'All recipes', to: '/recipes', color: 'neutral', variant: 'subtle', size: 'xl' }]"
+    class="min-h-dvh p-6"
     :ui="{
       avatar: 'size-11 bg-transparent text-dimmed',
-      title: 'text-[37px] font-semibold text-muted',
-      description: 'text-[17px] text-muted'
+      title: 'text-2xl font-semibold text-muted lg:text-3xl',
+      description: 'text-base text-muted'
     }"
   />
 </template>

@@ -1,4 +1,4 @@
-// Screenshot the wall board in every state it has, at the size it will hang.
+// Screenshot every view at both shapes: the kitchen tablet and a phone.
 //
 // A design harness, not an acceptance test: it seeds a household straight into
 // Postgres and then only ever looks. `pnpm acceptance:board` is what asserts;
@@ -26,6 +26,7 @@ const SHOTS = '.acceptance/board-design'
 const API = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54321'
 const SECRET = process.env.SUPABASE_SECRET_KEY
 const FRAME = { width: 1280, height: 800 }
+const PHONE = { width: 390, height: 844 }
 
 if (!SECRET) {
   console.error('SUPABASE_SECRET_KEY is not set. Add it to .env.')
@@ -232,27 +233,27 @@ try {
   await page.waitForURL(url => !url.pathname.startsWith('/login'), { timeout: 20_000 })
   await page.waitForTimeout(4000)
 
-  for (const [name, path] of [
-    ['today', '/board'],
-    ['list', '/board/list'],
-    ['week', '/board/week'],
-    ['recipes', '/board/recipes'],
+  const VIEWS = [
+    ['today', '/today'],
+    ['list', '/'],
+    ['week', '/plan'],
+    ['recipes', '/recipes'],
     // Cook mode, on the one recipe seeded with a method worth reading.
-    ['cook', `/board/recipes/${recipes[0].id}`]
-  ]) {
-    await page.goto(`${ORIGIN}${path}`)
-    await page.locator('[data-board-frame]').waitFor({ timeout: 20_000 })
-    await page.waitForTimeout(2500)
-    await shoot(name)
-    const fit = await page.evaluate(() => {
-      const el = document.querySelector('[data-board-frame]')
-      return {
-        x: el.scrollWidth > el.clientWidth + 1,
-        y: el.scrollHeight > el.clientHeight + 1,
-        doc: document.documentElement.scrollHeight > window.innerHeight
-      }
-    })
-    console.log(`  ${name} fits:`, JSON.stringify(fit))
+    ['cook', `/recipes/${recipes[0].id}/cook`]
+  ]
+
+  // Both shapes, so the pair can be looked at side by side.
+  for (const [label, viewport] of [['', FRAME], ['phone-', PHONE]]) {
+    await page.setViewportSize(viewport)
+    for (const [name, path] of VIEWS) {
+      await page.goto(`${ORIGIN}${path}`)
+      await page.waitForTimeout(2500)
+      await shoot(`${label}${name}`)
+      const wide = await page.evaluate(() =>
+        document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+      )
+      if (wide) console.log(`  ${label}${name} OVERFLOWS SIDEWAYS`)
+    }
   }
 
   console.log(`\n  screenshots in ${SHOTS}/\n`)

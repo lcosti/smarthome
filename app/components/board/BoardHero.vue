@@ -87,13 +87,12 @@ const NuxtLink = resolveComponent('NuxtLink')
       class="flex min-w-0 flex-1 gap-6"
     >
       <!--
-        The picture sits beside the text rather than above it. This card lives in
-        a frame that is one fixed screen and may never scroll, so a photograph has
-        to spend width — of which the hero column has plenty — and not height.
+        The picture sits beside the text rather than above it, so a photograph
+        spends width — of which the hero column has plenty — and not height.
       -->
       <div class="flex min-w-0 flex-1 flex-col gap-5">
         <div class="flex flex-col gap-2">
-          <h3 class="text-pretty text-[30px] font-semibold leading-[1.2] tracking-[-0.025em] text-highlighted">
+          <h3 class="text-pretty text-2xl font-semibold leading-[1.2] tracking-[-0.025em] text-highlighted lg:text-3xl">
             {{ hero.dish }}
           </h3>
           <div class="flex items-center gap-2 font-mono text-xs text-dimmed">
@@ -162,15 +161,13 @@ const NuxtLink = resolveComponent('NuxtLink')
       </div>
 
       <!--
-        Only on a screen the size of the wall board itself. The same component
-        renders on a phone at /board, where 200px of photograph beside the dish
-        name would leave the name a column two words wide — and at the 1280px the
-        acceptance run uses, where the hero column is narrow enough that spending
-        200px of it on a picture is what would start the frame scrolling.
+        Wide screens only. The same component renders on a phone, where 200px of
+        photograph beside the dish name would leave the name a column two words
+        wide.
       -->
       <div
         v-if="hero.image"
-        class="hidden w-[200px] shrink-0 self-stretch overflow-hidden rounded-lg bg-elevated/50 2xl:block"
+        class="hidden w-[200px] shrink-0 self-stretch overflow-hidden rounded-lg bg-elevated/50 xl:block"
       >
         <RecipeImage
           :src="hero.image"
@@ -185,7 +182,7 @@ const NuxtLink = resolveComponent('NuxtLink')
       class="flex min-w-0 flex-1 flex-col gap-5"
     >
       <div class="flex flex-col gap-2">
-        <h3 class="text-pretty text-[30px] font-semibold leading-[1.2] tracking-[-0.025em] text-highlighted">
+        <h3 class="text-pretty text-2xl font-semibold leading-[1.2] tracking-[-0.025em] text-highlighted lg:text-3xl">
           {{ hero.noMeal.title }}
         </h3>
         <p class="max-w-[520px] text-pretty text-sm leading-[1.6] text-muted">
