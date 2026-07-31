@@ -164,6 +164,13 @@ async function setTo(entry: PantryEntry, text: string) {
               :aria-label="`Put ${stepLabel(entry)} more ${entry.name} in`"
               @click="pantry.adjust(entry.ingredientId, stepFor(entry))"
             />
+            <!--
+              Not a UInputNumber, unlike the servings steppers. This field takes
+              "2 tins" as readily as "800", because the amount is in the
+              ingredient's own base unit and nobody weighs a tin — see readAmount.
+              A numeric input can only hold the number, which is the half of the
+              answer the parser exists to avoid asking for.
+            -->
             <UInput
               :model-value="String(entry.onHand)"
               size="sm"

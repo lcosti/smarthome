@@ -58,11 +58,9 @@ async function chooseLeftovers(sourceEntryId: string) {
   open.value = false
 }
 
-async function setServings(delta: number) {
-  if (!planned.value) return
-  await plan.updateEntry(planned.value.entry.id, {
-    servings: Math.max(1, planned.value.entry.servings + delta)
-  })
+async function setServings(next: number) {
+  if (!planned.value || !Number.isFinite(next)) return
+  await plan.updateEntry(planned.value.entry.id, { servings: Math.max(1, next) })
 }
 
 function isHome(personId: string) {
@@ -97,23 +95,13 @@ async function clear() {
             {{ dishLabel(planned) }}
           </p>
           <div class="mt-2 flex items-center gap-2">
-            <UButton
-              icon="i-lucide-minus"
+            <UInputNumber
+              :model-value="planned.entry.servings"
+              :min="1"
               size="sm"
-              color="neutral"
-              variant="subtle"
-              :disabled="planned.entry.servings <= 1"
-              aria-label="Fewer servings"
-              @click="setServings(-1)"
-            />
-            <span class="w-8 text-center tabular-nums">{{ planned.entry.servings }}</span>
-            <UButton
-              icon="i-lucide-plus"
-              size="sm"
-              color="neutral"
-              variant="subtle"
-              aria-label="More servings"
-              @click="setServings(1)"
+              class="w-28"
+              aria-label="Servings"
+              @update:model-value="setServings"
             />
             <span class="text-sm text-dimmed">servings</span>
           </div>

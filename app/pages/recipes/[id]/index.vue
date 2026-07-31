@@ -72,10 +72,9 @@ async function addStep() {
   await store.addStep(id.value, body)
 }
 
-async function setServings(delta: number) {
-  if (!recipe.value) return
-  const next = Math.max(1, recipe.value.base_servings + delta)
-  await store.updateRecipe(id.value, { base_servings: next })
+async function setServings(next: number) {
+  if (!recipe.value || !Number.isFinite(next)) return
+  await store.updateRecipe(id.value, { base_servings: Math.max(1, next) })
 }
 
 async function saveMethod(event: Event) {
@@ -230,23 +229,13 @@ async function removeRecipe() {
             Serves
           </h2>
           <div class="flex items-center gap-2">
-            <UButton
-              icon="i-lucide-minus"
+            <UInputNumber
+              :model-value="recipe.base_servings"
+              :min="1"
               size="xl"
-              color="neutral"
-              variant="subtle"
-              :disabled="recipe.base_servings <= 1"
-              aria-label="Fewer servings"
-              @click="setServings(-1)"
-            />
-            <span class="w-10 text-center text-lg tabular-nums">{{ recipe.base_servings }}</span>
-            <UButton
-              icon="i-lucide-plus"
-              size="xl"
-              color="neutral"
-              variant="subtle"
-              aria-label="More servings"
-              @click="setServings(1)"
+              class="w-36"
+              aria-label="Servings"
+              @update:model-value="setServings"
             />
             <p class="ml-2 flex-1 text-sm text-dimmed">
               What the quantities above are written for.
