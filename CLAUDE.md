@@ -103,6 +103,31 @@ milk as got produces the same end state. A queue of plain upserts replayed in an
 order lands correctly. This is why the offline layer is tractable; don't
 over-engineer it.
 
+### 6. Default Nuxt UI components, almost exclusively.
+
+Build UI from stock Nuxt UI v4 components (`U*`). Do not hand-roll what the
+library provides: no raw `<button>`/`<input>`/`<form>` with Tailwind classes, no
+span-based badges/chips/checkboxes, no selectors built from `UButton` arrays
+(use `URadioGroup`/`UCheckboxGroup`/`USelectMenu`/`UTabs`), no bespoke dropdowns,
+autocompletes, empty states, skeletons, steppers, or progress bars.
+
+Recurring visual overrides live in `app.config.ts` theme config, not repeated
+inline `:ui` props. Before adding an inline `:ui`, check the generated theme in
+`.nuxt/ui/` — much of what gets written by hand restates a default.
+
+A custom implementation is allowed only when Nuxt UI genuinely cannot express
+the requirement, and it must carry a comment naming the component it replaces
+and why. Current sanctioned exceptions:
+
+- `AppTabBar` — stacked icon-over-label equal-width columns aren't a
+  `UNavigationMenu` layout; converting means rebuilding it inside an `#item`
+  slot.
+- `BoardAvatar` — runtime pixel sizes and generated per-person oklch hues can't
+  be expressed as Tailwind classes.
+- `ChecklistRow` — full-row tap target containing a nested action button
+  (a `<label>` wrapping a button double-fires on iOS), plus a third `covered`
+  state `UCheckbox` has no room for.
+
 ---
 
 ## Schema requirements

@@ -57,7 +57,7 @@ async function copyInviteCode() {
     <AppPageHeader
       title="Settings"
       back="/"
-      back-label="Back to list"
+      back-label="Back to today"
     />
 
     <main class="mx-auto min-h-0 w-full max-w-xl flex-1 space-y-8 overflow-y-auto px-3 py-5 lg:max-w-3xl">

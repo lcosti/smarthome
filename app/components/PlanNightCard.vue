@@ -2,7 +2,6 @@
 import { useAttendanceStore } from '../stores/attendance'
 import { usePeopleStore } from '../stores/people'
 import { dishLabel, type PlannedNight } from '../stores/plan'
-import type { RankedCandidate } from '../utils/generator'
 import { deriveLifeStage } from '../utils/people'
 import { initialOf, personHue } from '../utils/person-colors'
 
@@ -11,21 +10,25 @@ import { initialOf, personHue } from '../utils/person-colors'
  *
  * Three facts, in the order somebody standing in front of it wants them: what is
  * being eaten, whether it has been shopped for, and who is at the table. An empty
- * night carries the same three lines' worth of space and fills it with an offer,
- * because the reason a night is still empty at Thursday teatime is almost never
- * that nobody has thought about it — it is that thinking about it is work.
+ * night says only that it is empty and offers the way in — what to cook is the
+ * aside's question, asked once for the week rather than seven times with the same
+ * answer.
  *
- * Presentational: the week above owns which night is being edited and what
- * accepting a suggestion means, so the phone rows and these cards cannot drift
- * apart over what changing a night does.
+ * A night that has been and gone fades and stops asking. What was cooked on it
+ * still opens — that is the only way back to it, and a plan is a record as much
+ * as it is an intention — but an empty one is a fact now, not an invitation.
+ *
+ * Presentational: the week above owns which night is being edited, so the phone
+ * rows and these cards cannot drift apart over what changing a night does.
  */
-const { night, today, suggestions = [] } = defineProps<{
+const { night, today, past = false } = defineProps<{
   night: PlannedNight
   today: boolean
-  suggestions?: RankedCandidate[]
+  /** The night is before today. */
+  past?: boolean
 }>()
 
-defineEmits<{ open: [], pick: [recipeId: string] }>()
+defineEmits<{ open: [] }>()
 
 const people = usePeopleStore()
 const attendance = useAttendanceStore()
@@ -89,7 +92,10 @@ const meta = computed(() => {
   -->
   <div
     class="flex min-h-0 flex-col overflow-hidden rounded-lg ring transition-colors"
-    :class="today ? 'bg-primary/10 ring-primary/50' : 'bg-elevated ring-default'"
+    :class="[
+      today ? 'bg-primary/10 ring-primary/50' : 'bg-elevated ring-default',
+      past && 'opacity-55'
+    ]"
   >
     <div class="flex shrink-0 items-baseline justify-between gap-2 px-3.5 pt-3">
       <span
@@ -122,37 +128,27 @@ const meta = computed(() => {
       </span>
     </button>
 
-    <!--
-      An empty night is an invitation, and an invitation that names two meals is
-      a decision somebody can make without leaving the page.
-    -->
+    <!-- An empty night that has gone is a fact, and states it rather than asking. -->
     <div
-      v-else
-      class="m-3 mt-2 flex min-h-0 flex-1 flex-col gap-1.5 rounded-md border border-dashed border-default p-2"
+      v-else-if="past"
+      class="m-3 mt-2 flex min-h-0 flex-1 items-center justify-center rounded-md border border-dashed border-default p-2 text-sm text-dimmed"
     >
-      <button
-        type="button"
-        class="flex items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm text-dimmed transition-colors hover:text-default"
-        @click="$emit('open')"
-      >
-        <UIcon
-          name="i-lucide-plus"
-          class="size-4 shrink-0"
-        />
-        Add dinner
-      </button>
-
-      <button
-        v-for="candidate in suggestions"
-        :key="candidate.recipe.id"
-        type="button"
-        class="truncate rounded-md bg-elevated/70 px-2.5 py-1.5 text-left text-[13px] text-default ring ring-default transition-colors hover:bg-accented hover:text-highlighted"
-        :title="candidate.recipe.name"
-        @click="$emit('pick', candidate.recipe.id)"
-      >
-        {{ candidate.recipe.name }}
-      </button>
+      Nothing planned
     </div>
+
+    <!-- An empty night is an invitation: one way in, the whole card as the target. -->
+    <button
+      v-else
+      type="button"
+      class="m-3 mt-2 flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 rounded-md border border-dashed border-default p-2 text-sm text-dimmed transition-colors hover:border-accented hover:text-default"
+      @click="$emit('open')"
+    >
+      <UIcon
+        name="i-lucide-plus"
+        class="size-4 shrink-0"
+      />
+      Add dinner
+    </button>
 
     <div class="mt-auto flex shrink-0 items-center gap-2 border-t border-default px-3.5 py-2.5">
       <UAvatarGroup

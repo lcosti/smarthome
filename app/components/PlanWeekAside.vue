@@ -23,7 +23,7 @@ const { nights, suggestions, target } = defineProps<{
   nights: PlannedNight[]
   /** Ranked meals for the night the buttons plan onto. Empty when the week is full. */
   suggestions: RankedCandidate[]
-  /** The first night still empty, or null when there is none. */
+  /** The first night still empty and still ahead, or null when there is none. */
   target: string | null
 }>()
 
@@ -238,7 +238,7 @@ function reasonFor(candidate: RankedCandidate): string {
         >
           {{ target
             ? 'Nothing left to suggest — every recipe is already on this week or ruled out by an allergy.'
-            : 'Every night is planned. Nothing to recommend.' }}
+            : 'Nothing left to plan this week.' }}
         </p>
       </div>
     </div>

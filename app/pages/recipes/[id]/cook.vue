@@ -200,7 +200,7 @@ onUnmounted(() => {
           color="primary"
           variant="outline"
           label="Cook mode"
-          :ui="{ base: 'shrink-0 rounded-md px-2 py-1 text-xs font-medium leading-none' }"
+          class="shrink-0"
         />
       </div>
 
@@ -227,7 +227,7 @@ onUnmounted(() => {
           <template v-if="minutes">{{ minutes }} min · </template>serves {{ recipe.base_servings }}
         </span>
         <UButton
-          to="/today"
+          to="/"
           color="neutral"
           variant="subtle"
           size="lg"
@@ -448,7 +448,7 @@ onUnmounted(() => {
           />
           <UButton
             v-if="isLastStep"
-            to="/today"
+            to="/"
             color="primary"
             variant="solid"
             size="xl"
@@ -479,10 +479,6 @@ onUnmounted(() => {
     description="It was deleted on another device while this was open."
     :actions="[{ label: 'All recipes', to: '/recipes', color: 'neutral', variant: 'subtle', size: 'xl' }]"
     class="h-full p-6"
-    :ui="{
-      avatar: 'size-11 bg-transparent text-dimmed',
-      title: 'text-2xl font-semibold text-muted lg:text-3xl',
-      description: 'text-base text-muted'
-    }"
+    :ui="{ avatar: 'size-11', title: 'lg:text-3xl' }"
   />
 </template>

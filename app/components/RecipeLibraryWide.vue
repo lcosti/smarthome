@@ -108,7 +108,7 @@ async function choose() {
   await plan.setNight(date, detail.value.id)
   // Straight back to Today: the swap was the errand, and leaving somebody on
   // the library afterwards makes them find their own way home.
-  await navigateTo('/today')
+  await navigateTo('/')
 }
 
 const sending = ref(false)
@@ -280,11 +280,6 @@ async function add() {
           onClick: clearSearch
         }]"
         class="col-span-2 min-h-0"
-        :ui="{
-          avatar: 'size-10 bg-transparent text-dimmed',
-          title: 'text-2xl font-semibold text-muted',
-          description: 'text-base text-muted'
-        }"
       />
 
       <!-- The pane: what it is, what it needs, and the three things to do about it. -->
@@ -469,11 +464,6 @@ async function add() {
       title="No recipes yet"
       description="Paste a recipe’s address above, or add one from a photo on your phone — the generator builds the week out of them."
       class="flex-1"
-      :ui="{
-        avatar: 'size-10 bg-transparent text-dimmed',
-        title: 'text-2xl font-semibold text-muted',
-        description: 'text-base text-muted'
-      }"
     />
   </div>
 </template>

@@ -1,219 +1,193 @@
 <script setup lang="ts">
+import { useAttendanceStore } from '../stores/attendance'
 import { useListStore } from '../stores/list'
+import { usePeopleStore } from '../stores/people'
+import { usePlanStore } from '../stores/plan'
+import { useRecipesStore } from '../stores/recipes'
 import { useSyncStore } from '../stores/sync'
-import type { ListEntry } from '../utils/aggregate'
-import type { ItemRow } from '../utils/db'
+import { buildBoard, type BoardEvent, type BoardToBuyLine } from '../utils/board'
+import { addDays, isoDate, mondayOf } from '../utils/week'
 
-const store = useListStore()
+/**
+ * Today: what's for dinner, who's eating it, what else is happening, what needs
+ * buying, and what the rest of the week looks like.
+ *
+ * The view the kitchen tablet sits on all day, and the same view on a phone in
+ * a column. Everything on it is derived by `buildBoard` — one pure function,
+ * one view model, seven content states that fall out of the facts rather than
+ * being seven templates.
+ */
+
 const sync = useSyncStore()
-const toast = useToast()
+const people = usePeopleStore()
+const plan = usePlanStore()
+const recipes = useRecipesStore()
+const attendance = useAttendanceStore()
+const list = useListStore()
 
-const draft = ref('')
-const editingId = ref<string | null>(null)
-const editorOpen = ref(false)
-const groupEntry = ref<ListEntry<ItemRow> | null>(null)
-const groupOpen = ref(false)
-const showDone = ref(false)
+const now = useBoardClock()
+const nights = useBoardNights(now)
+const { weather } = useWeather()
 
-async function add() {
-  const name = draft.value.trim()
-  if (!name) return
-  // Clear first: the input has to be ready for the next item immediately, and the
-  // write is optimistic anyway — offline is not a failure here, it queues.
-  draft.value = ''
-  const added = await store.addItem(name)
-  if (added) return
+/** Today and tomorrow only. The card cannot show more, so nothing else is read. */
+const events = computed<BoardEvent[]>(() => {
+  const today = isoDate(now.value)
+  const tomorrow = isoDate(addDays(now.value, 1))
+  return [...sync.rowsOf('calendar_events').values()]
+    .filter(row => !row.deleted_at && row.start_date <= tomorrow && row.end_date >= today)
+    .map(row => ({
+      id: row.id,
+      title: row.title,
+      person_id: row.person_id,
+      all_day: row.all_day,
+      starts_at: row.starts_at,
+      start_date: row.start_date,
+      end_date: row.end_date
+    }))
+})
 
-  // It genuinely did not go anywhere. Give the typing back rather than swallowing
-  // it, and say why.
-  draft.value = draft.value || name
-  toast.add({
-    title: 'Not added',
-    description: 'This device is not set up with a household yet.',
-    color: 'warning',
-    icon: 'i-lucide-cloud-alert'
+const uncheckedCount = computed(() => list.liveItems.filter(item => !item.checked).length)
+
+/**
+ * What each planned night still needs, straight off the list.
+ *
+ * Raw rows rather than the aggregated entries the list view uses: these have to
+ * stay attributable to the plan entry that created them, and aggregation is
+ * precisely the step that throws that away by merging the milk two recipes asked
+ * for into one line.
+ */
+const toBuy = computed<BoardToBuyLine[]>(() =>
+  list.liveItems
+    .filter(item => !item.checked && item.plan_entry_id)
+    .map(item => ({ entryId: item.plan_entry_id!, name: item.name, qty: item.quantity }))
+)
+
+/**
+ * Whether the list has ever been used, deleted and ticked rows included — which
+ * is why it reads the raw map rather than `liveItems`. It is the difference
+ * between a list cleared before a shop and one nobody has touched yet.
+ */
+const listEverUsed = computed(() => sync.rowsOf('shopping_list_items').size > 0)
+
+/** Whether a calendar has ever synced, over any date, not just today's window. */
+const hasCalendar = computed(() => sync.rowsOf('calendar_events').size > 0)
+
+const board = computed(() =>
+  buildBoard({
+    now: now.value,
+    nights: nights.value,
+    people: people.people,
+    constraints: people.constraints.map(row => ({
+      person_id: row.person_id,
+      kind: row.kind,
+      tag: row.tag
+    })),
+    events: events.value,
+    hasCalendar: hasCalendar.value,
+    toBuy: toBuy.value,
+    shopping: {
+      count: uncheckedCount.value,
+      everUsed: listEverUsed.value
+    },
+    recipeCount: recipes.recipes.length,
+    offline: sync.offline,
+    lastSyncedAt: sync.lastSyncedAt,
+    weather: weather.value
   })
+)
+
+const generating = ref(false)
+
+async function generate() {
+  if (generating.value) return
+  // No spinner and no overlay — the button's own label changes and the page
+  // keeps its content, which is the rule everywhere on this screen.
+  generating.value = true
+  try {
+    // From tonight forward, not from Monday: on a Friday, filling the calendar
+    // week would spend most of its effort on nights that have already been and
+    // gone, and leave the weekend the page is actually showing still empty.
+    await plan.fillWeek(isoDate(now.value))
+  } finally {
+    generating.value = false
+  }
 }
 
-function edit(id: string) {
-  editingId.value = id
-  editorOpen.value = true
+function openRecipe() {
+  // Cook mode, not the recipe's edit page: the thing you want from tonight's
+  // dinner while standing in the kitchen is the method, at a readable size.
+  if (board.value.hero.recipeId) navigateTo(`/recipes/${board.value.hero.recipeId}/cook`)
+}
+
+function togglePerson(personId: string) {
+  void attendance.togglePresence(personId, board.value.hero.date)
+}
+
+/** Take tonight off. The items it put on the list go on the next derive. */
+function skipNight() {
+  void plan.clearNight(board.value.hero.date)
 }
 
 /**
- * One row behind the line means edit it. Several means show what they are first —
- * a summed quantity is not a thing that can be edited, only the rows under it.
+ * Push the plan's ingredients onto the list.
+ *
+ * The whole week rather than just tonight, because `deriveWeek` is the one thing
+ * that reconciles the list in both directions — running it for a single night
+ * would add what that night wants without taking off what a cancelled Tuesday
+ * left behind.
  */
-function openEntry(entry: ListEntry<ItemRow>) {
-  if (entry.items.length === 1) {
-    edit(entry.items[0]!.id)
-    return
+const sending = ref(false)
+
+async function sendToList() {
+  if (sending.value) return
+  sending.value = true
+  try {
+    const [year, month, day] = board.value.hero.date.split('-').map(Number)
+    await plan.deriveWeek(isoDate(mondayOf(new Date(year!, month! - 1, day!))))
+  } finally {
+    sending.value = false
   }
-  groupEntry.value = entry
-  groupOpen.value = true
 }
 
-function aisleNameFor(id: string | null) {
-  return id ? store.aisles.get(id)?.name ?? null : null
+/** Swapping is a choice from the library, and the library is a whole view. */
+function swapMeal() {
+  navigateTo(`/recipes?swap=${board.value.hero.date}`)
 }
-
-const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.length === 0)
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
-    <AppPageHeader
-      title="Shopping"
-      content-class="max-w-xl lg:max-w-5xl"
-    >
-      <form
-        class="flex gap-2"
-        @submit.prevent="add"
-      >
-        <UInput
-          v-model="draft"
-          size="xl"
-          placeholder="Add an item"
-          autocapitalize="sentences"
-          enterkeyhint="done"
-          class="flex-1"
-        />
-        <UButton
-          type="submit"
-          size="xl"
-          icon="i-lucide-plus"
-          :disabled="!draft.trim()"
-          aria-label="Add"
-        />
-      </form>
-    </AppPageHeader>
+  <div
+    :data-board-state="board.state"
+    class="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col gap-4 overflow-y-auto px-3 pb-6 pt-3 lg:max-w-none lg:overflow-hidden lg:px-6"
+  >
+    <!--
+      One column on a phone, two on a wide screen. The hero is the reason this
+      page exists, so it gets the larger share and the two smaller cards stack
+      beside it rather than under it.
+    -->
+    <div class="grid items-stretch gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:overflow-hidden">
+      <BoardHero
+        :hero="board.hero"
+        :generating="generating"
+        :sending="sending"
+        @open="openRecipe"
+        @generate="generate"
+        @toggle="togglePerson"
+        @skip="skipNight"
+        @swap="swapMeal"
+        @send="sendToList"
+      />
 
-    <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 pb-6 lg:max-w-5xl lg:px-6 lg:pb-12">
-      <div
-        v-if="!sync.hydrated"
-        class="py-16 text-center text-sm text-muted"
-      >
-        Loading…
+      <div class="flex min-h-0 flex-col gap-4">
+        <BoardSchedule :schedule="board.schedule" />
+        <BoardShopping :shopping="board.shopping" />
       </div>
+    </div>
 
-      <!--
-        The redirect in useSync handles this when it can. This is the fallback for
-        when it cannot — no signal, or mid-load — so nobody is ever left staring at
-        an input that quietly does nothing.
-      -->
-      <div
-        v-else-if="!sync.householdId"
-        class="py-16 text-center"
-      >
-        <p class="text-muted">
-          This device isn't set up yet.
-        </p>
-        <p class="mt-1 text-sm text-dimmed">
-          Create a household, or join the one you already have.
-        </p>
-        <UButton
-          to="/welcome"
-          class="mt-4"
-          size="lg"
-        >
-          Set up
-        </UButton>
-      </div>
-
-      <div
-        v-else-if="isEmpty"
-        class="py-16 text-center"
-      >
-        <p class="text-muted">
-          Nothing on the list.
-        </p>
-        <p class="mt-1 text-sm text-dimmed">
-          Type above to add the first thing.
-        </p>
-      </div>
-
-      <template v-else>
-        <!--
-          One column on a phone, walked top to bottom in aisle order. Three on a
-          wide screen, where the whole shop fits on one screen and reading order
-          matters less than seeing all of it at once. `items-start` so a short
-          aisle does not stretch to the height of the longest one beside it.
-        -->
-        <div class="lg:grid lg:grid-cols-3 lg:items-start lg:gap-x-4">
-          <section
-            v-for="group in store.groups"
-            :key="group.id"
-            class="mt-5 first:mt-3 lg:mt-4 lg:first:mt-4"
-          >
-            <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
-              {{ group.name }}
-            </h2>
-            <ul class="rounded-lg border border-default bg-elevated/30">
-              <ListEntryRow
-                v-for="entry in group.entries"
-                :key="entry.key"
-                :entry="entry"
-                :source-label="store.sourceLabelForEntry(entry)"
-                @toggle="store.toggleEntry(entry)"
-                @edit="openEntry(entry)"
-              />
-            </ul>
-          </section>
-        </div>
-
-        <section
-          v-if="store.checkedItems.length"
-          class="mt-8"
-        >
-          <div class="mb-1 flex items-center gap-2">
-            <button
-              type="button"
-              class="flex flex-1 items-center gap-1 text-xs font-medium uppercase tracking-wide text-dimmed"
-              @click="showDone = !showDone"
-            >
-              <UIcon
-                :name="showDone ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
-                class="size-4"
-              />
-              Done ({{ store.checkedItems.length }})
-            </button>
-            <UButton
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              @click="store.clearChecked()"
-            >
-              Clear
-            </UButton>
-          </div>
-
-          <ul
-            v-if="showDone"
-            class="rounded-lg border border-default bg-elevated/30"
-          >
-            <ItemRow
-              v-for="item in store.checkedItems"
-              :key="item.id"
-              :item="item"
-              :aisle-name="aisleNameFor(item.aisle_id)"
-              :source-label="store.sourceLabelFor(item)"
-              @toggle="store.toggleItem(item.id)"
-              @edit="edit(item.id)"
-            />
-          </ul>
-        </section>
-      </template>
-    </main>
-
-    <ItemEditor
-      v-model:open="editorOpen"
-      :item-id="editingId"
-    />
-
-    <ItemGroupSheet
-      v-model:open="groupOpen"
-      :entry="groupEntry"
-      @edit="edit"
+    <BoardWeek
+      :week="board.week"
+      :generating="generating"
+      @generate="generate"
     />
   </div>
 </template>

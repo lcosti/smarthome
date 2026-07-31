@@ -3,7 +3,16 @@ import { useAttendanceStore } from '../stores/attendance'
 import { dishLabel, type PlannedNight } from '../stores/plan'
 import { dayLabel } from '../utils/week'
 
-const { night, today } = defineProps<{ night: PlannedNight, today: boolean }>()
+/**
+ * A night that has been and gone fades and stops asking, exactly as the wide
+ * card does: what was cooked still opens, an empty one is a fact now.
+ */
+const { night, today, past = false } = defineProps<{
+  night: PlannedNight
+  today: boolean
+  /** The night is before today. */
+  past?: boolean
+}>()
 
 defineEmits<{ open: [] }>()
 
@@ -28,7 +37,9 @@ const awayLabel = computed(() => {
   <li class="border-b border-default last:border-b-0">
     <button
       type="button"
-      class="flex min-h-14 w-full flex-col px-3 py-3 text-left active:bg-elevated/60"
+      class="flex min-h-14 w-full flex-col px-3 py-3 text-left active:bg-elevated/60 disabled:active:bg-transparent"
+      :class="past && 'opacity-55'"
+      :disabled="past && !planned"
       @click="$emit('open')"
     >
       <span class="flex w-full items-center gap-3">
@@ -66,11 +77,16 @@ const awayLabel = computed(() => {
         <!-- An unplanned night should look like an invitation, not a gap. -->
         <template v-else>
           <span class="flex flex-1 items-center gap-2 text-dimmed">
-            <UIcon
-              name="i-lucide-plus"
-              class="size-5"
-            />
-            <span class="text-sm">Add dinner</span>
+            <template v-if="past">
+              <span class="text-sm">Nothing planned</span>
+            </template>
+            <template v-else>
+              <UIcon
+                name="i-lucide-plus"
+                class="size-5"
+              />
+              <span class="text-sm">Add dinner</span>
+            </template>
           </span>
         </template>
       </span>

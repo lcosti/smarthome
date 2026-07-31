@@ -50,7 +50,7 @@ defineEmits<{ select: [] }>()
         color="primary"
         variant="solid"
         :label="card.plannedDay"
-        :ui="{ base: 'absolute right-2.5 top-2.5 rounded-md px-2 py-0.5 font-mono text-[11px] font-medium tracking-[0.06em]' }"
+        class="absolute right-2.5 top-2.5 px-2 py-0.5 font-mono text-[11px] tracking-[0.06em]"
       />
 
       <!--
@@ -64,7 +64,7 @@ defineEmits<{ select: [] }>()
         variant="solid"
         icon="i-lucide-package-check"
         label="Have it all"
-        :ui="{ base: 'absolute bottom-2.5 left-2.5 rounded-md px-2 py-0.5 font-mono text-[11px] font-medium tracking-[0.06em]' }"
+        class="absolute bottom-2.5 left-2.5 px-2 py-0.5 font-mono text-[11px] tracking-[0.06em]"
       />
     </div>
 

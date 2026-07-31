@@ -52,13 +52,23 @@ const thisWeek = computed(() => weekStart === isoDate(mondayOf(new Date())))
 /**
  * Ranked meals for every night still empty, scored once for the whole week.
  *
- * Three per night: two fit on a card, and the aside shows the rest of the first
- * night's shortlist rather than a second opinion about the same meal.
+ * The aside is the only thing that asks. Repeating the shortlist on each empty
+ * card said the same recipe name seven times over — the same top-ranked meal is
+ * the top-ranked meal on every free night — which read as a plan already made
+ * rather than as an offer.
  */
 const suggestions = computed(() => plan.weekSuggestions(weekStart, 4))
 
-/** The night the aside plans onto — the first one still open. */
-const target = computed(() => nights.find(night => !night.entries.length)?.date ?? null)
+/**
+ * The night the aside plans onto — the first one still open and still ahead.
+ *
+ * Skipping the nights that have gone is the whole point: on a Friday the first
+ * empty night is Monday, and "Use Mon" is an offer to cook something four days
+ * ago.
+ */
+const target = computed(() =>
+  nights.find(night => !night.entries.length && night.date >= today)?.date ?? null
+)
 
 const asideSuggestions = computed(() =>
   target.value ? suggestions.value.get(target.value) ?? [] : []
@@ -158,9 +168,8 @@ async function pick(date: string, recipeId: string) {
           :key="night.date"
           :night="night"
           :today="night.date === today"
-          :suggestions="(suggestions.get(night.date) ?? []).slice(0, 2)"
+          :past="night.date < today"
           @open="emit('open', night.date)"
-          @pick="pick(night.date, $event)"
         />
 
         <PlanWeekStats :nights="nights" />

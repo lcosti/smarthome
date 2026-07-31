@@ -85,10 +85,10 @@ async function add() {
 
 <template>
   <UCard
-    variant="soft"
+    variant="subtle"
     data-board-card="shopping"
+    class="flex min-h-0 flex-1 flex-col"
     :ui="{
-      root: 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-elevated/50 divide-y divide-default ring ring-default',
       header: 'flex flex-none items-center justify-between gap-3 px-6 py-4 sm:px-6',
       body: 'flex min-h-0 flex-1 flex-col p-0 sm:p-0'
     }"
@@ -103,7 +103,6 @@ async function add() {
           color="neutral"
           variant="subtle"
           :label="shopping.countLabel"
-          :ui="{ base: 'rounded-md px-2 py-1 text-xs font-medium leading-none' }"
         />
       </div>
 
@@ -126,7 +125,6 @@ async function add() {
           color="neutral"
           variant="subtle"
           label="Add item"
-          :ui="{ base: 'rounded-md px-2.5 py-1 text-sm font-medium' }"
         />
 
         <template #body>
@@ -224,14 +222,15 @@ async function add() {
     </div>
 
     <!--
-      The rows scroll inside the card rather than growing it. Without the cap a
-      forty-item list would push the week strip a screen and a half down the
-      page, and this card is a summary you can act on — the full list has its
-      own view.
+      The rows scroll inside the card rather than growing it. On a phone the page
+      itself scrolls, so the cap is what stops a forty-item list pushing the week
+      strip a screen and a half down. On a wide screen the board is fixed and the
+      row hands this card a height, so the cap comes off and the list takes
+      whatever is left.
     -->
     <div
       v-else
-      class="flex max-h-[420px] min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-4 pb-4 pt-2"
+      class="flex max-h-[420px] min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-4 pb-4 pt-2 lg:max-h-none"
     >
       <button
         v-for="entry in outstanding"

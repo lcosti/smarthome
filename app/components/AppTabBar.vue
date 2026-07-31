@@ -2,13 +2,14 @@
 const route = useRoute()
 
 const tabs = [
-  { to: '/today', icon: 'i-lucide-home', label: 'Today' },
-  { to: '/', icon: 'i-lucide-shopping-cart', label: 'List' },
+  { to: '/', icon: 'i-lucide-home', label: 'Today' },
+  { to: '/shopping', icon: 'i-lucide-shopping-cart', label: 'List' },
   { to: '/plan', icon: 'i-lucide-calendar-days', label: 'Plan' },
   { to: '/recipes', icon: 'i-lucide-book-open', label: 'Recipes' }
 ]
 
-// Prefix match on everything but the list, so /recipes/some-id keeps Recipes lit.
+// Prefix match on everything but Today, so /recipes/some-id keeps Recipes lit.
+// Today is '/', which prefixes every route, so it has to match exactly.
 function isActive(to: string) {
   return to === '/' ? route.path === '/' : route.path.startsWith(to)
 }

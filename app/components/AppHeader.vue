@@ -42,12 +42,12 @@ const header = computed(() =>
  * Four destinations, always all four, never a menu: getting somewhere should
  * cost one press and no reading.
  *
- * `exact` on the list only, so an open recipe lights Recipes rather than
- * lighting both it and the list.
+ * `exact` on Today only, because it is '/' and would otherwise match every
+ * route — an open recipe must light Recipes rather than lighting both.
  */
 const items = computed<NavigationMenuItem[]>(() => [
-  { label: 'Today', to: '/today' },
-  { label: 'List', to: '/', exact: true },
+  { label: 'Today', to: '/', exact: true },
+  { label: 'List', to: '/shopping' },
   { label: 'Plan', to: '/plan' },
   { label: 'Recipes', to: '/recipes' }
 ])
@@ -62,7 +62,10 @@ const items = computed<NavigationMenuItem[]>(() => [
       <h1 class="text-xl font-semibold leading-none tracking-[-0.02em] text-highlighted">
         {{ header.dayName }}
       </h1>
-      <span class="h-5 w-px bg-elevated" />
+      <USeparator
+        orientation="vertical"
+        class="h-5"
+      />
       <p class="text-sm text-muted">
         {{ header.dateLine }}
       </p>
@@ -70,7 +73,6 @@ const items = computed<NavigationMenuItem[]>(() => [
         color="primary"
         variant="subtle"
         :label="header.weekLabel"
-        :ui="{ base: 'rounded-md px-2 py-1 text-xs font-medium leading-none' }"
       />
 
       <!--
@@ -94,33 +96,20 @@ const items = computed<NavigationMenuItem[]>(() => [
     <!--
       A segmented control rather than a row of links: the four views are one
       choice, and the recessed pill around them says so before anything is read.
-
-      The active state is styled off `data-active`, which reka-ui puts on the
-      anchor. `before:hidden` removes the theme's own hover pill, which would
-      otherwise sit under this one at a different radius, and `py-0` on the item
-      removes the theme's `py-2`, which reserves room for a highlight underline
-      this nav does not use.
+      The styling lives in `app.config.ts`, since it is the shape of the control
+      rather than of this header.
     -->
     <UNavigationMenu
       :items="items"
       color="neutral"
-      :ui="{
-        root: 'w-auto',
-        list: 'gap-1 rounded-lg bg-elevated/50 p-1 ring ring-default',
-        item: 'py-0',
-        link: `rounded-md px-3 py-1.5 text-sm font-medium text-muted transition-colors
-               before:hidden hover:bg-elevated/60 hover:text-default
-               data-[active]:bg-default data-[active]:text-highlighted
-               data-[active]:ring data-[active]:ring-accented`,
-        linkLabel: 'truncate'
-      }"
+      :ui="{ root: 'w-auto' }"
     />
 
     <div class="ml-auto flex flex-none items-center gap-3 whitespace-nowrap">
       <UBadge
         :color="header.plan.generated ? 'primary' : 'neutral'"
         variant="subtle"
-        :ui="{ base: 'gap-1.5 rounded-md px-2 py-1 text-xs font-medium leading-none' }"
+        class="gap-1.5"
       >
         <span
           class="size-1.5 rounded-full"
@@ -138,7 +127,7 @@ const items = computed<NavigationMenuItem[]>(() => [
         v-if="header.stale"
         color="neutral"
         variant="subtle"
-        :ui="{ base: 'gap-1.5 rounded-md px-2 py-1 text-xs font-medium leading-none' }"
+        class="gap-1.5"
       >
         <span class="size-1.5 rounded-full bg-primary" />
         {{ header.staleLabel }}

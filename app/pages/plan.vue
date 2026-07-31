@@ -164,6 +164,7 @@ async function derive() {
             :key="night.date"
             :night="night"
             :today="night.date === today"
+            :past="night.date < today"
             @open="openNight(night.date)"
           />
         </ul>

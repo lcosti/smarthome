@@ -22,9 +22,9 @@ defineEmits<{ generate: [] }>()
 
 <template>
   <UCard
-    variant="soft"
+    variant="subtle"
+    class="flex-none"
     :ui="{
-      root: 'flex-none overflow-hidden rounded-lg bg-elevated/50 divide-y divide-default ring ring-default',
       header: 'flex items-center justify-between gap-3 px-6 py-4 sm:px-6',
       body: 'grid grid-cols-2 gap-3 px-4 pb-4 pt-3 sm:grid-cols-3 sm:p-6 sm:pb-6 sm:pt-5 lg:grid-cols-6'
     }"
@@ -37,7 +37,6 @@ defineEmits<{ generate: [] }>()
         color="neutral"
         variant="ghost"
         :label="generating ? 'Generating…' : 'Generate'"
-        :ui="{ base: 'rounded-md px-2.5 py-1.5 text-sm font-medium' }"
         @click="$emit('generate')"
       />
     </template>

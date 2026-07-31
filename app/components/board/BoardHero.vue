@@ -50,9 +50,9 @@ const NuxtLink = resolveComponent('NuxtLink')
 
 <template>
   <UCard
-    variant="soft"
+    variant="subtle"
+    class="flex min-h-0 flex-col"
     :ui="{
-      root: 'flex min-h-0 flex-col overflow-hidden rounded-lg bg-elevated/50 divide-y divide-default ring ring-default',
       header: 'flex flex-none items-center justify-between gap-3 px-6 py-4 sm:px-6',
       body: 'flex min-h-0 flex-1 flex-col overflow-y-auto p-6 sm:p-6',
       footer: 'flex flex-none flex-wrap items-center gap-3 px-6 py-4 sm:px-6'
@@ -67,7 +67,7 @@ const NuxtLink = resolveComponent('NuxtLink')
           :color="hero.hasMeal ? 'primary' : 'neutral'"
           variant="subtle"
           :label="hero.timing ?? 'Empty'"
-          :ui="{ base: 'rounded-md px-2 py-1 font-mono text-xs font-medium leading-none' }"
+          class="font-mono"
         />
       </div>
 
@@ -76,7 +76,6 @@ const NuxtLink = resolveComponent('NuxtLink')
         color="neutral"
         variant="ghost"
         label="Skip"
-        :ui="{ base: 'px-2.5 py-1.5 text-sm font-medium' }"
         @click="$emit('skip')"
       />
     </template>
@@ -237,7 +236,7 @@ const NuxtLink = resolveComponent('NuxtLink')
             color="primary"
             variant="solid"
             :label="!step.to && generating ? 'Generating…' : 'Next'"
-            :ui="{ base: 'ml-auto rounded-md px-2 py-1 text-xs font-medium leading-none' }"
+            class="ml-auto"
           />
         </component>
       </div>
@@ -272,21 +271,21 @@ const NuxtLink = resolveComponent('NuxtLink')
           variant="solid"
           label="Start cooking"
           trailing-icon="i-lucide-arrow-right"
-          :ui="{ base: 'rounded-md px-3 py-2 text-sm font-medium' }"
+          size="lg"
           @click="$emit('open')"
         />
         <UButton
           color="neutral"
           variant="subtle"
           label="Swap meal"
-          :ui="{ base: 'rounded-md px-3 py-2 text-sm font-medium' }"
+          size="lg"
           @click="$emit('swap')"
         />
         <UButton
           color="neutral"
           variant="ghost"
           :label="sending ? 'Sending…' : 'Send to list'"
-          :ui="{ base: 'rounded-md px-3 py-2 text-sm font-medium' }"
+          size="lg"
           @click="$emit('send')"
         />
         <p
@@ -304,7 +303,7 @@ const NuxtLink = resolveComponent('NuxtLink')
           :to="hero.noMeal.action.to ?? undefined"
           :label="!hero.noMeal.action.to && generating ? 'Generating…' : hero.noMeal.action.label"
           trailing-icon="i-lucide-arrow-right"
-          :ui="{ base: 'rounded-md px-3 py-2 text-sm font-medium' }"
+          size="lg"
           @click="hero.noMeal.action.to || $emit('generate')"
         />
         <UButton
@@ -313,7 +312,7 @@ const NuxtLink = resolveComponent('NuxtLink')
           variant="subtle"
           to="/recipes"
           label="Browse recipes"
-          :ui="{ base: 'rounded-md px-3 py-2 text-sm font-medium' }"
+          size="lg"
         />
         <p class="ml-auto font-mono text-xs text-dimmed">
           {{ hero.noMeal.hint }}

@@ -33,7 +33,7 @@ async function pick(recipeId: string) {
   await plan.setNight(date, recipeId)
   // Back where the errand started, rather than leaving somebody on the library
   // to find their own way home.
-  await navigateTo('/today')
+  await navigateTo('/')
 }
 
 // One box does three jobs. Typing narrows the library; pressing add turns what
