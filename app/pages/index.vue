@@ -61,7 +61,7 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
 </script>
 
 <template>
-  <div class="min-h-dvh">
+  <div class="flex h-full flex-col">
     <AppPageHeader
       title="Shopping"
       content-class="max-w-xl lg:max-w-5xl"
@@ -88,7 +88,7 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
       </form>
     </AppPageHeader>
 
-    <main class="mx-auto max-w-xl px-3 pb-28 lg:max-w-5xl lg:px-6 lg:pb-12">
+    <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 pb-6 lg:max-w-5xl lg:px-6 lg:pb-12">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"

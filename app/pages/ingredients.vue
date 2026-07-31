@@ -81,7 +81,7 @@ const unlinkedCount = computed(() =>
 </script>
 
 <template>
-  <div class="min-h-dvh">
+  <div class="flex h-full flex-col">
     <AppPageHeader
       title="Ingredients"
       back="/settings"
@@ -97,7 +97,7 @@ const unlinkedCount = computed(() =>
       />
     </AppPageHeader>
 
-    <main class="mx-auto max-w-xl lg:max-w-3xl px-3 py-4 pb-28">
+    <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 py-4 lg:max-w-3xl">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"

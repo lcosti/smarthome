@@ -25,56 +25,58 @@ async function requestLink() {
 </script>
 
 <template>
-  <div class="min-h-dvh flex items-center justify-center p-6">
-    <div class="w-full max-w-sm space-y-6">
-      <div class="space-y-1 text-center">
-        <h1 class="text-2xl font-semibold">
-          Shopping List
-        </h1>
-        <p class="text-sm text-muted">
-          Sign in once. This device stays signed in.
-        </p>
-      </div>
+  <div class="h-full overflow-y-auto">
+    <div class="flex min-h-full items-center justify-center p-6">
+      <div class="w-full max-w-sm space-y-6">
+        <div class="space-y-1 text-center">
+          <h1 class="text-2xl font-semibold">
+            Shopping List
+          </h1>
+          <p class="text-sm text-muted">
+            Sign in once. This device stays signed in.
+          </p>
+        </div>
 
-      <UAlert
-        v-if="sent"
-        icon="i-lucide-mail-check"
-        color="primary"
-        variant="subtle"
-        title="Check your email"
-        :description="`We sent a sign-in link to ${email.trim()}. Open it on this device.`"
-      />
-
-      <form
-        v-else
-        class="space-y-3"
-        @submit.prevent="requestLink"
-      >
-        <UInput
-          v-model="email"
-          type="email"
-          autocomplete="email"
-          size="xl"
-          placeholder="you@example.com"
-          class="w-full"
-          :disabled="pending"
+        <UAlert
+          v-if="sent"
+          icon="i-lucide-mail-check"
+          color="primary"
+          variant="subtle"
+          title="Check your email"
+          :description="`We sent a sign-in link to ${email.trim()}. Open it on this device.`"
         />
-        <UButton
-          type="submit"
-          size="xl"
-          block
-          :loading="pending"
-          :disabled="!email.trim()"
+
+        <form
+          v-else
+          class="space-y-3"
+          @submit.prevent="requestLink"
         >
-          Email me a link
-        </UButton>
-        <p
-          v-if="errorMessage"
-          class="text-sm text-error"
-        >
-          {{ errorMessage }}
-        </p>
-      </form>
+          <UInput
+            v-model="email"
+            type="email"
+            autocomplete="email"
+            size="xl"
+            placeholder="you@example.com"
+            class="w-full"
+            :disabled="pending"
+          />
+          <UButton
+            type="submit"
+            size="xl"
+            block
+            :loading="pending"
+            :disabled="!email.trim()"
+          >
+            Email me a link
+          </UButton>
+          <p
+            v-if="errorMessage"
+            class="text-sm text-error"
+          >
+            {{ errorMessage }}
+          </p>
+        </form>
+      </div>
     </div>
   </div>
 </template>

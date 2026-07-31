@@ -89,15 +89,23 @@ onUnmounted(() => {
 <template>
   <UApp>
     <!--
-      The drift takes seconds precisely so that nobody sees it. It is a wrapper
-      rather than a class on the page, so a route change never restarts it.
+      The app shell is exactly one viewport tall and never scrolls. Each page puts
+      its header and its scrolling <main> inside this column, so the tab bar stays
+      on screen no matter how long the list gets — a fixed bar would be pushed out
+      of the visual viewport the moment anything scrolled sideways.
+
+      The drift takes seconds precisely so that nobody sees it. It rides on this
+      wrapper rather than on a class on the page, so a route change never
+      restarts it.
     -->
     <div
-      class="min-h-dvh transition-transform duration-[3000ms] ease-linear"
+      class="flex h-dvh flex-col overflow-hidden transition-transform duration-[3000ms] ease-linear"
       :style="driftStyle"
     >
       <AppHeader v-if="showChrome && isWide" />
-      <NuxtPage />
+      <div class="flex min-h-0 flex-1 flex-col">
+        <NuxtPage />
+      </div>
       <AppTabBar v-if="showChrome && !isWide" />
     </div>
   </UApp>

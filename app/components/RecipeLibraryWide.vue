@@ -162,9 +162,12 @@ async function add() {
 <template>
   <!--
     A screenful, not a page: the two panes scroll independently and the strip
-    along the top stays put. 4rem is the app header above it.
+    along the top stays put. h-full rather than a viewport calculation, because
+    the shell is already exactly one viewport tall and has taken the app header
+    off the top — subtracting it again here would only be right for as long as
+    that header stays one line high.
   -->
-  <div class="flex h-[calc(100dvh-4rem)] min-h-0 flex-col gap-3 px-6 py-4">
+  <div class="flex h-full min-h-0 flex-col gap-3 px-6 py-4">
     <!-- Title, search and import: one strip, because they are one job. -->
     <div class="flex shrink-0 items-center gap-4">
       <div class="flex items-baseline gap-3">

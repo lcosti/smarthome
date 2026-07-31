@@ -91,7 +91,7 @@ async function removeRecipe() {
 </script>
 
 <template>
-  <div class="min-h-dvh">
+  <div class="flex h-full flex-col">
     <AppPageHeader
       back="/recipes"
       back-label="Back to recipes"
@@ -135,7 +135,7 @@ async function removeRecipe() {
       </template>
     </AppPageHeader>
 
-    <main class="mx-auto max-w-xl space-y-8 px-3 py-5 pb-28 lg:max-w-3xl lg:px-6 lg:pb-12">
+    <main class="mx-auto min-h-0 w-full max-w-xl flex-1 space-y-8 overflow-y-auto px-3 py-5 lg:max-w-3xl lg:px-6 lg:pb-12">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"

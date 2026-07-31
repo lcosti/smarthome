@@ -96,7 +96,7 @@ async function land(recipeId: string | null) {
 
   <div
     v-else
-    class="min-h-dvh"
+    class="flex h-full flex-col"
   >
     <AppPageHeader :title="swapDate ? `Pick a meal for ${dayLabel(swapDate)}` : 'Recipes'">
       <div>
@@ -153,7 +153,7 @@ async function land(recipeId: string | null) {
       </div>
     </AppPageHeader>
 
-    <main class="mx-auto max-w-xl px-3 pb-28">
+    <main class="mx-auto w-full max-w-xl min-h-0 flex-1 overflow-y-auto px-3 pb-6">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"

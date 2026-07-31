@@ -53,14 +53,14 @@ async function copyInviteCode() {
 </script>
 
 <template>
-  <div class="min-h-dvh">
+  <div class="flex h-full flex-col">
     <AppPageHeader
       title="Settings"
       back="/"
       back-label="Back to list"
     />
 
-    <main class="mx-auto max-w-xl lg:max-w-3xl space-y-8 px-3 py-5 pb-28">
+    <main class="mx-auto min-h-0 w-full max-w-xl flex-1 space-y-8 overflow-y-auto px-3 py-5 lg:max-w-3xl">
       <section class="space-y-2">
         <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
           Aisles

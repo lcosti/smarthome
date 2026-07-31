@@ -42,7 +42,12 @@ const showSettings = computed(() => route.path !== '/settings')
 </script>
 
 <template>
-  <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur lg:static">
+  <!--
+    shrink-0 because the shell is one viewport tall and never scrolls: this bar
+    is the fixed top of a column whose <main> does the scrolling, and a flex
+    child without it gets squeezed by a long list rather than holding its height.
+  -->
+  <header class="sticky top-0 z-10 shrink-0 border-b border-default bg-default/85 backdrop-blur lg:static">
     <div
       class="mx-auto px-3 py-2 lg:px-6"
       :class="contentClass"

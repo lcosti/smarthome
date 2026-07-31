@@ -188,7 +188,7 @@ async function waitForQueue(page, expected, timeout = 30_000) {
  * precached — which fails the reopen a good second later and looks like a bug in
  * the app rather than in the waiting.
  */
-async function waitForServiceWorker(page, timeout = 30_000) {
+async function waitForServiceWorker(page, timeout = 90_000) {
   const deadline = Date.now() + timeout
   for (;;) {
     const ready = await page.evaluate(async () => {

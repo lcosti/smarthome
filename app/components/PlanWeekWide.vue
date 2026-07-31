@@ -84,8 +84,11 @@ async function pick(date: string, recipeId: string) {
 </script>
 
 <template>
-  <!-- A screenful, not a page. 4rem is the app header above it. -->
-  <div class="flex h-[calc(100dvh-4rem)] min-h-0 flex-col gap-4 px-6 py-4">
+  <!--
+    A screenful, not a page. h-full rather than a viewport calculation: the shell
+    is already one viewport tall and has taken the app header off the top.
+  -->
+  <div class="flex h-full min-h-0 flex-col gap-4 px-6 py-4">
     <div class="flex shrink-0 items-center gap-4">
       <h2 class="text-2xl font-semibold tracking-[-0.025em] text-highlighted">
         Plan

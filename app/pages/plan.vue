@@ -88,7 +88,7 @@ async function derive() {
 </script>
 
 <template>
-  <div :class="isWide ? 'min-h-0' : 'min-h-dvh'">
+  <div class="flex h-full flex-col">
     <!--
       Phone only. On a wide screen the app header above already carries the tab
       you are on, and the week strip lives inside the grid with the buttons that
@@ -147,7 +147,7 @@ async function derive() {
 
     <main
       v-else
-      class="mx-auto max-w-xl px-3 pb-28"
+      class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 pb-6"
     >
       <div
         v-if="!sync.hydrated"

@@ -158,7 +158,7 @@ function swapMeal() {
 <template>
   <div
     :data-board-state="board.state"
-    class="mx-auto flex max-w-xl flex-col gap-4 px-3 pb-28 pt-3 lg:max-w-none lg:px-6 lg:pb-6"
+    class="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col gap-4 overflow-y-auto px-3 pb-6 pt-3 lg:max-w-none lg:px-6"
   >
     <!--
       One column on a phone, two on a wide screen. The hero is the reason this

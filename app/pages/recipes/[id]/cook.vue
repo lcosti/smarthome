@@ -189,7 +189,7 @@ onUnmounted(() => {
     v-if="recipe"
     data-cook-mode
     :data-cook-step="`${steps.length ? stepIndex + 1 : 0}/${steps.length}`"
-    class="flex min-h-dvh flex-col lg:h-dvh lg:min-h-0"
+    class="flex h-full min-h-0 flex-col"
   >
     <div class="flex shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 border-b border-default px-4 py-3 lg:px-6 lg:py-3.5">
       <div class="flex min-w-0 items-center gap-3.5">
@@ -243,7 +243,12 @@ onUnmounted(() => {
       what you glance back at — and on a narrow screen whichever comes first is
       the one you are looking at.
     -->
-    <div class="flex min-h-0 flex-1 flex-col gap-4 p-4 lg:grid lg:grid-cols-[1fr_1.9fr] lg:gap-4 lg:overflow-hidden lg:p-6">
+    <!--
+      Scrolls on a phone, where the two cards are stacked and a long method is
+      taller than the screen. On a wide screen the panes are side by side and do
+      their own scrolling, so the region itself must not.
+    -->
+    <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 lg:grid lg:grid-cols-[1fr_1.9fr] lg:gap-4 lg:overflow-hidden lg:p-6">
       <UCard
         variant="outline"
         :ui="{
@@ -473,7 +478,7 @@ onUnmounted(() => {
     title="That recipe is gone"
     description="It was deleted on another device while this was open."
     :actions="[{ label: 'All recipes', to: '/recipes', color: 'neutral', variant: 'subtle', size: 'xl' }]"
-    class="min-h-dvh p-6"
+    class="h-full p-6"
     :ui="{
       avatar: 'size-11 bg-transparent text-dimmed',
       title: 'text-2xl font-semibold text-muted lg:text-3xl',
