@@ -62,67 +62,31 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
 
 <template>
   <div class="min-h-dvh">
-    <!--
-      Sticky on a phone, where it is the only thing at the top of the screen;
-      static on a wide one, where the app header already occupies top-0.
-    -->
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur lg:static">
-      <div class="mx-auto max-w-xl px-3 pt-3 pb-2 lg:max-w-5xl lg:px-6">
-        <div class="mb-2 flex items-center gap-2">
-          <h1 class="flex-1 truncate text-lg font-semibold">
-            Shopping
-          </h1>
-
-          <UBadge
-            v-if="sync.offline"
-            color="neutral"
-            variant="subtle"
-            icon="i-lucide-cloud-off"
-          >
-            {{ sync.pendingCount > 0 ? `${sync.pendingCount} to sync` : 'Offline' }}
-          </UBadge>
-          <UBadge
-            v-else-if="sync.pendingCount > 0"
-            color="neutral"
-            variant="subtle"
-            icon="i-lucide-refresh-cw"
-          >
-            Saving
-          </UBadge>
-
-          <!-- The wide layout already has one in the app header. -->
-          <UButton
-            to="/settings"
-            icon="i-lucide-settings"
-            color="neutral"
-            variant="ghost"
-            class="lg:hidden"
-            aria-label="Settings"
-          />
-        </div>
-
-        <form
-          class="flex gap-2"
-          @submit.prevent="add"
-        >
-          <UInput
-            v-model="draft"
-            size="xl"
-            placeholder="Add an item"
-            autocapitalize="sentences"
-            enterkeyhint="done"
-            class="flex-1"
-          />
-          <UButton
-            type="submit"
-            size="xl"
-            icon="i-lucide-plus"
-            :disabled="!draft.trim()"
-            aria-label="Add"
-          />
-        </form>
-      </div>
-    </header>
+    <AppPageHeader
+      title="Shopping"
+      content-class="max-w-xl lg:max-w-5xl"
+    >
+      <form
+        class="flex gap-2"
+        @submit.prevent="add"
+      >
+        <UInput
+          v-model="draft"
+          size="xl"
+          placeholder="Add an item"
+          autocapitalize="sentences"
+          enterkeyhint="done"
+          class="flex-1"
+        />
+        <UButton
+          type="submit"
+          size="xl"
+          icon="i-lucide-plus"
+          :disabled="!draft.trim()"
+          aria-label="Add"
+        />
+      </form>
+    </AppPageHeader>
 
     <main class="mx-auto max-w-xl px-3 pb-28 lg:max-w-5xl lg:px-6 lg:pb-12">
       <div

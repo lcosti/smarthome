@@ -92,25 +92,24 @@ async function removeRecipe() {
 
 <template>
   <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur lg:static">
-      <div class="mx-auto flex max-w-xl items-center gap-1 px-3 py-2 lg:max-w-3xl lg:px-6">
-        <UButton
-          to="/recipes"
-          icon="i-lucide-arrow-left"
-          color="neutral"
-          variant="ghost"
-          aria-label="Back to recipes"
-        />
+    <AppPageHeader
+      back="/recipes"
+      back-label="Back to recipes"
+    >
+      <template #title>
         <UInput
           v-if="recipe"
           v-model="draftName"
           variant="ghost"
           size="xl"
-          class="flex-1 font-semibold"
+          class="min-w-0 flex-1 font-semibold"
           aria-label="Recipe name"
           @blur="renameOnBlur"
           @keydown.enter="renameOnBlur"
         />
+      </template>
+
+      <template #actions>
         <!-- This page is for editing a recipe; cook mode is for standing at the
              hob with it. One press between them, from either direction. -->
         <UButton
@@ -133,8 +132,8 @@ async function removeRecipe() {
           variant="ghost"
           aria-label="View the original page"
         />
-      </div>
-    </header>
+      </template>
+    </AppPageHeader>
 
     <main class="mx-auto max-w-xl space-y-8 px-3 py-5 pb-28 lg:max-w-3xl lg:px-6 lg:pb-12">
       <div

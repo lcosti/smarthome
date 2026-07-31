@@ -98,12 +98,8 @@ async function land(recipeId: string | null) {
     v-else
     class="min-h-dvh"
   >
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur">
-      <div class="mx-auto max-w-xl px-3 pt-3 pb-2">
-        <h1 class="mb-2 text-lg font-semibold">
-          {{ swapDate ? `Pick a meal for ${dayLabel(swapDate)}` : 'Recipes' }}
-        </h1>
-
+    <AppPageHeader :title="swapDate ? `Pick a meal for ${dayLabel(swapDate)}` : 'Recipes'">
+      <div>
         <form
           class="flex gap-2"
           @submit.prevent="add"
@@ -155,7 +151,7 @@ async function land(recipeId: string | null) {
           {{ recipeImport.progress.value }}
         </p>
       </div>
-    </header>
+    </AppPageHeader>
 
     <main class="mx-auto max-w-xl px-3 pb-28">
       <div

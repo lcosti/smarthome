@@ -82,30 +82,20 @@ const unlinkedCount = computed(() =>
 
 <template>
   <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur lg:static">
-      <div class="mx-auto flex max-w-xl lg:max-w-3xl items-center gap-2 px-3 py-3">
-        <UButton
-          to="/settings"
-          icon="i-lucide-arrow-left"
-          color="neutral"
-          variant="ghost"
-          aria-label="Back to settings"
-        />
-        <h1 class="flex-1 truncate text-lg font-semibold">
-          Ingredients
-        </h1>
-      </div>
-      <div class="mx-auto max-w-xl lg:max-w-3xl px-3 pb-3">
-        <UInput
-          v-model="query"
-          size="lg"
-          placeholder="Search ingredients"
-          icon="i-lucide-search"
-          autocapitalize="none"
-          class="w-full"
-        />
-      </div>
-    </header>
+    <AppPageHeader
+      title="Ingredients"
+      back="/settings"
+      back-label="Back to settings"
+    >
+      <UInput
+        v-model="query"
+        size="lg"
+        placeholder="Search ingredients"
+        icon="i-lucide-search"
+        autocapitalize="none"
+        class="w-full"
+      />
+    </AppPageHeader>
 
     <main class="mx-auto max-w-xl lg:max-w-3xl px-3 py-4 pb-28">
       <div

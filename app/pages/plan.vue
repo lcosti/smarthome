@@ -89,46 +89,38 @@ async function derive() {
 
 <template>
   <div class="min-h-dvh">
-    <!--
-      Sticky on a phone, where it is the only thing at the top of the screen;
-      static on a wide one, where the app header already occupies top-0 and two
-      bars stacking on top of each other would overlap.
-    -->
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur lg:static">
-      <div class="mx-auto max-w-xl px-3 pt-3 pb-2 lg:max-w-6xl lg:px-6">
-        <h1 class="mb-2 text-lg font-semibold">
-          Plan
-        </h1>
-
-        <div class="flex items-center gap-1 lg:max-w-md">
-          <UButton
-            icon="i-lucide-chevron-left"
-            color="neutral"
-            variant="ghost"
-            aria-label="Previous week"
-            @click="weekOffset--"
-          />
-          <button
-            type="button"
-            class="flex-1 py-2 text-center text-sm font-medium active:bg-elevated/60"
-            @click="weekOffset = 0"
-          >
-            {{ weekLabel(monday) }}
-            <span
-              v-if="weekOffset !== 0"
-              class="ml-1 text-dimmed"
-            >· this week</span>
-          </button>
-          <UButton
-            icon="i-lucide-chevron-right"
-            color="neutral"
-            variant="ghost"
-            aria-label="Next week"
-            @click="weekOffset++"
-          />
-        </div>
+    <AppPageHeader
+      title="Plan"
+      content-class="max-w-xl lg:max-w-6xl"
+    >
+      <div class="flex items-center gap-1 lg:max-w-md">
+        <UButton
+          icon="i-lucide-chevron-left"
+          color="neutral"
+          variant="ghost"
+          aria-label="Previous week"
+          @click="weekOffset--"
+        />
+        <button
+          type="button"
+          class="flex-1 py-2 text-center text-sm font-medium active:bg-elevated/60"
+          @click="weekOffset = 0"
+        >
+          {{ weekLabel(monday) }}
+          <span
+            v-if="weekOffset !== 0"
+            class="ml-1 text-dimmed"
+          >· this week</span>
+        </button>
+        <UButton
+          icon="i-lucide-chevron-right"
+          color="neutral"
+          variant="ghost"
+          aria-label="Next week"
+          @click="weekOffset++"
+        />
       </div>
-    </header>
+    </AppPageHeader>
 
     <main class="mx-auto max-w-xl px-3 pb-28 lg:max-w-6xl lg:px-6 lg:pb-8">
       <div

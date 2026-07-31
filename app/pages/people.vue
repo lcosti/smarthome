@@ -39,20 +39,11 @@ async function addPerson() {
 
 <template>
   <div class="min-h-dvh">
-    <header class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur lg:static">
-      <div class="mx-auto flex max-w-xl lg:max-w-3xl items-center gap-2 px-3 py-3">
-        <UButton
-          to="/settings"
-          icon="i-lucide-arrow-left"
-          color="neutral"
-          variant="ghost"
-          aria-label="Back to settings"
-        />
-        <h1 class="flex-1 truncate text-lg font-semibold">
-          People
-        </h1>
-      </div>
-    </header>
+    <AppPageHeader
+      title="People"
+      back="/settings"
+      back-label="Back to settings"
+    />
 
     <main class="mx-auto max-w-xl lg:max-w-3xl px-3 py-4 pb-28">
       <div
