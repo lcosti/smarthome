@@ -72,6 +72,23 @@ const items = computed<NavigationMenuItem[]>(() => [
         :label="header.weekLabel"
         :ui="{ base: 'rounded-md px-2 py-1 text-xs font-medium leading-none' }"
       />
+
+      <!--
+        Weather sits with the day and the date rather than over with the badges:
+        it is another fact about today, not a status of the app.
+      -->
+      <div
+        v-if="header.weather"
+        class="flex items-center gap-2"
+      >
+        <UIcon
+          :name="header.weather.icon"
+          class="size-4 text-primary"
+        />
+        <span class="text-base font-medium leading-none text-highlighted tabular-nums">
+          {{ header.weather.temperature }}°
+        </span>
+      </div>
     </div>
 
     <!--
@@ -100,19 +117,6 @@ const items = computed<NavigationMenuItem[]>(() => [
     />
 
     <div class="ml-auto flex flex-none items-center gap-3 whitespace-nowrap">
-      <div
-        v-if="header.weather"
-        class="flex items-center gap-2"
-      >
-        <UIcon
-          :name="header.weather.icon"
-          class="size-4 text-primary"
-        />
-        <span class="text-base font-medium leading-none text-highlighted tabular-nums">
-          {{ header.weather.temperature }}°
-        </span>
-      </div>
-
       <UBadge
         :color="header.plan.generated ? 'primary' : 'neutral'"
         variant="subtle"

@@ -421,6 +421,7 @@ export type Database = {
           eat_time: string | null
           household_id: string
           id: string
+          leftover_of_entry_id: string | null
           meal: string
           note: string | null
           recipe_id: string
@@ -435,6 +436,7 @@ export type Database = {
           eat_time?: string | null
           household_id: string
           id: string
+          leftover_of_entry_id?: string | null
           meal?: string
           note?: string | null
           recipe_id: string
@@ -449,6 +451,7 @@ export type Database = {
           eat_time?: string | null
           household_id?: string
           id?: string
+          leftover_of_entry_id?: string | null
           meal?: string
           note?: string | null
           recipe_id?: string
@@ -475,6 +478,112 @@ export type Database = {
             columns: ["recipe_id"]
             isOneToOne: false
             referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pantry_items: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          on_hand: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          on_hand?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          ingredient_id?: string
+          on_hand?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pantry_items_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pantry_items_ingredient_id_fkey"
+            columns: ["ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "ingredients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pantry_reservations: {
+        Row: {
+          amount: number
+          created_at: string
+          date: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          plan_entry_id: string
+          settled_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          date: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          plan_entry_id: string
+          settled_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          date?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          ingredient_id?: string
+          plan_entry_id?: string
+          settled_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pantry_reservations_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pantry_reservations_ingredient_id_fkey"
+            columns: ["ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "ingredients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pantry_reservations_plan_entry_id_fkey"
+            columns: ["plan_entry_id"]
+            isOneToOne: false
+            referencedRelation: "meal_plan_entries"
             referencedColumns: ["id"]
           },
         ]

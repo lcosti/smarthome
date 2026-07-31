@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildBoard,
   buildRecipeLibrary,
+  LEFTOVER_REHEAT_MINUTES,
   type BoardEvent,
   type BoardInput,
   type BoardNight,
@@ -206,6 +207,29 @@ describe('nominal', () => {
     expect(board.week.map(w => w.dateLabel)).toEqual(['31', '01', '02', '03', '04', '05'])
     expect(board.week.every(w => w.meta === '35 min')).toBe(true)
     expect(board.week.some(w => w.highlighted)).toBe(false)
+  })
+})
+
+describe('a leftovers night', () => {
+  // What useBoardNights hands over for a night eating an earlier night's
+  // cooking: the source's dish, and reheat minutes rather than the recipe's own.
+  const reheating = {
+    ...night(THURSDAY, 'Leftovers · Roast chicken')!,
+    meal: {
+      ...night(THURSDAY, 'Leftovers · Roast chicken').meal!,
+      minutes: LEFTOVER_REHEAT_MINUTES,
+      leftover: true
+    }
+  }
+  const board = buildBoard(input({ nights: [reheating, ...WEEK.slice(1)] }))
+
+  it('says what is being finished off', () => {
+    expect(board.hero.dish).toBe('Leftovers · Roast chicken')
+  })
+
+  it('gets people up to reheat it, not to cook it', () => {
+    expect(board.hero.startBy).toBe('start by 17:45')
+    expect(board.hero.dishMeta).toBe('15 min · 4 servings · tray + one pan')
   })
 })
 
@@ -714,5 +738,67 @@ describe('the recipe library', () => {
     expect(model.cards[0]?.selected).toBe(true)
     // Nothing to select at all is a pane with nothing in it, not a crash.
     expect(buildRecipeLibrary(library({ recipes: [], lines: [] })).detail).toBe(null)
+  })
+})
+
+describe('the recipe library and the pantry', () => {
+  /** Covers the named lines and nothing else. */
+  const covering = (...names: string[]) => (line: LibraryLine) => names.includes(line.name)
+
+  it('has an empty pantry facet when nothing has been recorded', () => {
+    const model = buildRecipeLibrary(library())
+    expect(model.facets.find(f => f.key === 'pantry')).toMatchObject({ label: 'From the pantry', count: 0 })
+    expect(model.cards.every(c => !c.fromPantry)).toBe(true)
+  })
+
+  it('marks a recipe whose every ingredient is in the house', () => {
+    const model = buildRecipeLibrary(library({
+      pantryCovers: covering('Chestnut mushrooms')
+    }))
+    expect(model.cards.find(c => c.id === 'risotto')?.fromPantry).toBe(true)
+    expect(model.cards.find(c => c.id === 'orzo')?.fromPantry).toBe(false)
+    expect(model.facets.find(f => f.key === 'pantry')?.count).toBe(1)
+  })
+
+  it('needs every line covered, not most of them', () => {
+    const model = buildRecipeLibrary(library({
+      pantryCovers: covering('Feta', 'Orzo')
+    }))
+    expect(model.cards.find(c => c.id === 'orzo')?.fromPantry).toBe(false)
+  })
+
+  it('never calls a recipe with no ingredients cookable from thin air', () => {
+    // Pork and salmon have no lines recorded at all.
+    const model = buildRecipeLibrary(library({ pantryCovers: () => true }))
+    expect(model.cards.find(c => c.id === 'pork')?.fromPantry).toBe(false)
+    expect(model.facets.find(f => f.key === 'pantry')?.count).toBe(2)
+  })
+
+  it('filters down to what needs no shopping', () => {
+    const model = buildRecipeLibrary(library({
+      facet: 'pantry',
+      pantryCovers: covering('Chestnut mushrooms')
+    }))
+    expect(model.cards.map(c => c.id)).toEqual(['risotto'])
+  })
+
+  it('stops offering to buy what is already in the cupboard', () => {
+    const model = buildRecipeLibrary(library({
+      selectedId: 'orzo',
+      listItems: [{ name: 'Orzo' }],
+      pantryCovers: covering('Feta')
+    }))
+
+    expect(model.detail?.missing.map(l => l.name)).toEqual(['Chicken thighs'])
+    expect(model.detail?.ingredients.map(l => l.inPantry)).toEqual([false, true, false])
+    expect(model.detail?.sendLabel).toBe('Send 1 item to the shopping list')
+  })
+
+  it('offers nothing to send when the cupboard covers the lot', () => {
+    const model = buildRecipeLibrary(library({
+      selectedId: 'risotto',
+      pantryCovers: covering('Chestnut mushrooms')
+    }))
+    expect(model.detail?.sendLabel).toBe(null)
   })
 })

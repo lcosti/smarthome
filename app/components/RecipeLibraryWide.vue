@@ -35,6 +35,7 @@ const route = useRoute()
 const toast = useToast()
 
 const now = useBoardClock()
+const pantryCovers = usePantryCovers()
 
 /** The night being swapped, or null when this is just the library. */
 const swapDate = computed(() => {
@@ -81,7 +82,8 @@ const library = computed(() => buildRecipeLibrary({
   query: pasted.value ? '' : query.value,
   facet: facet.value,
   sort: sort.value,
-  selectedId: selectedId.value
+  selectedId: selectedId.value,
+  pantryCovers: pantryCovers.value
 }))
 
 const detail = computed(() => library.value.detail)
@@ -332,14 +334,20 @@ async function add() {
               >
                 <!--
                   The dot marks what you would still have to buy. Amber on the
-                  ones missing, recessed on the ones already handled — the same
-                  reading the block below spells out, available without reading it.
+                  ones missing, recessed on the ones already handled — on the list
+                  or already in the cupboard, which for this purpose are the same
+                  answer. The same reading the block below spells out, available
+                  without reading it.
                 -->
                 <span
                   class="size-1.5 shrink-0 translate-y-[-2px] rounded-full"
-                  :class="line.onList ? 'bg-accented' : 'bg-primary'"
+                  :class="line.onList || line.inPantry ? 'bg-accented' : 'bg-primary'"
                 />
                 <span class="min-w-0 flex-1 text-sm text-default">{{ line.name }}</span>
+                <span
+                  v-if="line.inPantry && !line.onList"
+                  class="shrink-0 font-mono text-[10px] uppercase tracking-wider text-dimmed"
+                >pantry</span>
                 <span
                   v-if="line.quantity"
                   class="shrink-0 whitespace-nowrap font-mono text-xs text-dimmed"
@@ -356,9 +364,9 @@ async function add() {
           </div>
 
           <!--
-            Not the pantry. There is no record of what is in the house, and one
-            invented from thin air would be wrong in the aisle. This is a fact the
-            app actually holds: whether somebody has already put it on the list.
+            What is genuinely left: neither on the list nor in the cupboard. Both
+            are facts the app actually holds, which is what makes this safe to put
+            a "buy these" button under.
           -->
           <div
             v-if="detail.missing.length && detail.ingredients.length"

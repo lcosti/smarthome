@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useAttendanceStore } from '../stores/attendance'
 import { usePeopleStore } from '../stores/people'
-import type { PlannedNight } from '../stores/plan'
+import { dishLabel, type PlannedNight } from '../stores/plan'
 import { initialOf, personHue } from '../utils/person-colors'
 
 /**
@@ -61,7 +61,7 @@ function dateLabelOf(date: string) {
         class="min-w-0 flex-1"
       >
         <span class="line-clamp-3 text-sm font-medium text-highlighted">
-          {{ night.entries[0]!.recipe?.name ?? 'Recipe deleted' }}
+          {{ dishLabel(night.entries[0]!) }}
         </span>
         <span class="mt-0.5 block font-mono text-xs text-dimmed">
           {{ night.entries[0]!.entry.servings }} servings

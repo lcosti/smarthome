@@ -16,6 +16,8 @@ export type IngredientRow = Tables['ingredients']['Row']
 export type IngredientAliasRow = Tables['ingredient_aliases']['Row']
 export type PurchaseUnitRow = Tables['ingredient_purchase_units']['Row']
 export type CalendarEventRow = Tables['calendar_events']['Row']
+export type PantryItemRow = Tables['pantry_items']['Row']
+export type PantryReservationRow = Tables['pantry_reservations']['Row']
 
 /**
  * Every table the offline layer syncs.
@@ -41,10 +43,17 @@ export const SYNC_TABLES = {
   ingredients: { cache: 'ingredients' },
   ingredient_aliases: { cache: 'ingredient_aliases' },
   ingredient_purchase_units: { cache: 'ingredient_purchase_units' },
+  // Straight after the ingredient it stocks, for the same reason as everything
+  // else here: a pantry row is a number against an ingredient and says nothing on
+  // its own.
+  pantry_items: { cache: 'pantry_items' },
   recipes: { cache: 'recipes' },
   recipe_ingredients: { cache: 'recipe_ingredients' },
   recipe_steps: { cache: 'recipe_steps' },
   meal_plan_entries: { cache: 'meal_plan_entries' },
+  // After the nights it reserves against, so settlement never runs against a
+  // half-applied plan on a device's first pull.
+  pantry_reservations: { cache: 'pantry_reservations' },
   shopping_list_items: { cache: 'items' },
   // Read-only on every device: written by the sync-calendar Edge Function with
   // the service role, and pulled here like anything else. It is in this registry
@@ -66,10 +75,12 @@ export interface RowOf {
   ingredients: IngredientRow
   ingredient_aliases: IngredientAliasRow
   ingredient_purchase_units: PurchaseUnitRow
+  pantry_items: PantryItemRow
   recipes: RecipeRow
   recipe_ingredients: RecipeIngredientRow
   recipe_steps: RecipeStepRow
   meal_plan_entries: PlanEntryRow
+  pantry_reservations: PantryReservationRow
   shopping_list_items: ItemRow
   calendar_events: CalendarEventRow
 }
@@ -104,6 +115,8 @@ export class AppDatabase extends Dexie {
   dietary_constraints!: Table<DietaryConstraintRow, string>
   attendance!: Table<AttendanceRow, string>
   calendar_events!: Table<CalendarEventRow, string>
+  pantry_items!: Table<PantryItemRow, string>
+  pantry_reservations!: Table<PantryReservationRow, string>
   mutations!: Table<Mutation, number>
 
   constructor(name = 'shoplist') {
@@ -149,6 +162,14 @@ export class AppDatabase extends Dexie {
     // they came from, and that arrives as an ordinary updated row.
     this.version(6).stores({
       recipe_steps: 'id'
+    })
+    // v7 adds the pantry. Same terms as every version above — new empty stores
+    // filled on the next pull — and a device that never opens the pantry page
+    // simply carries two empty tables, because a household with no stock recorded
+    // subtracts nothing and the list reads exactly as it did before.
+    this.version(7).stores({
+      pantry_items: 'id',
+      pantry_reservations: 'id'
     })
   }
 

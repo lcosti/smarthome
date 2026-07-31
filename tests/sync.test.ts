@@ -425,6 +425,15 @@ describe('the synced table registry', () => {
       id: 'att-1', household_id: HOUSEHOLD, person_id: 'per-1', date: '2026-08-04',
       meal: 'dinner', present: false, deleted_at: null, created_at: STAMP, updated_at: STAMP
     })
+    await db.cacheFor('pantry_items').put({
+      id: 'pan-1', household_id: HOUSEHOLD, ingredient_id: 'n-1', on_hand: 2,
+      deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
+    await db.cacheFor('pantry_reservations').put({
+      id: 'res-1', household_id: HOUSEHOLD, plan_entry_id: 'p-1', ingredient_id: 'n-1',
+      amount: 1, date: '2026-08-04', settled_at: null,
+      deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
     await db.cacheFor('calendar_events').put({
       id: 'cal-1', household_id: HOUSEHOLD, person_id: 'per-1',
       calendar_id: 'family@group.calendar.google.com', google_event_id: 'g-1',

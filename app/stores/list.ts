@@ -2,8 +2,10 @@ import { defineStore } from 'pinia'
 import type { AggregateContext, ListEntry } from '../utils/aggregate'
 import { buildEntries } from '../utils/aggregate'
 import type { AisleRow, ItemRow } from '../utils/db'
+import { lineNeedBase } from '../utils/pantry'
 import { plainCopy } from '../utils/sync'
 import { asBaseUnit, useIngredientsStore } from './ingredients'
+import { usePantryStore } from './pantry'
 import { usePeopleStore } from './people'
 import { nowIso, useSyncStore } from './sync'
 
@@ -30,6 +32,7 @@ function normaliseName(name: string) {
 export const useListStore = defineStore('list', () => {
   const sync = useSyncStore()
   const ingredients = useIngredientsStore()
+  const pantry = usePantryStore()
   const people = usePeopleStore()
 
   const items = computed(() => sync.rowsOf('shopping_list_items'))
@@ -54,7 +57,11 @@ export const useListStore = defineStore('list', () => {
     ingredients: new Map(
       [...ingredients.allRows.values()].map(row => [row.id, { ...row, base_unit: asBaseUnit(row.base_unit) }])
     ),
-    purchaseUnits: ingredients.purchaseUnits
+    purchaseUnits: ingredients.purchaseUnits,
+    // What is in the house, minus what the nights ahead have already claimed. An
+    // empty map — the usual case until somebody records some stock — leaves every
+    // line reading exactly as it did before the pantry existed.
+    pantry: pantry.available
   }))
 
   /**
@@ -95,6 +102,31 @@ export const useListStore = defineStore('list', () => {
     }
 
     return result
+  })
+
+  /**
+   * Base units of each ingredient the list is currently asking for.
+   *
+   * The raw demand, before the cupboard has had its say — what the recipes want,
+   * not what is left to buy. Used to show somebody putting a shop away what the
+   * list expected of a line, so a mis-parsed "1kg" stands out beside it.
+   */
+  const neededByIngredient = computed(() => {
+    const totals = new Map<string, number>()
+    const context = aggregateContext.value
+    for (const item of liveItems.value) {
+      if (item.checked || !item.ingredient_id) continue
+      const ingredient = context.ingredients.get(item.ingredient_id)
+      if (!ingredient) continue
+      const amount = lineNeedBase(
+        item.quantity,
+        ingredient.base_unit,
+        ingredients.purchaseUnitsFor(ingredient.id)
+      )
+      if (amount === null) continue
+      totals.set(ingredient.id, (totals.get(ingredient.id) ?? 0) + amount)
+    }
+    return totals
   })
 
   /**
@@ -286,6 +318,7 @@ export const useListStore = defineStore('list', () => {
     liveItems,
     checkedItems,
     groups,
+    neededByIngredient,
     rememberedAisle,
     suggestedAisle,
     sourceLabelFor,

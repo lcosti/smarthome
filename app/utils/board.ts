@@ -64,6 +64,8 @@ export interface BoardMeal {
   eatTime: string | null
   cookPersonId: string | null
   updatedAt: string
+  /** Whether this night is reheating an earlier night's cooking. */
+  leftover?: boolean
 }
 
 /** One night: what is planned, and who is eating it. */
@@ -99,10 +101,11 @@ export interface BoardWeather {
  * inventory: an earlier version listed what the household already had, which
  * read as counter-intuitive on a board whose job is to prompt action.
  *
- * There is no pantry table in this app, so the gap is the honest one it can
- * actually see — the unchecked items this night's plan entry put on the list.
- * A plan that has never been derived to the list contributes nothing here,
- * which is correct: the next press is "Send to list", not the shop.
+ * The gap is read off the list rather than off the pantry, even now that there is
+ * one — the unchecked items this night's plan entry put there. The list has
+ * already had the cupboard subtracted from it by the time it is derived, so this
+ * inherits that for free, and a plan that has never been derived contributes
+ * nothing here, which is correct: the next press is "Send to list", not the shop.
  */
 export interface BoardToBuyLine {
   /** The plan entry that put this on the list. */
@@ -263,6 +266,8 @@ export interface LibraryLine {
   name: string
   quantity: string | null
   aisle_id: string | null
+  /** The canonical ingredient, when the line has one. What the pantry is keyed on. */
+  ingredient_id?: string | null
 }
 
 /** A night this recipe was, or will be, cooked. Past and future both matter. */
@@ -282,7 +287,7 @@ export interface LibraryListItem {
   name: string
 }
 
-export type LibraryFacet = 'all' | 'quick' | 'batch' | 'planned' | 'never'
+export type LibraryFacet = 'all' | 'quick' | 'batch' | 'planned' | 'pantry' | 'never'
 export type LibrarySort = 'recent' | 'quickest' | 'cooked'
 
 export interface LibraryInput {
@@ -297,6 +302,16 @@ export interface LibraryInput {
   sort: LibrarySort
   /** What the pane is showing, or null to mean "whatever is first". */
   selectedId: string | null
+  /**
+   * Whether the cupboard already covers a line, in full.
+   *
+   * Injected rather than worked out here, for the same reason derive injects its
+   * ingredient resolution: the arithmetic needs base units, purchase units and
+   * what the nights ahead have already claimed, none of which this file should
+   * have to know about. Omitted means no pantry — every line counts as missing,
+   * which is exactly how this behaved before there was one.
+   */
+  pantryCovers?: (line: LibraryLine) => boolean
 }
 
 export interface LibraryCard {
@@ -313,6 +328,8 @@ export interface LibraryCard {
   meta: string
   /** The facets this recipe is in, minus 'all' — the chips drawn on the card. */
   chips: string[]
+  /** Every ingredient is already in the house: cookable tonight, buying nothing. */
+  fromPantry: boolean
   selected: boolean
 }
 
@@ -324,7 +341,14 @@ export interface LibraryDetail {
   eyebrow: string
   /** '35 min · serves 4 · cooked 11 times'. */
   meta: string
-  ingredients: { id: string, name: string, quantity: string | null, onList: boolean }[]
+  ingredients: {
+    id: string
+    name: string
+    quantity: string | null
+    onList: boolean
+    /** Already in the house, so neither on the list nor needing to be. */
+    inPantry: boolean
+  }[]
   /** The lines not already on the list, which is exactly what the button sends. */
   missing: { id: string, name: string, quantity: string | null, aisleId: string | null }[]
   /** 'Send 2 items to the shopping list', or null when there is nothing to send. */
@@ -420,6 +444,15 @@ export interface BoardModel {
 
 /** When dinner is, unless a plan entry says otherwise. */
 export const DEFAULT_EAT_TIME = '18:00'
+
+/**
+ * What a leftovers night costs, in minutes.
+ *
+ * The recipe's own prep and cook are the wrong number entirely — the cooking
+ * already happened — and they would have the board telling somebody to start a
+ * ninety-minute roast that is sitting in the fridge. Reheating is reheating.
+ */
+export const LEFTOVER_REHEAT_MINUTES = 15
 
 /**
  * How long after the meal the board stops being about tonight.
@@ -1021,6 +1054,7 @@ const FACET_LABELS: Record<LibraryFacet, string> = {
   quick: 'Quick',
   batch: 'Big batch',
   planned: 'On the plan',
+  pantry: 'From the pantry',
   never: 'Never cooked'
 }
 
@@ -1064,12 +1098,12 @@ function shortDate(date: string): string {
 /**
  * The recipe library, as the board reads it.
  *
- * Everything the mockup asks for is derived rather than stored. There is no tags
- * column and no pantry table, and this is deliberately not the change that adds
- * them: how long a recipe takes, how many it serves, how often it has been
- * cooked and what is already on the list are all facts the app has, and they
- * answer the same questions — quick tonight? feeds everyone? had it recently?
- * what would I have to buy?
+ * Everything the mockup asks for is derived rather than stored. There is still no
+ * tags column and this is deliberately not the change that adds one: how long a
+ * recipe takes, how many it serves, how often it has been cooked, what is already
+ * on the list and what is already in the cupboard are all facts the app has, and
+ * they answer the same questions — quick tonight? feeds everyone? had it
+ * recently? what would I have to buy, if anything?
  *
  * Cooked counts come from the plan rather than from a counter, so they are true
  * of what actually happened without anything having to be recorded. A future
@@ -1108,17 +1142,22 @@ export function buildRecipeLibrary(input: LibraryInput): LibraryModel {
   }
 
   const onList = new Set(input.listItems.map(item => libraryKey(item.name)))
+  const covers = input.pantryCovers ?? (() => false)
 
   // --- one pass, everything a card needs -------------------------------------
   const rows = input.recipes.map((recipe) => {
     const lines = linesBy.get(recipe.id) ?? []
     const history = (cookedOn.get(recipe.id) ?? []).sort().reverse()
     const minutes = totalMinutes(recipe)
+    // A recipe with no ingredients recorded is not one you can make out of thin
+    // air, so it is never "from the pantry".
+    const fromPantry = lines.length > 0 && lines.every(line => covers(line))
 
     const facets = new Set<LibraryFacet>(['all'])
     if (minutes !== null && minutes <= QUICK_MINUTES) facets.add('quick')
     if (recipe.base_servings >= BATCH_SERVINGS) facets.add('batch')
     if (plannedThisWeek.has(recipe.id)) facets.add('planned')
+    if (fromPantry) facets.add('pantry')
     if (!history.length) facets.add('never')
 
     return {
@@ -1127,6 +1166,7 @@ export function buildRecipeLibrary(input: LibraryInput): LibraryModel {
       history,
       minutes,
       facets,
+      fromPantry,
       cookedCount: history.length,
       lastCooked: history[0] ?? null,
       // Searching the ingredients as well as the name is the difference between
@@ -1187,6 +1227,7 @@ export function buildRecipeLibrary(input: LibraryInput): LibraryModel {
     chips: (['quick', 'batch'] as const)
       .filter(key => row.facets.has(key))
       .map(key => FACET_LABELS[key]),
+    fromPantry: row.fromPantry,
     selected: row.recipe.id === selected?.recipe.id
   }))
 
@@ -1197,10 +1238,13 @@ export function buildRecipeLibrary(input: LibraryInput): LibraryModel {
       id: line.id,
       name: line.name,
       quantity: line.quantity,
-      onList: onList.has(libraryKey(line.name))
+      onList: onList.has(libraryKey(line.name)),
+      inPantry: covers(line)
     }))
+    // Something in the cupboard is no more missing than something in the trolley,
+    // and a button offering to buy it again is the reason this feature exists.
     const missing = selected.lines
-      .filter(line => !onList.has(libraryKey(line.name)))
+      .filter(line => !onList.has(libraryKey(line.name)) && !covers(line))
       .map(line => ({
         id: line.id,
         name: line.name,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useAttendanceStore } from '../stores/attendance'
-import type { PlannedNight } from '../stores/plan'
+import { dishLabel, type PlannedNight } from '../stores/plan'
 import { dayLabel } from '../utils/week'
 
 const { night, today } = defineProps<{ night: PlannedNight, today: boolean }>()
@@ -42,7 +42,7 @@ const awayLabel = computed(() => {
         <template v-if="planned">
           <span class="min-w-0 flex-1">
             <span class="block truncate">
-              {{ planned.recipe?.name ?? 'Recipe deleted' }}
+              {{ dishLabel(planned) }}
             </span>
             <span class="block truncate text-sm text-dimmed">
               {{ planned.entry.servings }} servings

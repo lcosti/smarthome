@@ -52,6 +52,20 @@ defineEmits<{ select: [] }>()
         :label="card.plannedDay"
         :ui="{ base: 'absolute right-2.5 top-2.5 rounded-md px-2 py-0.5 font-mono text-[11px] font-medium tracking-[0.06em]' }"
       />
+
+      <!--
+        Bottom left, out of the planned badge's corner: the two can be true at
+        once, and a night already planned that also needs no shopping is the best
+        card on the wall.
+      -->
+      <UBadge
+        v-if="card.fromPantry"
+        color="neutral"
+        variant="solid"
+        icon="i-lucide-package-check"
+        label="Have it all"
+        :ui="{ base: 'absolute bottom-2.5 left-2.5 rounded-md px-2 py-0.5 font-mono text-[11px] font-medium tracking-[0.06em]' }"
+      />
     </div>
 
     <div class="flex min-w-0 flex-col gap-1.5 px-4 py-3">

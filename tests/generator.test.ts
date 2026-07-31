@@ -27,7 +27,9 @@ const BABY = { id: 'p-baby', stage: 'baby' as const }
 function recipe(over: Partial<GeneratorRecipe> & { id: string }): GeneratorRecipe {
   return {
     name: over.id,
-    base_servings: 4,
+    // Deliberately smaller than twice the default week's table, so nothing here
+    // chains a leftovers night by accident. The tests that want one say so.
+    base_servings: 3,
     prep_minutes: 10,
     cook_minutes: 15,
     deleted_at: null,
@@ -40,7 +42,7 @@ function line(recipeId: string, name: string, ingredientId: string | null = null
 }
 
 /** A week of Mondays-onward dates, everybody home. */
-function week(people = [ADULT]) {
+function week(people = [ADULT, TODDLER]) {
   return ['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-08', '2026-08-09']
     .map(date => ({ date, people }))
 }
@@ -332,6 +334,114 @@ describe('servings', () => {
       recipes: [recipe({ id: 'r1' })], lines: [], constraints: [], history: [], random: seeded(1)
     })
     expect(picks).toHaveLength(0)
+  })
+})
+
+describe('leftovers', () => {
+  /** Two nights, two eaters, and a recipe big enough to cover both. */
+  function twoNights(over: Partial<GenerateInput> = {}) {
+    return generateWeek({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER] },
+        { date: '2026-08-04', people: [ADULT, TODDLER] }
+      ],
+      recipes: [recipe({ id: 'batch', base_servings: 6 })],
+      lines: [], constraints: [], history: [], random: seeded(1),
+      ...over
+    })
+  }
+
+  it('feeds the next night from a batch big enough for it', () => {
+    expect(twoNights()).toEqual([
+      { date: '2026-08-03', recipeId: 'batch', servings: 2 },
+      { date: '2026-08-04', recipeId: 'batch', servings: 2, leftoverOfDate: '2026-08-03' }
+    ])
+  })
+
+  it('caters the leftovers night for whoever is actually there', () => {
+    const picks = twoNights({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER] },
+        { date: '2026-08-04', people: [ADULT] }
+      ]
+    })
+    expect(picks[1]?.servings).toBe(1)
+  })
+
+  it('leaves the pot alone when it is not a batch', () => {
+    // Four servings, three at the table: enough for a lunchbox, not a dinner.
+    const picks = twoNights({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER, { id: 'p-2', stage: 'child' as const }] },
+        { date: '2026-08-04', people: [ADULT, TODDLER] }
+      ],
+      recipes: [recipe({ id: 'batch', base_servings: 4 })]
+    })
+    expect(picks.every(p => !p.leftoverOfDate)).toBe(true)
+  })
+
+  it('does not stretch what is left to a bigger table', () => {
+    // Six servings, two eaten tonight, four people tomorrow — that is four
+    // portions for four people only if nobody had seconds. Cook something.
+    const picks = twoNights({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER] },
+        {
+          date: '2026-08-04',
+          people: [ADULT, TODDLER, { id: 'p-2', stage: 'child' as const }, { id: 'p-3', stage: 'adult' as const },
+            { id: 'p-4', stage: 'adult' as const }]
+        }
+      ]
+    })
+    expect(picks[1]?.leftoverOfDate).toBeUndefined()
+  })
+
+  it('never overwrites a night somebody planned themselves', () => {
+    const picks = twoNights({
+      recipes: [recipe({ id: 'batch', base_servings: 6 }), recipe({ id: 'other' })],
+      alreadyPlanned: [{ date: '2026-08-04', recipe_id: 'other' }]
+    })
+    expect(picks.map(p => p.date)).toEqual(['2026-08-03'])
+  })
+
+  it('skips a leftovers night when nobody is home for it', () => {
+    const picks = twoNights({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER] },
+        { date: '2026-08-04', people: [] }
+      ]
+    })
+    expect(picks).toHaveLength(1)
+  })
+
+  it('does not treat the second night as a second cooking of the recipe', () => {
+    // The no-repeat rule counts pots, not plates: the batch is cooked once, so
+    // the rest of the week is still free to be different.
+    const picks = generateWeek({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER] },
+        { date: '2026-08-04', people: [ADULT, TODDLER] },
+        { date: '2026-08-05', people: [ADULT, TODDLER] }
+      ],
+      recipes: [recipe({ id: 'batch', base_servings: 6 }), recipe({ id: 'other' })],
+      lines: [], constraints: [], history: [], random: seeded(1)
+    })
+    const cooked = picks.filter(p => !p.leftoverOfDate).map(p => p.recipeId)
+    expect(new Set(cooked).size).toBe(cooked.length)
+    expect(picks).toHaveLength(3)
+  })
+
+  it('chains at most one night off a single batch', () => {
+    const picks = generateWeek({
+      nights: ['2026-08-03', '2026-08-04', '2026-08-05'].map(date => ({ date, people: [ADULT] })),
+      recipes: [recipe({ id: 'huge', base_servings: 20 }), recipe({ id: 'other', base_servings: 1 })],
+      lines: [], constraints: [], history: [], random: seeded(1)
+    })
+    expect(picks.filter(p => p.leftoverOfDate)).toHaveLength(1)
+  })
+
+  it('is still deterministic given the same randomness', () => {
+    expect(twoNights({ random: seeded(9) })).toEqual(twoNights({ random: seeded(9) }))
   })
 })
 

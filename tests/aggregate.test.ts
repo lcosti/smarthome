@@ -240,3 +240,98 @@ describe('buildEntries', () => {
     expect(buildEntries([], context([]))).toEqual([])
   })
 })
+
+describe('buildEntries and the pantry', () => {
+  const LEMONS = ingredient('lem', 'Lemons', 'count')
+
+  function withPantry(
+    ingredients: IngredientWithUnit[],
+    pantry: Record<string, number>,
+    purchaseUnits: PurchaseUnitLike[] = []
+  ): AggregateContext {
+    return { ...context(ingredients, purchaseUnits), pantry: new Map(Object.entries(pantry)) }
+  }
+
+  it('changes nothing at all when there is no pantry', () => {
+    // The usual case, and it has to stay byte-for-byte what it was before the
+    // feature existed.
+    const rows = [item('a', 'Tomatoes', '400g', 'tom'), item('b', 'Tomatoes', '400g', 'tom')]
+    const plain = buildEntries(rows, context([TOMATOES]))
+    expect(plain[0]).toMatchObject({ quantityLabel: '800g', pantry: null })
+  })
+
+  it('changes nothing when the cupboard holds none of it', () => {
+    const rows = [item('a', 'Tomatoes', '400g', 'tom'), item('b', 'Tomatoes', '400g', 'tom')]
+    const entries = buildEntries(rows, withPantry([TOMATOES], { lem: 3 }))
+    expect(entries[0]).toMatchObject({ quantityLabel: '800g', pantry: null })
+  })
+
+  it('asks only for what is left to buy', () => {
+    const rows = [item('a', 'Tomatoes', '400g', 'tom'), item('b', 'Tomatoes', '400g', 'tom')]
+    const entries = buildEntries(rows, withPantry([TOMATOES], { tom: 300 }))
+    expect(entries[0]).toMatchObject({
+      quantityLabel: '500g · 300g in the pantry',
+      pantry: { need: 800, have: 300, toBuy: 500 }
+    })
+  })
+
+  it('counts the buy amount in purchase units, not the whole need', () => {
+    // Two tins on the list and one already in the cupboard is one tin to buy.
+    const rows = [item('a', 'Tomatoes', '400g', 'tom'), item('b', 'Tomatoes', '400g', 'tom')]
+    const entries = buildEntries(
+      rows,
+      withPantry([TOMATOES], { tom: 400 }, [purchaseUnit('tom', 'tin', 400)])
+    )
+    expect(entries[0]!.quantityLabel).toBe('400g · 1 tin · 400g in the pantry')
+  })
+
+  it('says a fully covered line is covered, and keeps it on the list', () => {
+    const rows = [item('a', 'Lemon', '1', 'lem'), item('b', 'Lemons', '2', 'lem')]
+    const entries = buildEntries(rows, withPantry([LEMONS], { lem: 5 }))
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      // The recipe's own amount, because that is what to take out of the cupboard.
+      quantityLabel: '3 · from the pantry',
+      pantry: { need: 3, have: 3, toBuy: 0 }
+    })
+  })
+
+  it('never claims to cover more than the line asked for', () => {
+    const rows = [item('a', 'Lemon', '1', 'lem'), item('b', 'Lemons', '1', 'lem')]
+    const entries = buildEntries(rows, withPantry([LEMONS], { lem: 99 }))
+    expect(entries[0]!.pantry).toMatchObject({ need: 2, have: 2, toBuy: 0 })
+  })
+
+  it('subtracts from a lone row too', () => {
+    // One row is still one row, but "you already have this" is worth the rewrite
+    // that a bare regrouping would not be.
+    const rows = [item('a', 'Lemons', '3', 'lem')]
+    const entries = buildEntries(rows, withPantry([LEMONS], { lem: 1 }))
+    expect(entries[0]).toMatchObject({
+      key: 'a',
+      name: 'Lemons',
+      quantityLabel: '2 · 1 in the pantry',
+      pantry: { need: 3, have: 1, toBuy: 2 }
+    })
+  })
+
+  it('leaves a lone row verbatim when the cupboard has nothing to say', () => {
+    const rows = [item('a', 'Tinned tomatoes', '2 tins', 'tom')]
+    const entries = buildEntries(rows, withPantry([TOMATOES], {}, [purchaseUnit('tom', 'tin', 400)]))
+    expect(entries[0]).toMatchObject({ quantityLabel: '2 tins', ingredient: null, pantry: null })
+  })
+
+  it('never subtracts from words it cannot read', () => {
+    // "A splash" is not zero and it is not a number. Taking the cupboard off it
+    // would be inventing an amount nobody wrote.
+    const rows = [item('a', 'Tomatoes', 'a splash', 'tom'), item('b', 'Tomatoes', 'a handful', 'tom')]
+    const entries = buildEntries(rows, withPantry([TOMATOES], { tom: 800 }))
+    expect(entries[0]).toMatchObject({ quantityLabel: 'a splash, a handful', pantry: null })
+  })
+
+  it('keeps unreadable words beside a subtracted total', () => {
+    const rows = [item('a', 'Tomatoes', '400g', 'tom'), item('b', 'Tomatoes', 'a splash', 'tom')]
+    const entries = buildEntries(rows, withPantry([TOMATOES], { tom: 100 }))
+    expect(entries[0]!.quantityLabel).toBe('300g · 100g in the pantry + a splash')
+  })
+})

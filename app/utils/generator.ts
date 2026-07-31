@@ -66,6 +66,12 @@ export interface Pick {
   date: string
   recipeId: string
   servings: number
+  /**
+   * Set when this night is leftovers of an earlier one, naming that night by
+   * date. Not by entry id, because entries do not exist yet — the caller mints
+   * them from these picks and resolves the reference as it goes.
+   */
+  leftoverOfDate?: string
 }
 
 export interface GenerateInput {
@@ -110,6 +116,16 @@ export const WEIGHTS = {
   temperature: 1.5
 } as const
 
+/**
+ * How much bigger than tonight's table a recipe has to be before the next night
+ * is offered its leftovers.
+ *
+ * Twice, so there is a whole second dinner in the pot rather than a lunchbox.
+ * Nothing is scaled up to reach this: the recipe already yields what it yields,
+ * and asking somebody to cook double is a different feature.
+ */
+export const LEFTOVER_BATCH_FACTOR = 2
+
 /** Weeknights are short because they are weeknights. Minutes, prep plus cook. */
 export function defaultEffortBudget(date: string): number {
   const [year, month, day] = date.split('-').map(Number)
@@ -117,6 +133,14 @@ export function defaultEffortBudget(date: string): number {
   if (weekday === 0 || weekday === 6) return 75
   if (weekday === 5) return 50
   return 30
+}
+
+/** The next calendar day, 'YYYY-MM-DD' in and out. */
+function dayAfter(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  const next = new Date(year!, month! - 1, day! + 1)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`
 }
 
 /** Whole days from `from` to `to`, both 'YYYY-MM-DD'. */
@@ -215,7 +239,10 @@ export function generateWeek(input: GenerateInput): Pick[] {
   const plannedDates = new Set((input.alreadyPlanned ?? []).map(entry => entry.date))
   const picks: Pick[] = []
 
-  for (const night of [...input.nights].sort((a, b) => a.date.localeCompare(b.date))) {
+  const nights = [...input.nights].sort((a, b) => a.date.localeCompare(b.date))
+  const nightByDate = new Map(nights.map(night => [night.date, night]))
+
+  for (const night of nights) {
     if (plannedDates.has(night.date)) continue
 
     const eating = eaters(night.people)
@@ -281,6 +308,33 @@ export function generateWeek(input: GenerateInput): Pick[] {
     chosen.add(winner.id)
     for (const id of canonicalOf.get(winner.id) ?? []) chosenIngredients.add(id)
     picks.push({ date: night.date, recipeId: winner.id, servings: eating.length })
+
+    // A pot big enough to feed tomorrow as well. Deciding this here rather than
+    // scoring it as a candidate keeps the leftovers night out of the selection
+    // loop entirely: the recipe is cooked once, so the no-repeat rule is never
+    // bent, and reheating costs no effort so no budget has to be checked.
+    if (winner.base_servings < LEFTOVER_BATCH_FACTOR * eating.length) continue
+
+    const tomorrow = nightByDate.get(dayAfter(night.date))
+    // Never onto a night somebody planned themselves. They said what they wanted
+    // to eat; the "Leftovers of…" button in the night editor is how a person
+    // changes their own mind.
+    if (!tomorrow || plannedDates.has(tomorrow.date)) continue
+
+    const eatingTomorrow = eaters(tomorrow.people)
+    // Only what is genuinely left over. Feeding six off a four-serving batch is
+    // how a household learns not to trust the plan.
+    if (!eatingTomorrow.length || eatingTomorrow.length > winner.base_servings - eating.length) continue
+
+    plannedDates.add(tomorrow.date)
+    picks.push({
+      date: tomorrow.date,
+      // A copy of the recipe, so the night still names a dish if the night it
+      // came from is later deleted.
+      recipeId: winner.id,
+      servings: eatingTomorrow.length,
+      leftoverOfDate: night.date
+    })
   }
 
   return picks

@@ -48,11 +48,12 @@ function entry(overrides: Partial<PlanEntryRow> = {}): PlanEntryRow {
     recipe_id: 'recipe-chilli',
     servings: 2,
     note: null,
+    leftover_of_entry_id: null,
     deleted_at: null,
     created_at: STAMP,
     updated_at: STAMP,
     ...overrides
-  }
+  } as PlanEntryRow
 }
 
 function input(overrides: Partial<DeriveInput> = {}): DeriveInput {
@@ -349,5 +350,123 @@ describe('derive', () => {
     const result = derive(input({ entries: [], planItems: [adhoc] }))
 
     expect(result).toEqual({ creates: [], updates: [], removes: [] })
+  })
+})
+
+describe('leftovers nights', () => {
+  /** Tuesday cooks the chilli; Wednesday eats what is left of it. */
+  const wednesday = () => entry({
+    id: 'entry-wednesday',
+    date: '2026-08-05',
+    servings: 2,
+    leftover_of_entry_id: 'entry-tuesday'
+  })
+
+  it('buys nothing of its own', () => {
+    const result = derive(input({ entries: [entry(), wednesday()] }))
+
+    expect(result.creates).toHaveLength(1)
+    expect(result.creates[0]?.plan_entry_id).toBe('entry-tuesday')
+  })
+
+  it('adds its portions to the night the food is cooked on', () => {
+    // Two at the table Tuesday and two again Wednesday, off a recipe written
+    // for two: four portions of shopping, bought once.
+    const result = derive(input({ entries: [entry(), wednesday()] }))
+    expect(result.creates[0]?.quantity).toBe('2 tins ×2')
+  })
+
+  it('takes the portions back off when the leftovers night goes away', () => {
+    const withLeftovers = derive(input({ entries: [entry(), wednesday()] }))
+    const items = applied([], withLeftovers)
+
+    const after = derive(input({
+      entries: [entry(), wednesday()].map(e =>
+        e.id === 'entry-wednesday' ? { ...e, deleted_at: NOW } : e),
+      planItems: items
+    }))
+
+    expect(after.updates).toHaveLength(1)
+    expect(after.updates[0]?.quantity).toBe('2 tins')
+    // The same row, rewritten — not a second one.
+    expect(after.updates[0]?.id).toBe(items[0]?.id)
+    expect(after.creates).toHaveLength(0)
+  })
+
+  it('clears the items a night had before it became leftovers', () => {
+    const asCooked = derive(input({ entries: [entry(), entry({ id: 'entry-wednesday', date: '2026-08-05' })] }))
+    expect(asCooked.creates).toHaveLength(2)
+
+    const after = derive(input({
+      entries: [entry(), wednesday()],
+      planItems: applied([], asCooked)
+    }))
+
+    const gone = after.removes.find(i => i.plan_entry_id === 'entry-wednesday')
+    expect(gone?.deleted_at).toBe(NOW)
+  })
+
+  it('is scaled by the week that cooks it, not the week that finishes it', () => {
+    // Sunday's roast, Monday's leftovers: the two nights fall in different weeks
+    // and only one of them buys anything. Deriving the later week must not drop
+    // Monday's portions, so it derives nothing for them at all.
+    const sunday = entry({ id: 'entry-sunday', date: '2026-08-09' })
+    const monday = entry({
+      id: 'entry-monday', date: '2026-08-10', leftover_of_entry_id: 'entry-sunday'
+    })
+
+    const cookingWeek = derive(input({ entries: [sunday, monday] }))
+    expect(cookingWeek.creates).toHaveLength(1)
+    expect(cookingWeek.creates[0]?.quantity).toBe('2 tins ×2')
+
+    const nextWeek = derive(input({
+      start: '2026-08-10',
+      end: '2026-08-16',
+      entries: [sunday, monday],
+      planItems: applied([], cookingWeek)
+    }))
+    // Sunday's item belongs to a night outside this range, so it is left alone.
+    expect(nextWeek).toEqual({ creates: [], updates: [], removes: [] })
+  })
+
+  it('shops for itself when the night it came from is gone', () => {
+    // Somebody took Tuesday off the plan. Wednesday still has to eat, and it
+    // kept its own copy of the recipe for exactly this — a night that quietly
+    // buys nothing is how a household ends up in a kitchen with no dinner.
+    const result = derive(input({
+      entries: [{ ...entry(), deleted_at: NOW }, wednesday()]
+    }))
+
+    expect(result.creates).toHaveLength(1)
+    expect(result.creates[0]?.plan_entry_id).toBe('entry-wednesday')
+    expect(result.creates[0]?.quantity).toBe('2 tins')
+  })
+
+  it('goes back to buying once, once the missing night turns up', () => {
+    // A device that has the leftovers night but not yet the night it points at
+    // over-buys rather than under-buys, and the deterministic ids mean the next
+    // derive takes it straight back off.
+    const orphaned = derive(input({ entries: [wednesday()] }))
+    expect(orphaned.creates).toHaveLength(1)
+
+    const arrived = derive(input({
+      entries: [entry(), wednesday()],
+      planItems: applied([], orphaned)
+    }))
+
+    expect(arrived.removes.map(i => i.plan_entry_id)).toEqual(['entry-wednesday'])
+    expect(arrived.creates).toHaveLength(1)
+    expect(arrived.creates[0]?.plan_entry_id).toBe('entry-tuesday')
+    expect(arrived.creates[0]?.quantity).toBe('2 tins ×2')
+  })
+
+  it('sums two nights eating the same batch', () => {
+    const thursday = entry({
+      id: 'entry-thursday', date: '2026-08-06', servings: 2, leftover_of_entry_id: 'entry-tuesday'
+    })
+    const result = derive(input({ entries: [entry(), wednesday(), thursday] }))
+
+    expect(result.creates).toHaveLength(1)
+    expect(result.creates[0]?.quantity).toBe('2 tins ×3')
   })
 })

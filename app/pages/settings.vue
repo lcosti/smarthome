@@ -169,6 +169,26 @@ async function copyInviteCode() {
         </UButton>
       </section>
 
+      <section class="space-y-2">
+        <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
+          Pantry
+        </h2>
+        <p class="text-sm text-muted">
+          What is already in the house. Two onions left over from a three-pack
+          means next week's list only asks for what you actually need.
+        </p>
+        <UButton
+          to="/pantry"
+          color="neutral"
+          variant="subtle"
+          size="lg"
+          block
+          trailing-icon="i-lucide-chevron-right"
+        >
+          Manage pantry
+        </UButton>
+      </section>
+
       <!--
         Read-only, and it says so. There is no per-user OAuth here — the
         sync-calendar Edge Function holds a service account and a list of

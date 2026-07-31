@@ -15,6 +15,16 @@ defineEmits<{
 
 /** More than one row behind this line, so editing means picking one of them. */
 const grouped = computed(() => entry.items.length > 1)
+
+/**
+ * Nothing to buy: the cupboard has all of it.
+ *
+ * The line stays on the list rather than disappearing, because a plan that put
+ * something here and then hid it is a plan nobody can check. Ticking it still
+ * means what ticking always meant — it is in the trolley — and taking it out of
+ * the cupboard is exactly that.
+ */
+const covered = computed(() => entry.pantry !== null && entry.pantry.toBuy === 0)
 </script>
 
 <template>
@@ -26,11 +36,14 @@ const grouped = computed(() => entry.items.length > 1)
       @click="$emit('toggle')"
     >
       <UIcon
-        name="i-lucide-circle"
+        :name="covered ? 'i-lucide-package-check' : 'i-lucide-circle'"
         class="size-6 shrink-0 text-dimmed"
       />
       <span class="min-w-0 flex-1">
-        <span class="block truncate">{{ entry.name }}</span>
+        <span
+          class="block truncate"
+          :class="covered && 'text-muted'"
+        >{{ entry.name }}</span>
         <span
           v-if="entry.quantityLabel || sourceLabel"
           class="block truncate text-xs text-dimmed"

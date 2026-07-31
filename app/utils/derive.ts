@@ -58,6 +58,42 @@ export function servingsHint(quantity: string | null, servings: number, baseServ
 }
 
 /**
+ * Who is buying for whom, once leftovers nights are taken into account.
+ *
+ * `deferred` is the nights that buy nothing themselves, and `extra` is the
+ * portions their sources pick up instead — the food is bought once, with the
+ * night it is cooked on, and the source's quantities carry both dinners.
+ *
+ * Deliberately built from every entry, not just the ones in the range being
+ * derived. A leftovers night is at most a couple of days after its source, so
+ * the two can straddle a Sunday: the source's own week is what scales it, and
+ * the week that only contains the Monday must not quietly buy it twice.
+ *
+ * A night whose source has been deleted — or has not reached this device yet —
+ * defers to nobody and buys for itself. There is no foreign key to stop that
+ * happening, and a night that shops for nothing at all is a worse answer than
+ * one that briefly shops for too much: the ids are deterministic, so the extra
+ * items come straight back off the list on the next derive once the source
+ * turns up.
+ */
+export function leftoverPlan(entries: PlanEntryRow[]): { extra: Map<string, number>, deferred: Set<string> } {
+  const live = new Map<string, PlanEntryRow>()
+  for (const entry of entries) {
+    if (!entry.deleted_at) live.set(entry.id, entry)
+  }
+
+  const extra = new Map<string, number>()
+  const deferred = new Set<string>()
+  for (const entry of entries) {
+    if (entry.deleted_at || !entry.leftover_of_entry_id) continue
+    if (!live.has(entry.leftover_of_entry_id)) continue
+    deferred.add(entry.id)
+    extra.set(entry.leftover_of_entry_id, (extra.get(entry.leftover_of_entry_id) ?? 0) + entry.servings)
+  }
+  return { extra, deferred }
+}
+
+/**
  * Work out what the shopping list should hold for a range of nights.
  *
  * Pure: it reads local state and returns the rows to write, so the caller owns
@@ -97,11 +133,18 @@ export function derive(input: DeriveInput): DeriveResult {
   }
 
   const entryById = new Map(entries.map(e => [e.id, e]))
+  const { extra: extraServings, deferred } = leftoverPlan(entries)
+
+  /** What a night has to cater for: its own table, plus anyone eating it again. */
+  const cateringFor = (entry: PlanEntryRow) => entry.servings + (extraServings.get(entry.id) ?? 0)
 
   // 1. What the plan says the list should contain.
   const wanted = new Map<string, { entry: PlanEntryRow, line: RecipeIngredientRow, recipe: RecipeRow }>()
   for (const entry of entries) {
     if (entry.deleted_at || entry.date < start || entry.date > end) continue
+    // A leftovers night is already in the trolley — it was bought with the night
+    // it is left over from. Buying for it again is buying the meal twice.
+    if (deferred.has(entry.id)) continue
     const recipe = recipes.get(entry.recipe_id)
     if (!recipe || recipe.deleted_at) continue
     for (const line of linesByRecipe.get(recipe.id) ?? []) {
@@ -130,7 +173,7 @@ export function derive(input: DeriveInput): DeriveResult {
       const next: ItemRow = {
         ...item,
         name: hit.line.name,
-        quantity: servingsHint(hit.line.quantity, hit.entry.servings, hit.recipe.base_servings),
+        quantity: servingsHint(hit.line.quantity, cateringFor(hit.entry), hit.recipe.base_servings),
         aisle_id: item.aisle_id ?? ingredientAisle(ingredientId) ?? hit.line.aisle_id ?? rememberAisle(hit.line.name),
         // Never cleared once set. Resolution improving is worth following; it
         // going quiet — because a device has not pulled the ingredient yet — is
@@ -163,7 +206,7 @@ export function derive(input: DeriveInput): DeriveResult {
       id,
       household_id: householdId,
       name: line.name,
-      quantity: servingsHint(line.quantity, entry.servings, recipe.base_servings),
+      quantity: servingsHint(line.quantity, cateringFor(entry), recipe.base_servings),
       // The canonical ingredient's aisle outranks the line's, because it is the
       // thing a person filed deliberately and it holds for every recipe using it.
       aisle_id: ingredientAisle(ingredientId) ?? line.aisle_id ?? rememberAisle(line.name),
