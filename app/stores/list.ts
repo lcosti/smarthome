@@ -4,6 +4,7 @@ import { buildEntries } from '../utils/aggregate'
 import type { AisleRow, ItemRow } from '../utils/db'
 import { plainCopy } from '../utils/sync'
 import { asBaseUnit, useIngredientsStore } from './ingredients'
+import { usePeopleStore } from './people'
 import { nowIso, useSyncStore } from './sync'
 
 export interface AisleGroup {
@@ -19,6 +20,7 @@ function normaliseName(name: string) {
 export const useListStore = defineStore('list', () => {
   const sync = useSyncStore()
   const ingredients = useIngredientsStore()
+  const people = usePeopleStore()
 
   const items = computed(() => sync.rowsOf('shopping_list_items'))
   const aisles = computed(() => sync.rowsOf('aisles'))
@@ -151,6 +153,10 @@ export const useListStore = defineStore('list', () => {
       plan_entry_id: null,
       recipe_ingredient_id: null,
       ingredient_id: ingredient?.id ?? null,
+      // Who to credit on the wall board. Null from the shared tablet, which is
+      // nobody in particular — the board simply omits the line rather than
+      // guessing.
+      added_by: people.me?.id ?? null,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp

@@ -172,6 +172,27 @@ async function copyInviteCode() {
 
       <section class="space-y-2">
         <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
+          Wall board
+        </h2>
+        <p class="text-sm text-muted">
+          Tonight's meal, the shopping list, the week and the recipes, at a size
+          you can read across the kitchen. Press F for fullscreen; browser back
+          to leave.
+        </p>
+        <UButton
+          to="/board"
+          color="neutral"
+          variant="subtle"
+          size="lg"
+          block
+          trailing-icon="i-lucide-chevron-right"
+        >
+          Open the board
+        </UButton>
+      </section>
+
+      <section class="space-y-2">
+        <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
           Household
         </h2>
         <div class="rounded-lg border border-default p-3">

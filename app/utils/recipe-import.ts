@@ -1,5 +1,6 @@
 /**
- * The shape a photo import must arrive in before anything is committed.
+ * The shape an import must arrive in before anything is committed — whether it
+ * was read off a photograph or off a web page.
  *
  * The Edge Function already constrains the model with a JSON schema, but the
  * client revalidates at its own boundary: the function can change independently
@@ -33,6 +34,17 @@ function asMinutes(value: unknown): number | null {
 
 function asText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+/**
+ * Whether what was typed is a link rather than a recipe name.
+ *
+ * Deliberately blunt: the one box on the recipes page both searches and adds, so
+ * this only has to tell a pasted address from something a person would call a
+ * meal. Nobody names a recipe "https://".
+ */
+export function looksLikeUrl(text: string): boolean {
+  return /^https?:\/\/\S+$/i.test(text.trim())
 }
 
 export function coerceExtractedRecipe(input: unknown): ExtractedRecipe | null {

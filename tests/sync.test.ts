@@ -421,6 +421,14 @@ describe('the synced table registry', () => {
       id: 'att-1', household_id: HOUSEHOLD, person_id: 'per-1', date: '2026-08-04',
       meal: 'dinner', present: false, deleted_at: null, created_at: STAMP, updated_at: STAMP
     })
+    await db.cacheFor('calendar_events').put({
+      id: 'cal-1', household_id: HOUSEHOLD, person_id: 'per-1',
+      calendar_id: 'family@group.calendar.google.com', google_event_id: 'g-1',
+      title: 'Choir', all_day: false,
+      starts_at: '2026-07-30T17:30:00.000Z', ends_at: '2026-07-30T19:00:00.000Z',
+      start_date: '2026-07-30', end_date: '2026-07-30', google_updated_at: null,
+      deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
 
     // Each row lands in exactly one store, and nothing collides.
     for (const table of SYNC_TABLE_NAMES) {

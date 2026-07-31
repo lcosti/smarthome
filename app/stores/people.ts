@@ -6,6 +6,7 @@ import {
   type ConstraintKind
 } from '../utils/attendance'
 import type { DietaryConstraintRow, PersonRow } from '../utils/db'
+import { readIdentity } from '../utils/identity'
 import { deriveLifeStage, type LifeStage } from '../utils/people'
 import { plainCopy } from '../utils/sync'
 import { todayIso } from '../utils/week'
@@ -50,6 +51,18 @@ export const usePeopleStore = defineStore('people', () => {
   const constraints = computed(() =>
     [...allConstraints.value.values()].filter(row => !row.deleted_at)
   )
+
+  /**
+   * The person this device is signed in as, if any.
+   *
+   * Undefined on the shared kitchen tablet, which belongs to the household rather
+   * than to anybody — so callers must treat "no me" as ordinary, not as an error.
+   */
+  const me = computed(() => {
+    const userId = readIdentity()?.userId
+    if (!userId) return undefined
+    return people.value.find(person => person.auth_user_id === userId)
+  })
 
   function personById(id: string | null | undefined): PersonRow | undefined {
     if (!id) return undefined
@@ -175,6 +188,7 @@ export const usePeopleStore = defineStore('people', () => {
   return {
     people,
     constraints,
+    me,
     personById,
     lifeStageOf,
     constraintsFor,

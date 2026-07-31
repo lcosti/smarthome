@@ -1,0 +1,154 @@
+<script setup lang="ts">
+import { useListStore } from '../../stores/list'
+import { useSyncStore } from '../../stores/sync'
+
+/**
+ * The shopping list at wall size.
+ *
+ * The one view that is genuinely a tool rather than a display: this is the
+ * screen you stand in front of while unpacking bags, so the whole line is the
+ * touch target and ticking is one press with no confirmation. Ticking is
+ * idempotent and converges by last-write-wins, so two people doing it from
+ * different rooms is a non-event.
+ *
+ * Laid out in columns rather than one long list, because the frame cannot
+ * scroll: a shop's worth of items has to fit at a readable size, and three
+ * columns of a 1920px frame is what makes that possible.
+ */
+
+const list = useListStore()
+const sync = useSyncStore()
+
+/**
+ * Aisle groups spread over three columns, kept whole and kept in order.
+ *
+ * In order because the sequence is the point — the list is sorted to match the
+ * walk through the shop, so it has to read down column one, then column two.
+ * Whole because a group split across a column break would put half of Chilled at
+ * the bottom of one column and half at the top of the next.
+ *
+ * The split is chosen by trying every one, rather than by filling greedily.
+ * There are only ever a couple of dozen aisles, so the search is free, and
+ * greedy gets this visibly wrong: it packs the first column past the fold and
+ * leaves the third nearly empty, which on a frame that cannot scroll means
+ * items you simply never see.
+ */
+const columns = computed(() => {
+  const groups = list.groups
+  if (!groups.length) return [] as (typeof groups)[]
+
+  const weight = (group: typeof groups[number]) => group.entries.length + 1
+
+  let best: number[] | null = null
+  let bestMax = Infinity
+
+  // Two cut points, i and j, giving [0,i) [i,j) [j,end).
+  for (let i = 0; i <= groups.length; i++) {
+    for (let j = i; j <= groups.length; j++) {
+      const parts = [groups.slice(0, i), groups.slice(i, j), groups.slice(j)]
+      const max = Math.max(...parts.map(part => part.reduce((sum, g) => sum + weight(g), 0)))
+      if (max < bestMax) {
+        bestMax = max
+        best = [i, j]
+      }
+    }
+  }
+
+  const [i, j] = best!
+  return [groups.slice(0, i), groups.slice(i, j), groups.slice(j)]
+})
+
+const remaining = computed(() => list.groups.reduce((sum, g) => sum + g.entries.length, 0))
+const checked = computed(() => list.checkedItems.length)
+</script>
+
+<template>
+  <div class="flex h-full min-h-0 flex-col gap-[18px]">
+    <div class="flex shrink-0 items-baseline gap-[18px]">
+      <h2 class="text-[58px] font-semibold leading-none tracking-[-0.03em] text-highlighted">
+        {{ remaining }}
+      </h2>
+      <p class="text-[28px] text-muted">
+        {{ remaining === 1 ? 'thing' : 'things' }} to buy
+      </p>
+      <p
+        v-if="checked"
+        class="ml-auto font-mono text-[20px] text-dimmed"
+      >
+        {{ checked }} in the trolley
+      </p>
+      <p
+        v-if="sync.pendingCount"
+        class="font-mono text-[20px] text-dimmed"
+        :class="checked ? 'ml-4' : 'ml-auto'"
+      >
+        {{ sync.pendingCount }} waiting to sync
+      </p>
+    </div>
+
+    <!-- Nothing to buy: the same distinction the Today card makes. -->
+    <div
+      v-if="!remaining"
+      class="flex flex-1 flex-col items-center justify-center gap-4"
+    >
+      <p
+        class="text-[72px] font-semibold tracking-[-0.02em]"
+        :class="sync.rowsOf('shopping_list_items').size ? 'text-primary' : 'text-muted'"
+      >
+        {{ sync.rowsOf('shopping_list_items').size ? 'Nothing to buy' : 'Nothing on the list yet' }}
+      </p>
+      <p class="text-[26px] text-muted">
+        Add something from your phone and it shows up here.
+      </p>
+    </div>
+
+    <div
+      v-else
+      class="grid min-h-0 flex-1 grid-cols-3 gap-[22px] overflow-hidden"
+    >
+      <div
+        v-for="(column, index) in columns"
+        :key="index"
+        class="flex min-h-0 flex-col gap-5 overflow-hidden"
+      >
+        <section
+          v-for="group in column"
+          :key="group.id"
+          class="flex flex-col gap-2"
+        >
+          <h3 class="font-mono text-[20px] uppercase tracking-[0.14em] text-dimmed">
+            {{ group.name }}
+          </h3>
+
+          <!--
+            One line per item, deliberately. The row carried the recipe it came
+            from underneath the name, which doubled its height and cost about a
+            third of the items on screen — and on a frame that cannot scroll,
+            provenance you can read is worth less than an item you can see. Both
+            phones still show it.
+          -->
+          <button
+            v-for="entry in group.entries"
+            :key="entry.key"
+            type="button"
+            class="flex items-center gap-4 rounded-[12px] border border-default bg-default
+                   px-5 py-2.5 text-left transition-opacity duration-[80ms] active:opacity-85"
+            @click="list.toggleEntry(entry)"
+          >
+            <UIcon
+              name="i-lucide-circle-dashed"
+              class="size-7 shrink-0 text-dimmed"
+            />
+            <span class="min-w-0 flex-1 truncate text-[27px] leading-tight text-default">
+              {{ entry.name }}
+            </span>
+            <span
+              v-if="entry.quantityLabel"
+              class="shrink-0 whitespace-nowrap text-[23px] text-muted"
+            >{{ entry.quantityLabel }}</span>
+          </button>
+        </section>
+      </div>
+    </div>
+  </div>
+</template>

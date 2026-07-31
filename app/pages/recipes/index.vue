@@ -1,33 +1,46 @@
 <script setup lang="ts">
 import { useRecipesStore } from '../../stores/recipes'
 import { useSyncStore } from '../../stores/sync'
+import { looksLikeUrl } from '../../utils/recipe-import'
 
 const store = useRecipesStore()
 const sync = useSyncStore()
 
-// One box does both jobs. Typing narrows the library; pressing add turns what you
-// typed into a recipe. Two separate inputs would mean choosing before you start.
+// One box does three jobs. Typing narrows the library; pressing add turns what
+// you typed into a recipe; and a pasted link is fetched rather than made the
+// name of an empty one. Separate inputs would mean choosing before you start.
 const draft = ref('')
+
+const pasted = computed(() => looksLikeUrl(draft.value))
 
 const matches = computed(() => {
   const needle = draft.value.trim().toLowerCase()
-  if (!needle) return store.recipes
+  if (!needle || pasted.value) return store.recipes
   return store.recipes.filter(r => r.name.toLowerCase().includes(needle))
 })
 
-async function add() {
-  const name = draft.value.trim()
-  if (!name) return
-  draft.value = ''
-  const created = await store.addRecipe({ name })
-  if (created) await navigateTo(`/recipes/${created.id}`)
-}
-
-// Photograph a cookbook page instead of typing it in. Multi-select because a
-// recipe often spans a spread: ingredients on one page, method overleaf.
-const photoImport = useRecipePhotoImport()
+// Photograph a cookbook page, or paste the link of one. Multi-select on the
+// photo path because a recipe often spans a spread: ingredients on one page,
+// method overleaf.
+const recipeImport = useRecipeImport()
 const photoInput = ref<HTMLInputElement>()
 const toast = useToast()
+
+async function add() {
+  const typed = draft.value.trim()
+  if (!typed || recipeImport.busy.value) return
+
+  if (looksLikeUrl(typed)) {
+    const recipeId = await recipeImport.importUrl(typed)
+    if (recipeId) draft.value = ''
+    await land(recipeId)
+    return
+  }
+
+  draft.value = ''
+  const created = await store.addRecipe({ name: typed })
+  if (created) await navigateTo(`/recipes/${created.id}`)
+}
 
 async function onPhotosPicked(event: Event) {
   const input = event.target as HTMLInputElement
@@ -35,11 +48,15 @@ async function onPhotosPicked(event: Event) {
   input.value = ''
   if (!files.length) return
 
-  const recipeId = await photoImport.importPhotos(files)
+  await land(await recipeImport.importPhotos(files))
+}
+
+/** The new recipe, or the reason there isn't one. */
+async function land(recipeId: string | null) {
   if (recipeId) {
     await navigateTo(`/recipes/${recipeId}`)
-  } else if (photoImport.error.value) {
-    toast.add({ title: photoImport.error.value, color: 'error' })
+  } else if (recipeImport.error.value) {
+    toast.add({ title: recipeImport.error.value, color: 'error' })
   }
 }
 </script>
@@ -59,25 +76,26 @@ async function onPhotosPicked(event: Event) {
           <UInput
             v-model="draft"
             size="xl"
-            placeholder="Search or add a recipe"
+            placeholder="Search, add or paste a link"
             autocapitalize="sentences"
             enterkeyhint="done"
             class="flex-1"
+            data-testid="recipe-draft"
           />
           <UButton
             type="submit"
             size="xl"
-            icon="i-lucide-plus"
-            :disabled="!draft.trim()"
-            aria-label="Add recipe"
+            :icon="pasted ? 'i-lucide-link' : 'i-lucide-plus'"
+            :disabled="!draft.trim() || recipeImport.busy.value"
+            :aria-label="pasted ? 'Import recipe from the link' : 'Add recipe'"
           />
           <UButton
             size="xl"
             color="neutral"
             variant="outline"
-            :icon="photoImport.status.value === 'idle' ? 'i-lucide-camera' : ''"
-            :loading="photoImport.status.value !== 'idle'"
-            :disabled="photoImport.status.value !== 'idle'"
+            :icon="recipeImport.busy.value ? '' : 'i-lucide-camera'"
+            :loading="recipeImport.busy.value"
+            :disabled="recipeImport.busy.value"
             aria-label="Add recipe from a photo"
             @click="photoInput?.click()"
           />
@@ -96,10 +114,10 @@ async function onPhotosPicked(event: Event) {
         </form>
 
         <p
-          v-if="photoImport.status.value !== 'idle'"
+          v-if="recipeImport.progress.value"
           class="mt-2 text-sm text-muted"
         >
-          Reading recipe… this can take up to 30 seconds.
+          {{ recipeImport.progress.value }}
         </p>
       </div>
     </header>

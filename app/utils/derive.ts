@@ -173,6 +173,8 @@ export function derive(input: DeriveInput): DeriveResult {
       plan_entry_id: entry.id,
       recipe_ingredient_id: line.id,
       ingredient_id: ingredientId,
+      // Derived items have no author — the plan put them there, not a person.
+      added_by: null,
       deleted_at: null,
       created_at: now,
       updated_at: now

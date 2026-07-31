@@ -14,6 +14,7 @@ export type PlanEntryRow = Tables['meal_plan_entries']['Row']
 export type IngredientRow = Tables['ingredients']['Row']
 export type IngredientAliasRow = Tables['ingredient_aliases']['Row']
 export type PurchaseUnitRow = Tables['ingredient_purchase_units']['Row']
+export type CalendarEventRow = Tables['calendar_events']['Row']
 
 /**
  * Every table the offline layer syncs.
@@ -42,7 +43,12 @@ export const SYNC_TABLES = {
   recipes: { cache: 'recipes' },
   recipe_ingredients: { cache: 'recipe_ingredients' },
   meal_plan_entries: { cache: 'meal_plan_entries' },
-  shopping_list_items: { cache: 'items' }
+  shopping_list_items: { cache: 'items' },
+  // Read-only on every device: written by the sync-calendar Edge Function with
+  // the service role, and pulled here like anything else. It is in this registry
+  // for the pull and the realtime subscription, not for the queue — nothing on a
+  // client ever commits one.
+  calendar_events: { cache: 'calendar_events' }
 } as const
 
 export type SyncTable = keyof typeof SYNC_TABLES
@@ -62,6 +68,7 @@ export interface RowOf {
   recipe_ingredients: RecipeIngredientRow
   meal_plan_entries: PlanEntryRow
   shopping_list_items: ItemRow
+  calendar_events: CalendarEventRow
 }
 
 export type SyncedRow = RowOf[SyncTable]
@@ -92,6 +99,7 @@ export class AppDatabase extends Dexie {
   people!: Table<PersonRow, string>
   dietary_constraints!: Table<DietaryConstraintRow, string>
   attendance!: Table<AttendanceRow, string>
+  calendar_events!: Table<CalendarEventRow, string>
   mutations!: Table<Mutation, number>
 
   constructor(name = 'shoplist') {
@@ -124,6 +132,12 @@ export class AppDatabase extends Dexie {
       people: 'id',
       dietary_constraints: 'id',
       attendance: 'id'
+    })
+    // v5 caches the calendar, which is what lets the wall board show today's
+    // schedule with no network. Same terms as every version above: a new empty
+    // store, filled on the next pull, no upgrade handler.
+    this.version(5).stores({
+      calendar_events: 'id'
     })
   }
 

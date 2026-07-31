@@ -1,11 +1,13 @@
 // Turns photographs of a recipe — a cookbook spread, a printed card — into the
-// structured shape the client commits through its normal stores. This is the
-// app's only LLM call and its only online-only action; everything downstream of
-// the response rides the offline queue like a hand-typed recipe.
+// structured shape the client commits through its normal stores. Everything
+// downstream of the response rides the offline queue like a hand-typed recipe.
 //
 // Lives here rather than in the client because the Anthropic key must never be
 // in the static bundle, and ssr:false means Edge Functions are the only
 // server-side home this app has.
+//
+// Its sibling import-recipe-url does the same job for a web address, and tries
+// the page's own structured data before spending anything on the model.
 //
 // Local trial:
 //   supabase functions serve import-recipe-photo --env-file supabase/functions/.env
@@ -14,14 +16,9 @@
 //     -d "{\"images\":[{\"data\":\"$(base64 -i recipe.jpg)\",\"media_type\":\"image/jpeg\"}]}"
 
 import Anthropic from 'npm:@anthropic-ai/sdk'
-import { createClient } from 'npm:@supabase/supabase-js@2'
-
-// The static site on Netlify calls this from a different origin, and Supabase
-// does not add CORS headers on the function's behalf.
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
-}
+import { guardMethod, json } from '../_shared/http.ts'
+import { rejectNonMember } from '../_shared/member.ts'
+import { RECIPE_SCHEMA } from '../_shared/recipe-schema.ts'
 
 const MAX_IMAGES = 4
 // The client compresses to ~200KB before sending (see compressToJpeg), so a
@@ -31,46 +28,6 @@ const MAX_IMAGE_BASE64_LENGTH = 2_000_000
 const ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
 type MediaType = (typeof ALLOWED_MEDIA_TYPES)[number]
 
-// The model either extracts a recipe or says the photos are not one; the schema
-// makes both outcomes machine-readable rather than prose.
-const RECIPE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['is_recipe', 'recipe'],
-  properties: {
-    is_recipe: { type: 'boolean' },
-    recipe: {
-      anyOf: [
-        { type: 'null' },
-        {
-          type: 'object',
-          additionalProperties: false,
-          required: ['name', 'base_servings', 'prep_minutes', 'cook_minutes', 'method', 'ingredients'],
-          properties: {
-            name: { type: 'string' },
-            base_servings: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
-            prep_minutes: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
-            cook_minutes: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
-            method: { anyOf: [{ type: 'string' }, { type: 'null' }] },
-            ingredients: {
-              type: 'array',
-              items: {
-                type: 'object',
-                additionalProperties: false,
-                required: ['name', 'quantity'],
-                properties: {
-                  name: { type: 'string' },
-                  quantity: { anyOf: [{ type: 'string' }, { type: 'null' }] }
-                }
-              }
-            }
-          }
-        }
-      ]
-    }
-  }
-} as const
-
 const EXTRACTION_PROMPT = `These photos show a single recipe, possibly spread across pages.
 Extract it exactly as printed: the recipe's name, servings, prep and cook times in minutes,
 the method as plain paragraphs in cooking order, and one ingredient per line with its
@@ -78,39 +35,12 @@ quantity exactly as written (e.g. "400g", "2 tbsp", "1 tin"). Use null for anyth
 visible in the photos. Do not invent, convert, or normalise anything.
 If the photos do not show a recipe, set is_recipe to false and recipe to null.`
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS, 'Content-Type': 'application/json' }
-  })
-}
-
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
-  if (req.method !== 'POST') return json(405, { error: 'POST only' })
+  const guarded = guardMethod(req)
+  if (guarded) return guarded
 
-  // verify_jwt only proves the token was signed for this project, and signup is
-  // open — so it admits any stranger who has requested themselves a magic link.
-  // Spending Anthropic credit additionally requires being somebody's household:
-  // querying `people` as the caller, under RLS, returns rows only for a member.
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    {
-      global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
-      auth: { persistSession: false }
-    }
-  )
-  const { data: caller, error: callerError } = await supabase.auth.getUser()
-  if (callerError || !caller.user) return json(401, { error: 'Sign in first' })
-
-  const { data: membership, error: membershipError } = await supabase
-    .from('people')
-    .select('id')
-    .eq('auth_user_id', caller.user.id)
-    .limit(1)
-  if (membershipError) return json(500, { error: 'Could not check household membership' })
-  if (!membership.length) return json(403, { error: 'Only household members can import photos' })
+  const rejection = await rejectNonMember(req)
+  if (rejection) return rejection
 
   let images: { data: string, media_type: MediaType }[]
   try {

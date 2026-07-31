@@ -14,9 +14,11 @@
     "acceptance": "node scripts/acceptance.mjs",
     "acceptance:phase2": "node scripts/acceptance-phase2.mjs",
     "acceptance:phase3": "node scripts/acceptance-phase3.mjs",
-    "acceptance:phase4": "node scripts/acceptance-phase4.mjs",
+    "acceptance:photo-import": "node scripts/acceptance-photo-import.mjs",
     "acceptance:roster": "node scripts/acceptance-roster.mjs",
     "acceptance:generator": "node scripts/acceptance-generator.mjs",
+    "acceptance:url-import": "node scripts/acceptance-url-import.mjs",
+    "acceptance:board": "node scripts/acceptance-board.mjs",
     "icons": "node scripts/generate-icons.mjs",
     "db:types": "supabase gen types typescript --local > shared/types/database.types.ts"
   },

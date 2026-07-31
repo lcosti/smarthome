@@ -110,6 +110,10 @@ export const usePlanStore = defineStore('plan', () => {
       recipe_id: recipeId,
       servings: servings ?? recipe.base_servings,
       note: null,
+      // Both null until somebody says otherwise. The board reads a null eat_time
+      // as the household's default hour rather than as a missing plan.
+      cook_person_id: null,
+      eat_time: null,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp
@@ -133,7 +137,9 @@ export const usePlanStore = defineStore('plan', () => {
 
   async function updateEntry(
     id: string,
-    patch: Partial<Pick<PlanEntryRow, 'recipe_id' | 'servings' | 'note' | 'date'>>
+    patch: Partial<
+      Pick<PlanEntryRow, 'recipe_id' | 'servings' | 'note' | 'date' | 'cook_person_id' | 'eat_time'>
+    >
   ) {
     const current = allEntries.value.get(id)
     if (!current) return

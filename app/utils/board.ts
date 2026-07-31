@@ -1,0 +1,819 @@
+/**
+ * The wall dashboard's view model.
+ *
+ * One function, one object out. The board has six recognisable content states —
+ * nominal, no plan, empty list, offline, nobody home, late evening — and the
+ * temptation is six templates. It is deliberately not built that way: they are
+ * not six screens, they are one screen under six sets of facts, and the moment
+ * they are separate templates a fix to the roster row has to be made six times.
+ * So everything below derives, and the components render whatever they are given.
+ *
+ * Pure, and importing nothing from the stores, for the same reason derive.ts and
+ * generator.ts are: the whole state machine is then testable at a desk with no
+ * browser, no database and no clock.
+ *
+ * Local time throughout, as everywhere else in this app. Times are 'HH:MM'
+ * strings compared as minutes past midnight, dates are 'YYYY-MM-DD'.
+ */
+
+import { deriveLifeStage, type LifeStage } from './people'
+import { personHue } from './person-colors'
+import { addDays, isoDate } from './week'
+
+// ---------------------------------------------------------------------------
+// Inputs
+// ---------------------------------------------------------------------------
+
+export interface BoardPerson {
+  id: string
+  name: string
+  date_of_birth: string | null
+  created_at: string
+}
+
+export interface BoardConstraint {
+  person_id: string
+  kind: string
+  tag: string
+}
+
+export interface BoardEvent {
+  id: string
+  title: string
+  person_id: string | null
+  all_day: boolean
+  /** ISO instant. Ignored for all-day events, which have no meaningful time. */
+  starts_at: string
+  start_date: string
+  end_date: string
+}
+
+/** A planned dinner, already joined to its recipe by the caller. */
+export interface BoardMeal {
+  entryId: string
+  recipeId: string | null
+  dish: string
+  /** Prep plus cook, or null when the recipe does not say. */
+  minutes: number | null
+  note: string | null
+  /** 'HH:MM', or null to mean the household's usual hour. */
+  eatTime: string | null
+  cookPersonId: string | null
+  updatedAt: string
+}
+
+/** One night: what is planned, and who is eating it. */
+export interface BoardNight {
+  date: string
+  meal: BoardMeal | null
+  /** Everybody present for dinner. Babies included; they are filtered where it matters. */
+  presentIds: string[]
+}
+
+export interface BoardShoppingInput {
+  count: number
+  /** Up to three lines, already aggregated and in aisle order. */
+  next: string[]
+  recentAdd: { personId: string | null, label: string, at: string } | null
+  /**
+   * Whether this household has ever had anything on the list, ticked items and
+   * deleted ones included.
+   *
+   * An empty list means two different things, and the board should not celebrate
+   * the wrong one: a list cleared before a shop is an achievement, a list that
+   * has never been used is just empty.
+   */
+  everUsed: boolean
+}
+
+export interface BoardWeather {
+  icon: string
+  temperature: number
+}
+
+export interface BoardInput {
+  now: Date
+  /**
+   * Tonight first, then the following seven. Eight because the hero flips to
+   * tomorrow late in the evening and still wants six days of week strip after it.
+   */
+  nights: BoardNight[]
+  people: BoardPerson[]
+  constraints: BoardConstraint[]
+  /** Today's and tomorrow's events. Anything else is ignored. */
+  events: BoardEvent[]
+  /**
+   * Whether a calendar has ever been synced, over any date.
+   *
+   * `events` being empty cannot answer this: a quiet Tuesday and a household
+   * that has never connected Google look identical from today alone, and the
+   * card should not blame staleness for something it was never told.
+   */
+  hasCalendar: boolean
+  shopping: BoardShoppingInput
+  /**
+   * How many recipes the library holds. A count rather than the recipes
+   * themselves: the board never lists them, it only needs to know whether the
+   * generator has anything to work with.
+   */
+  recipeCount: number
+  offline: boolean
+  /** ISO instant of the last completed pull, or null if this device has never synced. */
+  lastSyncedAt: string | null
+  weather: BoardWeather | null
+}
+
+// ---------------------------------------------------------------------------
+// Outputs
+// ---------------------------------------------------------------------------
+
+export type BoardState
+  = 'nominal' | 'noplan' | 'emptylist' | 'offline' | 'nobodyhome' | 'lateevening' | 'setup'
+
+/** One thing a household needs before the board can do its job. */
+export interface SetupStep {
+  label: string
+  done: boolean
+}
+
+export interface RosterPerson {
+  id: string
+  name: string
+  initial: string
+  hue: number
+  absent: boolean
+  /** The portion this person eats, plus anything they cannot have. */
+  note: string
+  /** Amber: they are out during the meal, or otherwise need acting on. */
+  warn: string | null
+}
+
+export interface ScheduleRow {
+  id: string
+  /** 'HH:MM', or 'All day'. */
+  time: string
+  title: string
+  hue: number | null
+  past: boolean
+  next: boolean
+  meal: boolean
+  badge: string | null
+}
+
+export interface WeekSlot {
+  date: string
+  /** 'Fri' */
+  day: string
+  dish: string
+  empty: boolean
+  highlighted: boolean
+}
+
+/**
+ * The strip along the top of every board view.
+ *
+ * Separate from the rest of the model because it outlives it: the header is the
+ * one thing the shell keeps on screen while the view below it changes, so it has
+ * to be derivable without working out a hero, a schedule and a week first.
+ */
+export interface BoardHeader {
+  dayName: string
+  dateLine: string
+  weather: BoardWeather | null
+  /** 'Plan updated Sunday 18:04', or 'Plan not generated'. */
+  generatedAt: string
+  stale: boolean
+  /** 'Offline · last synced 15:58'. Null unless stale. */
+  staleLabel: string | null
+}
+
+export interface BoardHeaderInput {
+  now: Date
+  /** Only the meals matter here, for the "plan updated" line. */
+  nights: BoardNight[]
+  offline: boolean
+  lastSyncedAt: string | null
+  weather: BoardWeather | null
+}
+
+export interface BoardModel {
+  /**
+   * The dominant content state, for tests and for the acceptance script to assert
+   * on. The components do not switch on it — they read the fields below, which is
+   * what lets offline and an empty list coexist with any of the others.
+   */
+  state: BoardState
+  header: BoardHeader
+  hero: {
+    /** 'Tonight', or 'Tomorrow · Friday'. */
+    eyebrow: string
+    date: string
+    hasMeal: boolean
+    recipeId: string | null
+    dish: string
+    /** '35 min · one tray'. */
+    dishMeta: string
+    /** 'Eat 18:00 · start 17:25'. Null when there is no meal. */
+    timing: string | null
+    cook: { id: string, name: string, initial: string, hue: number, label: string } | null
+    /** 'Four for dinner'. */
+    eatingCount: string
+    roster: RosterPerson[]
+    foot: string
+    /** Set only when there is no meal. */
+    noMeal: {
+      title: string
+      body: string
+      /** `to` is a route to open, or null to mean "run the generator here". */
+      action: { label: string, to: string | null } | null
+      /** Only in `setup`: what the household still needs, in the order to do it. */
+      steps: SetupStep[]
+    } | null
+  }
+  schedule: {
+    /** 'Family calendar' / 'Last known · 15:58' / 'Nothing left today'. */
+    meta: string
+    rows: ScheduleRow[]
+    /** 'HH:MM' of the now marker, or null when offline or off the ends. */
+    nowAt: string | null
+    /** Index in `rows` the marker sits before. Only meaningful with `nowAt`. */
+    nowIndex: number
+    /** '2 earlier · +4 later, bins out 20:00'. */
+    overflow: string
+    dim: boolean
+  }
+  shopping: {
+    empty: boolean
+    /** True only when an empty list is an achievement, and may be shown in green. */
+    resolved: boolean
+    emptyTitle: string
+    emptyBody: string
+    count: number
+    next: string[]
+    recentAdd: { label: string, initial: string, hue: number } | null
+    /** 'Tap for full list' / 'Tap to add' / 'Last synced 15:58'. */
+    foot: string
+  }
+  week: WeekSlot[]
+}
+
+// ---------------------------------------------------------------------------
+// Tuning
+// ---------------------------------------------------------------------------
+
+/** When dinner is, unless a plan entry says otherwise. */
+export const DEFAULT_EAT_TIME = '18:00'
+
+/**
+ * How long after the meal the board stops being about tonight.
+ *
+ * Long enough to still show the plan while it is actually being eaten, short
+ * enough that a board glanced at on the way to bed is already answering
+ * tomorrow's question.
+ */
+const LATE_AFTER_MINUTES = 90
+
+/** The clock past which an evening is late even on a night with nothing planned. */
+const LATE_CLOCK = 20 * 60 + 30
+
+/** Somebody leaving within this long after the meal starts is a clash worth amber. */
+const CLASH_WINDOW_MINUTES = 60
+
+/** What fits the schedule card without scrolling, which it must never do. */
+const MAX_SCHEDULE_ROWS = 5
+
+/** How many already-happened rows keep their place before `now`. */
+const PAST_ROWS_KEPT = 2
+
+// ---------------------------------------------------------------------------
+// Small helpers
+// ---------------------------------------------------------------------------
+
+function minutesOf(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number)
+  return (hours ?? 0) * 60 + (minutes ?? 0)
+}
+
+function clockOf(minutes: number): string {
+  // Wraps rather than going negative: a 40-minute recipe eaten at 00:20 starts
+  // the previous evening, and '23:40' is the useful thing to print.
+  const wrapped = ((minutes % 1440) + 1440) % 1440
+  const hours = String(Math.floor(wrapped / 60)).padStart(2, '0')
+  return `${hours}:${String(wrapped % 60).padStart(2, '0')}`
+}
+
+function timeOf(date: Date): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+function dayName(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  return new Date(year!, month! - 1, day!).toLocaleDateString(undefined, { weekday: 'long' })
+}
+
+function shortDay(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  return new Date(year!, month! - 1, day!).toLocaleDateString(undefined, { weekday: 'short' })
+}
+
+/** '30 July' — the header's second line. */
+function dateLine(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  return new Date(year!, month! - 1, day!).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'long'
+  })
+}
+
+const NUMBER_WORDS = [
+  'Nobody', 'One', 'Two', 'Three', 'Four', 'Five', 'Six',
+  'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve'
+]
+
+function numberWord(count: number): string {
+  return NUMBER_WORDS[count] ?? String(count)
+}
+
+function initialOfName(name: string): string {
+  return [...name.trim()][0]?.toUpperCase() ?? '?'
+}
+
+/** '4 min ago' / '2 hours ago' / 'yesterday'. Coarse on purpose — it is a wall. */
+function relativeTime(from: string, now: Date): string {
+  const minutes = Math.floor((now.getTime() - new Date(from).getTime()) / 60_000)
+  if (!Number.isFinite(minutes) || minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return hours === 1 ? 'an hour ago' : `${hours} hours ago`
+  const days = Math.floor(hours / 24)
+  return days === 1 ? 'yesterday' : `${days} days ago`
+}
+
+/**
+ * The portion this person eats, which is the roster row's whole job: one cooking
+ * session, different plates. Derived from age, never stored.
+ */
+function portionFor(stage: LifeStage): string {
+  switch (stage) {
+    case 'baby': return 'Milk — no plate'
+    case 'weaning': return 'Purée'
+    case 'toddler': return 'Toddler portion'
+    case 'child': return 'Child portion'
+    default: return 'Adult portion'
+  }
+}
+
+/**
+ * Whether an event belongs to a given day.
+ *
+ * All-day events carry a half-open range, matching Google's own convention, so a
+ * two-night trip covers start_date and the day after but not the day it ends.
+ * Timed events are simply on their day: an appointment at 23:30 that runs past
+ * midnight is still Thursday's appointment to everybody in the house.
+ */
+export function occursOn(
+  event: Pick<BoardEvent, 'all_day' | 'start_date' | 'end_date'>,
+  date: string
+): boolean {
+  return event.all_day
+    ? event.start_date <= date && date < event.end_date
+    : event.start_date === date
+}
+
+/** Everybody who actually eats food. A baby present for dinner is not a diner. */
+function diners(night: BoardNight, people: BoardPerson[]): BoardPerson[] {
+  const present = new Set(night.presentIds)
+  return people.filter(
+    person => present.has(person.id) && deriveLifeStage(person.date_of_birth, night.date) !== 'baby'
+  )
+}
+
+// ---------------------------------------------------------------------------
+// The view model
+// ---------------------------------------------------------------------------
+
+/**
+ * The header, on its own.
+ *
+ * Called directly by the board's shell, which keeps this strip on screen while
+ * the view under it changes, and called again by {@link buildBoard} so that
+ * there is exactly one implementation of what the top of the board says.
+ */
+export function buildHeader(input: BoardHeaderInput): BoardHeader {
+  const today = isoDate(input.now)
+  const lastSyncedClock = input.lastSyncedAt ? timeOf(new Date(input.lastSyncedAt)) : null
+
+  const plannedUpdates = input.nights
+    .map(night => night.meal?.updatedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+  const latest = plannedUpdates.at(-1)
+
+  return {
+    dayName: dayName(today),
+    dateLine: dateLine(today),
+    weather: input.weather,
+    generatedAt: latest
+      ? `Plan updated ${dayName(isoDate(new Date(latest)))} ${timeOf(new Date(latest))}`
+      : 'Plan not generated',
+    // Staleness means drift from something that was once known to be true. A
+    // device that has never completed a sync is not stale, it is new — and a
+    // board warning about staleness before it has ever held data is crying wolf
+    // on its very first paint.
+    stale: input.offline && lastSyncedClock !== null,
+    staleLabel: input.offline && lastSyncedClock !== null
+      ? `Offline · last synced ${lastSyncedClock}`
+      : null
+  }
+}
+
+export function buildBoard(input: BoardInput): BoardModel {
+  const { now, people, nights } = input
+  const today = isoDate(now)
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+
+  const nightOn = (date: string) => nights.find(night => night.date === date)
+  const tonight = nightOn(today)
+  const tomorrowDate = isoDate(addDays(now, 1))
+  const tomorrow = nightOn(tomorrowDate)
+
+  const hueOf = (personId: string | null | undefined) =>
+    personId ? personHue(personId, people) : null
+
+  // --- which day is the hero about ------------------------------------------
+  //
+  // The board answers "what's for dinner" until dinner has been and gone; after
+  // that the honest answer is tomorrow's. Anchored to the meal's own time rather
+  // than to a fixed hour, so a household that eats at 20:00 is not told about
+  // tomorrow while still at the table.
+  const tonightEat = tonight?.meal ? minutesOf(tonight.meal.eatTime ?? DEFAULT_EAT_TIME) : null
+  const lateEvening = tonightEat !== null
+    ? nowMinutes >= tonightEat + LATE_AFTER_MINUTES
+    : nowMinutes >= LATE_CLOCK
+
+  const heroNight = lateEvening ? tomorrow : tonight
+  const heroDate = heroNight?.date ?? (lateEvening ? tomorrowDate : today)
+  const meal = heroNight?.meal ?? null
+  const hasMeal = meal !== null
+
+  const heroDiners = heroNight ? diners(heroNight, people) : []
+
+  /**
+   * A household that has not been set up yet, which is not the same as one with
+   * nothing on tonight.
+   *
+   * Without this the two collapse: an empty roster satisfies "nobody is eating",
+   * so a brand-new board announced that nobody was home for dinner and offered
+   * no action, on the grounds that there was nothing to do. Everything was to do.
+   * It also made `noplan` unreachable on a new household, so the one filled
+   * button in the design could never be pressed — and pressing it with an empty
+   * library does nothing anyway, because the generator skips every night it
+   * cannot feed.
+   *
+   * Gated on there being no meal: if somebody has planned tonight by hand, that
+   * is what the board is for, whatever else is missing.
+   */
+  const needsPeople = people.length === 0
+  const needsRecipes = input.recipeCount === 0
+  const setup = !hasMeal && (needsPeople || needsRecipes)
+
+  const nobodyHome = !hasMeal && !setup && heroDiners.length === 0
+  const noPlan = !hasMeal && !setup && heroDiners.length > 0
+
+  const eatTime = meal?.eatTime ?? DEFAULT_EAT_TIME
+  const eatMinutes = minutesOf(eatTime)
+
+  // --- roster ----------------------------------------------------------------
+  const constraintsFor = (personId: string) =>
+    input.constraints.filter(row => row.person_id === personId).map(row => row.tag)
+
+  // Who is out during the meal, and when. Only events on the hero's own day count
+  // — an appointment tomorrow is not a reason to plate up early tonight.
+  const clashAt = (personId: string): string | null => {
+    for (const event of input.events) {
+      if (event.person_id !== personId || event.all_day) continue
+      if (!occursOn(event, heroDate)) continue
+      const at = minutesOf(timeOf(new Date(event.starts_at)))
+      if (at >= eatMinutes - CLASH_WINDOW_MINUTES && at <= eatMinutes + CLASH_WINDOW_MINUTES) {
+        return clockOf(at)
+      }
+    }
+    return null
+  }
+
+  const presentIds = new Set(heroNight?.presentIds ?? [])
+  const roster: RosterPerson[] = people.map((person) => {
+    const absent = !presentIds.has(person.id)
+    const stage = deriveLifeStage(person.date_of_birth, heroDate)
+    const tags = constraintsFor(person.id)
+    const clash = absent ? null : clashAt(person.id)
+    return {
+      id: person.id,
+      name: person.name,
+      initial: initialOfName(person.name),
+      hue: hueOf(person.id) ?? 0,
+      absent,
+      note: [portionFor(stage), ...tags.map(tag => `no ${tag}`)].join(' · '),
+      warn: clash ? `Out ${clash} — plate up first` : null
+    }
+  })
+
+  // --- schedule --------------------------------------------------------------
+  //
+  // Today's calendar with the meal slotted into it, because dinner is the one
+  // thing on this board that is both a plan and an appointment.
+  const scheduleDate = lateEvening ? today : heroDate
+  const dayEvents = input.events
+    .filter(event => occursOn(event, scheduleDate))
+    .map(event => ({
+      id: event.id,
+      at: event.all_day ? -1 : minutesOf(timeOf(new Date(event.starts_at))),
+      time: event.all_day ? 'All day' : timeOf(new Date(event.starts_at)),
+      title: event.title,
+      hue: hueOf(event.person_id),
+      meal: false,
+      personId: event.person_id
+    }))
+
+  const todayMeal = tonight?.meal
+  if (todayMeal) {
+    const at = minutesOf(todayMeal.eatTime ?? DEFAULT_EAT_TIME)
+    dayEvents.push({
+      id: `meal-${todayMeal.entryId}`,
+      at,
+      time: clockOf(at),
+      title: lateEvening ? `${todayMeal.dish} · cooked` : todayMeal.dish,
+      hue: null,
+      meal: true,
+      personId: null
+    })
+  }
+
+  // Late in the evening everything today is behind us, so the first thing worth
+  // showing is tomorrow morning's — otherwise the card is a list of things that
+  // already happened.
+  if (lateEvening) {
+    const nextUp = input.events
+      .filter(event => occursOn(event, tomorrowDate))
+      .map(event => ({
+        id: event.id,
+        at: event.all_day ? -1 : minutesOf(timeOf(new Date(event.starts_at))),
+        time: event.all_day ? 'All day' : timeOf(new Date(event.starts_at)),
+        title: event.title,
+        hue: hueOf(event.person_id),
+        meal: false,
+        personId: event.person_id
+      }))
+      .sort((a, b) => a.at - b.at)[0]
+    if (nextUp) dayEvents.push({ ...nextUp, at: 1440 + Math.max(nextUp.at, 0) })
+  }
+
+  dayEvents.sort((a, b) => a.at - b.at)
+
+  const clashIds = new Set(
+    roster.filter(person => person.warn).map(person => person.id)
+  )
+  const firstUpcoming = dayEvents.findIndex(event => event.at > nowMinutes)
+  // Whether anything is still to come *today*, which is what the card's heading
+  // is about. Tomorrow's first event may well be on screen below it; that does
+  // not make the evening unspent.
+  const moreToday = dayEvents.some(event => event.at > nowMinutes && event.at < 1440)
+
+  const allRows: ScheduleRow[] = dayEvents.map((event, index) => {
+    const past = event.at <= nowMinutes
+    const isNext = index === firstUpcoming
+    const tomorrowRow = event.at >= 1440
+    return {
+      id: event.id,
+      time: event.time,
+      title: event.title,
+      hue: event.hue,
+      past: past && !tomorrowRow,
+      next: isNext,
+      meal: event.meal,
+      badge: event.meal
+        ? 'Meal'
+        : tomorrowRow
+          ? 'Tomorrow'
+          : event.personId && clashIds.has(event.personId)
+            ? 'Clash'
+            : isNext ? 'Next' : null
+    }
+  })
+
+  // Keep a couple of things that have already happened — a board with no recent
+  // past reads as though the day started at this moment — then fill forward.
+  //
+  // Late in the day there is nothing left to fill forward with, so the window
+  // reaches further back instead of leaving the card half empty. The budget is
+  // what fits; it should always be spent.
+  const upcomingStart = firstUpcoming === -1 ? allRows.length : firstUpcoming
+  const pastWanted = Math.max(PAST_ROWS_KEPT, MAX_SCHEDULE_ROWS - (allRows.length - upcomingStart))
+  const from = Math.max(0, upcomingStart - pastWanted)
+  const rows = allRows.slice(from, from + MAX_SCHEDULE_ROWS)
+  const earlier = from
+  const later = allRows.length - (from + rows.length)
+
+  // The marker asserts "it is now this time", which a board that cannot reach the
+  // server has no business claiming. It goes rather than going stale.
+  const markerIndex = rows.findIndex(row => !row.past)
+  const nowAt = input.offline ? null : timeOf(now)
+  const nowIndex = markerIndex === -1 ? rows.length : markerIndex
+
+  const lastSyncedClock = input.lastSyncedAt ? timeOf(new Date(input.lastSyncedAt)) : null
+
+  // What the card could not fit. Only ever counts things actually hidden: saying
+  // "nothing else today" under a visible 20:00 row would be the board
+  // contradicting itself in its own footer.
+  const overflowParts: string[] = []
+  if (earlier > 0) overflowParts.push(`${earlier} earlier`)
+  if (later > 0) overflowParts.push(`+${later} later`)
+  const overflow = !input.hasCalendar
+    // Nothing has ever been synced, so there is nothing to caveat and nothing to
+    // count. Saying either would be inventing a history the board never had.
+    ? ''
+    : input.offline
+      ? lastSyncedClock
+        ? `Events after ${lastSyncedClock} may have changed`
+        : 'Events may have changed'
+      : overflowParts.length
+        ? overflowParts.join(' · ')
+        : moreToday ? '' : 'Nothing else today'
+
+  // --- hero copy -------------------------------------------------------------
+  const cookPerson = meal?.cookPersonId
+    ? people.find(person => person.id === meal.cookPersonId)
+    : undefined
+
+  const dishMeta = [
+    meal?.minutes ? `${meal.minutes} min` : null,
+    meal?.note ?? null
+  ].filter(Boolean).join(' · ')
+
+  const startAt = meal?.minutes ? clockOf(eatMinutes - meal.minutes) : null
+  const timing = hasMeal
+    ? startAt ? `Eat ${eatTime} · start ${startAt}` : `Eat ${eatTime}`
+    : null
+
+  const heroFoot = input.offline
+    ? 'Plan is stored locally · tap for the recipe'
+    : lateEvening && todayMeal
+      ? `Tonight's ${todayMeal.dish.toLowerCase()} is done`
+      : 'Tap for the recipe'
+
+  // The board sends you to whichever step is actually next, rather than to a
+  // generator that would silently do nothing without a roster or a library.
+  const setupSteps: SetupStep[] = [
+    { label: 'Add the people who eat here', done: !needsPeople },
+    { label: 'Put a few recipes in the library', done: !needsRecipes },
+    { label: 'Generate the week', done: false }
+  ]
+
+  const noMeal = hasMeal
+    ? null
+    : setup
+      ? {
+          title: 'Nothing set up yet',
+          body: needsPeople
+            ? 'Add the people who eat here, then a few recipes. This board fills itself in from your phone — there is nothing to set up on it.'
+            : 'The roster is ready. Add a few recipes and the week can be generated from them.',
+          action: needsPeople
+            ? { label: 'Add people', to: '/people' }
+            : { label: 'Add recipes', to: '/recipes' },
+          steps: setupSteps
+        }
+      : nobodyHome
+        ? {
+            title: 'Nobody home for dinner',
+            // Attendance says this, not the calendar — and on a household with
+            // no calendar connected the old wording was asserting a source the
+            // board had never read.
+            body: 'No meal planned, and nobody is down as eating. Fridge night if plans change.',
+            action: null,
+            steps: []
+          }
+        : {
+            title: lateEvening ? 'No plan for tomorrow' : 'No plan for tonight',
+            body: 'The weekly generator has not run. Attendance and the recipe library are ready.',
+            action: { label: 'Generate this week’s plan', to: null },
+            steps: []
+          }
+
+  // --- week strip ------------------------------------------------------------
+  //
+  // Always the six days after today, never after the hero's day. Late in the
+  // evening the hero is about tomorrow, and tomorrow is the first slot here — so
+  // it gets highlighted rather than removed, and the strip and the hero point at
+  // the same night instead of disagreeing about where the week starts.
+  const week: WeekSlot[] = nights
+    .filter(night => night.date > today)
+    .slice(0, 6)
+    .map(night => ({
+      date: night.date,
+      day: shortDay(night.date),
+      dish: night.meal?.dish ?? '—',
+      empty: !night.meal,
+      highlighted: lateEvening && night.date === heroDate
+    }))
+
+  // --- shopping --------------------------------------------------------------
+  const recent = input.shopping.recentAdd
+  const recentPerson = recent?.personId
+    ? people.find(person => person.id === recent.personId)
+    : undefined
+  const listEmpty = input.shopping.count === 0
+
+  const shopFoot = input.offline && lastSyncedClock
+    ? `Last synced ${lastSyncedClock}`
+    : listEmpty ? 'Tap to add' : 'Tap for full list'
+
+  /**
+   * An empty list is only worth celebrating if it was emptied.
+   *
+   * Green is this design's resolution colour — the reward for clearing the list
+   * before a shop. Spending it on a household that has never added anything
+   * congratulates them for something they have not done, and makes the colour
+   * mean less the day they earn it.
+   */
+  const resolved = listEmpty && input.shopping.everUsed
+  const emptyTitle = resolved ? 'Nothing to buy' : 'Nothing on the list yet'
+  const emptyBody = resolved
+    ? 'Everything for this week’s plan is in. Tap to add something.'
+    : 'Add something from your phone and it shows up here.'
+
+  // --- the label ------------------------------------------------------------
+  //
+  // Reported for tests and the acceptance script. Hero content wins over
+  // presentation, because "nobody is home" is a bigger fact about the evening
+  // than "the wifi is down" — and offline is visible in its own right anyway.
+  const state: BoardState = setup
+    ? 'setup'
+    : nobodyHome
+      ? 'nobodyhome'
+      : noPlan
+        ? 'noplan'
+        : lateEvening
+          ? 'lateevening'
+          : input.offline
+            ? 'offline'
+            : listEmpty ? 'emptylist' : 'nominal'
+
+  return {
+    state,
+    header: buildHeader(input),
+    hero: {
+      eyebrow: lateEvening ? `Tomorrow · ${dayName(heroDate)}` : 'Tonight',
+      date: heroDate,
+      hasMeal,
+      recipeId: meal?.recipeId ?? null,
+      dish: meal?.dish ?? '',
+      dishMeta,
+      timing,
+      cook: cookPerson
+        ? {
+            id: cookPerson.id,
+            name: cookPerson.name,
+            initial: initialOfName(cookPerson.name),
+            hue: hueOf(cookPerson.id) ?? 0,
+            label: lateEvening ? `${cookPerson.name} cooks tomorrow` : `${cookPerson.name} cooks`
+          }
+        : null,
+      eatingCount: `${numberWord(heroDiners.length)} for dinner${lateEvening ? ' tomorrow' : ''}`,
+      roster,
+      foot: heroFoot,
+      noMeal
+    },
+    schedule: {
+      // A card with no calendar behind it says so, rather than blaming the
+      // network for an absence that predates it. Offline, it stops claiming to
+      // be the calendar and starts saying when it last was one.
+      meta: !input.hasCalendar
+        ? 'No calendar connected'
+        : input.offline
+          ? lastSyncedClock ? `Last known · ${lastSyncedClock}` : 'Last known'
+          : moreToday ? 'Family calendar' : 'Nothing left today',
+      rows,
+      nowAt,
+      nowIndex,
+      overflow,
+      dim: input.offline
+    },
+    shopping: {
+      empty: listEmpty,
+      resolved,
+      emptyTitle,
+      emptyBody,
+      count: input.shopping.count,
+      next: input.shopping.next.slice(0, 3),
+      recentAdd: recent && recentPerson && !listEmpty
+        ? {
+            label: `${recentPerson.name} added ${recent.label} · ${relativeTime(recent.at, now)}`,
+            initial: initialOfName(recentPerson.name),
+            hue: hueOf(recentPerson.id) ?? 0
+          }
+        : null,
+      foot: shopFoot
+    },
+    week
+  }
+}

@@ -114,8 +114,8 @@ async function addLine(name, quantity) {
 async function newRecipe(name) {
   await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
-  await page.getByPlaceholder('Search or add a recipe').fill(name)
-  await page.getByRole('button', { name: 'Add recipe' }).click()
+  await page.getByPlaceholder('Search, add or paste a link').fill(name)
+  await page.getByRole('button', { name: 'Add recipe', exact: true }).click()
   await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 15_000 })
 }
 
@@ -259,8 +259,8 @@ try {
   // --- The alias now resolves without anybody choosing --------------------
   await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
-  await page.getByPlaceholder('Search or add a recipe').fill('Soup')
-  await page.getByRole('button', { name: 'Add recipe' }).click()
+  await page.getByPlaceholder('Search, add or paste a link').fill('Soup')
+  await page.getByRole('button', { name: 'Add recipe', exact: true }).click()
   await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 15_000 })
   const soupBox = page.getByPlaceholder('Add an ingredient')
   await soupBox.fill('tinned tomatoes')

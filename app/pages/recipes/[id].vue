@@ -93,6 +93,18 @@ async function removeRecipe() {
           @blur="renameOnBlur"
           @keydown.enter="renameOnBlur"
         />
+        <!-- Imported recipes keep their address: the page has the photographs,
+             the comments and whatever the method left out. -->
+        <UButton
+          v-if="recipe?.source_url"
+          :to="recipe.source_url"
+          target="_blank"
+          rel="noopener"
+          icon="i-lucide-external-link"
+          color="neutral"
+          variant="ghost"
+          aria-label="View the original page"
+        />
       </div>
     </header>
 

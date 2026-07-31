@@ -37,6 +37,16 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
+  runtimeConfig: {
+    public: {
+      // Where the house is, for the wall board's weather. London by default;
+      // override with NUXT_PUBLIC_HOME_LATITUDE / NUXT_PUBLIC_HOME_LONGITUDE.
+      // Not a secret — Open-Meteo needs no key, which is why it was chosen.
+      homeLatitude: 51.5072,
+      homeLongitude: -0.1276
+    }
+  },
+
   // 4000 for dev, 4001 for the acceptance harness, so a dev server left running
   // cannot quietly steal the port the tests serve the production bundle on. Both
   // ports are in the auth redirect allow-list in supabase/config.toml.
@@ -52,6 +62,32 @@ export default defineNuxtConfig({
         commaDangle: 'never',
         braceStyle: '1tbs'
       }
+    }
+  },
+
+  // Every icon the wall board can draw, listed because the board must render
+  // with no network at all.
+  //
+  // An icon that is not in the client bundle is fetched at runtime, and an icon
+  // fetched at runtime on a kiosk with no signal is a silent gap — the element
+  // is still there, correctly sized and coloured, simply with no mask to paint.
+  // The weather ones cannot be found by scanning at all, since the name is
+  // chosen from a weather code at runtime.
+  icon: {
+    clientBundle: {
+      icons: [
+        'lucide:sun',
+        'lucide:moon',
+        'lucide:cloud',
+        'lucide:cloud-sun',
+        'lucide:cloud-moon',
+        'lucide:cloud-fog',
+        'lucide:cloud-rain',
+        'lucide:cloud-lightning',
+        'lucide:snowflake',
+        'lucide:circle-check-big',
+        'lucide:circle-dashed'
+      ]
     }
   },
 

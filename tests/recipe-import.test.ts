@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { coerceExtractedRecipe } from '../app/utils/recipe-import'
+import { coerceExtractedRecipe, looksLikeUrl } from '../app/utils/recipe-import'
 
 const VALID = {
   name: 'Tomato pasta',
@@ -80,5 +80,23 @@ describe('coerceExtractedRecipe', () => {
     const result = coerceExtractedRecipe({ ...VALID, name: ' Tomato pasta ', method: '  ' })
     expect(result?.name).toBe('Tomato pasta')
     expect(result?.method).toBeNull()
+  })
+})
+
+describe('looksLikeUrl', () => {
+  it('recognises a pasted link', () => {
+    expect(looksLikeUrl('https://www.bbcgoodfood.com/recipes/lentil-soup')).toBe(true)
+    expect(looksLikeUrl('http://example.com/r')).toBe(true)
+  })
+
+  it('ignores the whitespace a paste brings with it', () => {
+    expect(looksLikeUrl('  https://example.com/r  ')).toBe(true)
+  })
+
+  it('leaves a recipe name alone', () => {
+    expect(looksLikeUrl('Lentil soup')).toBe(false)
+    expect(looksLikeUrl('Tom\'s https soup')).toBe(false)
+    expect(looksLikeUrl('bbcgoodfood.com/recipes/lentil-soup')).toBe(false)
+    expect(looksLikeUrl('')).toBe(false)
   })
 })

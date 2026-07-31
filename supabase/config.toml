@@ -399,6 +399,18 @@ verify_jwt = false
 [functions.import-recipe-photo]
 verify_jwt = true
 
+# Same reasoning, and one more: this one fetches whatever address it is given,
+# so it must not be callable by a stranger even on the pages that cost nothing.
+[functions.import-recipe-url]
+verify_jwt = true
+
+# Called by pg_cron, which has no user session to present, so a JWT check would
+# reject every legitimate invocation. The guard is a shared secret header instead
+# (SYNC_SECRET). A call that gets past it only makes the function do the work it
+# was going to do anyway — it writes nothing but what Google says.
+[functions.sync-calendar]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

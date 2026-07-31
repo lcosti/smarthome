@@ -4,6 +4,7 @@ import {
   SYNC_TABLE_NAMES,
   type AisleRow,
   type AttendanceRow,
+  type CalendarEventRow,
   type DietaryConstraintRow,
   type IngredientAliasRow,
   type IngredientRow,
@@ -16,6 +17,7 @@ import {
   type RowOf,
   type SyncTable
 } from '../utils/db'
+import { clearLastSyncedAt, readLastSyncedAt, writeLastSyncedAt } from '../utils/last-synced'
 import {
   drainQueue,
   enqueueMutation,
@@ -51,7 +53,8 @@ export const useSyncStore = defineStore('sync', () => {
     recipes: ref(new Map<string, RecipeRow>()),
     recipe_ingredients: ref(new Map<string, RecipeIngredientRow>()),
     meal_plan_entries: ref(new Map<string, PlanEntryRow>()),
-    shopping_list_items: ref(new Map<string, ItemRow>())
+    shopping_list_items: ref(new Map<string, ItemRow>()),
+    calendar_events: ref(new Map<string, CalendarEventRow>())
   }
 
   /** Rows with a write that has not reached the server yet. */
@@ -62,6 +65,8 @@ export const useSyncStore = defineStore('sync', () => {
   const online = ref(true)
   /** What we last observed for ourselves: did a write actually get through? */
   const reachable = ref(true)
+  /** When the last full pull completed. What a stale board reports about itself. */
+  const lastSyncedAt = ref<string | null>(null)
   const dropped = ref(0)
   let draining = false
 
@@ -87,7 +92,20 @@ export const useSyncStore = defineStore('sync', () => {
       maps[table].value = new Map(cached[i]!.map(row => [row.id, row])) as never
     })
     queued.value = pending
+    lastSyncedAt.value = readLastSyncedAt()
     hydrated.value = true
+  }
+
+  /**
+   * Record that a full pull just landed.
+   *
+   * Only `pull` calls this, never an inbound realtime row: one row arriving says
+   * that row is current, not that everything on screen is.
+   */
+  function markSynced() {
+    const at = nowIso()
+    lastSyncedAt.value = at
+    writeLastSyncedAt(at)
   }
 
   function registerSync(fns: { upsert: UpsertFn | null, connect: (() => Promise<void>) | null }) {
@@ -141,6 +159,8 @@ export const useSyncStore = defineStore('sync', () => {
     for (const table of SYNC_TABLE_NAMES) maps[table].value = new Map() as never
     queued.value = new Set()
     householdId.value = null
+    lastSyncedAt.value = null
+    clearLastSyncedAt()
     dropped.value = 0
     const caches = SYNC_TABLE_NAMES.map(table => db.cacheFor(table))
     await db.transaction('rw', [...caches, db.mutations], async () => {
@@ -155,11 +175,13 @@ export const useSyncStore = defineStore('sync', () => {
     hydrated,
     online,
     reachable,
+    lastSyncedAt,
     dropped,
     pendingCount,
     offline,
     rowsOf,
     hydrate,
+    markSynced,
     registerSync,
     sync,
     drain,

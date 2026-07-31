@@ -76,6 +76,9 @@ export function useSync() {
       for (const row of results[i]!.data ?? []) store.applyServerRow(table, row as SyncedRow as never)
     })
     store.reachable = true
+    // Everything on screen was true as of now. This is the only place that can
+    // say so, which is why the wall board's "last synced" comes from here.
+    store.markSynced()
   }
 
   /**

@@ -1,20 +1,21 @@
-// The Phase 4 chain, driven end to end in a real browser:
+// The Phase 5 chain, driven end to end in a real browser:
 //
-//   a photo of a recipe -> a recipe in the library, canonicalised like a typed one
+//   a recipe's web address -> a recipe in the library, canonicalised like a typed one
 //
-// The LLM itself is stubbed at the network seam — Playwright answers the Edge
-// Function's URL with a canned extraction — so this exercises everything the
-// client owns: the camera input, canvas compression, the invoke plumbing and its
-// payload shape, response validation, and the commit path through the same
-// stores and ingredient canonicalisation a hand-typed recipe uses. Two imports
-// sharing an ingredient must end up sharing a canonical row.
+// The Edge Function is stubbed at the network seam — Playwright answers its URL
+// with a canned extraction — so this exercises everything the client owns: the
+// one box on the recipes page telling a pasted link from a recipe name, the
+// invoke plumbing and its payload, response validation, the commit path through
+// the same stores and ingredient canonicalisation a hand-typed recipe uses, and
+// the refusal to import the same address twice.
 //
-// The function's own behaviour (the real Anthropic call) is verified by hand:
-//   supabase functions serve import-recipe-photo --env-file supabase/functions/.env
-// then curl it with a base64 photo — see the header of the function itself.
+// The function's own two paths are covered elsewhere: the JSON-LD reader by
+// tests/recipe-jsonld.test.ts, and the model fallback by hand —
+//   supabase functions serve import-recipe-url --env-file supabase/functions/.env
+// then curl it with a real recipe URL, see the header of the function itself.
 //
 // Runs against the production bundle in .output/public:
-//   pnpm supabase start && pnpm generate && pnpm acceptance:phase4
+//   pnpm supabase start && pnpm generate && pnpm acceptance:url-import
 // Needs SUPABASE_SECRET_KEY in .env — see .env.example.
 
 import { createServer } from 'node:http'
@@ -69,7 +70,7 @@ await new Promise(r => server.listen(PORT, r))
 const link = await (await fetch(`${API}/auth/v1/admin/generate_link`, {
   method: 'POST',
   headers: { 'apikey': SECRET, 'Authorization': `Bearer ${SECRET}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ type: 'magiclink', email: `p4-${Date.now()}@example.com`, redirect_to: ORIGIN })
+  body: JSON.stringify({ type: 'magiclink', email: `p5-${Date.now()}@example.com`, redirect_to: ORIGIN })
 })).json()
 
 let step = 0
@@ -95,7 +96,13 @@ const readTable = table => page.evaluate(name => new Promise((resolve) => {
 
 const mainText = async () => (await page.locator('main').innerText()).replace(/[\n\t]+/g, ' ')
 
-// --- The stub: what "the model read the photo" answers with -----------------
+// --- The stub: what "the page published a recipe" answers with ---------------
+//
+// Quantities arrive already split off the ingredient names, because that is what
+// the function does with a schema.org recipeIngredient line before it answers.
+
+const SOUP_URL = 'https://example.com/recipes/lentil-soup'
+const CURRY_URL = 'https://example.com/recipes/chickpea-curry'
 
 const SOUP = {
   name: 'Lentil soup',
@@ -110,22 +117,22 @@ const SOUP = {
   ]
 }
 
-const BOLOGNESE = {
-  name: 'Bolognese',
+const CURRY = {
+  name: 'Chickpea curry',
   base_servings: 4,
   prep_minutes: null,
-  cook_minutes: 45,
-  method: 'Brown the mince, add the tomatoes, simmer.',
+  cook_minutes: 25,
+  method: 'Fry the spices, add everything else.',
   ingredients: [
     { name: 'chopped tomatoes', quantity: '400g' },
-    { name: 'beef mince', quantity: '500g' }
+    { name: 'chickpeas', quantity: '2 x 400g tins' }
   ]
 }
 
-let cannedRecipe = SOUP
+const CANNED = { [SOUP_URL]: SOUP, [CURRY_URL]: CURRY }
 const seenPayloads = []
 
-await page.route('**/functions/v1/import-recipe-photo', async (route) => {
+await page.route('**/functions/v1/import-recipe-url', async (route) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
@@ -133,89 +140,74 @@ await page.route('**/functions/v1/import-recipe-photo', async (route) => {
   if (route.request().method() === 'OPTIONS') {
     return route.fulfill({ status: 200, headers, body: 'ok' })
   }
-  seenPayloads.push(route.request().postDataJSON())
+  const payload = route.request().postDataJSON()
+  seenPayloads.push(payload)
   return route.fulfill({
     status: 200,
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ recipe: cannedRecipe })
+    body: JSON.stringify({ recipe: CANNED[payload?.url] ?? SOUP, source: 'json-ld' })
   })
 })
 
-/**
- * A fixture photo, drawn in the page so createImageBitmap is guaranteed to
- * decode it — this is the same canvas pipeline the compression uses. Large on
- * purpose: 3000px wide proves the client downscales before uploading.
- */
-async function makePhoto(label) {
-  const dataUrl = await page.evaluate((text) => {
-    const canvas = document.createElement('canvas')
-    canvas.width = 3000
-    canvas.height = 2000
-    const context = canvas.getContext('2d')
-    context.fillStyle = '#fff'
-    context.fillRect(0, 0, canvas.width, canvas.height)
-    context.fillStyle = '#000'
-    context.font = '120px serif'
-    context.fillText(text, 100, 300)
-    return canvas.toDataURL('image/jpeg', 0.9)
-  }, label)
-  return {
-    name: `${label}.jpg`,
-    mimeType: 'image/jpeg',
-    buffer: Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
-  }
+async function paste(url) {
+  await page.getByTestId('recipe-draft').fill(url)
+  await page.getByRole('button', { name: 'Import recipe from the link' }).click()
+  await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 20_000 })
+  return page.url().split('/').pop()
 }
 
-async function importPhotos(labels) {
-  await page.setInputFiles(
-    '[data-testid="recipe-photo-input"]',
-    await Promise.all(labels.map(makePhoto))
-  )
-  await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 20_000 })
+async function backToRecipes() {
+  await page.getByRole('link', { name: 'Recipes', exact: true }).click()
+  await page.waitForURL('**/recipes')
 }
 
 try {
   await page.goto(link.action_link)
   await page.waitForURL('**/welcome', { timeout: 20_000 })
-  await page.getByPlaceholder('The Costis').fill('Phase 4')
+  await page.getByPlaceholder('The Costis').fill('Phase 5')
   await page.getByPlaceholder('Luke').fill('Luke')
   await page.getByRole('button', { name: 'Create household' }).click()
   await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 15_000 })
   log('signed in and created a household')
 
-  // --- A two-photo import: the cookbook-spread case -------------------------
-  await page.getByRole('link', { name: 'Recipes', exact: true }).click()
-  await page.waitForURL('**/recipes')
-  await importPhotos(['soup-ingredients', 'soup-method'])
-  log('photographed a two-page spread and landed on the new recipe')
+  // --- Pasting a link into the box that also searches and adds --------------
+  await backToRecipes()
+  const soupId = await paste(SOUP_URL)
+  log('pasted a recipe link and landed on the new recipe')
 
-  const payload = seenPayloads[0]
-  assert(payload?.images?.length === 2, `both photos went up, got ${payload?.images?.length}`)
-  assert(
-    payload.images.every(i => i.media_type === 'image/jpeg' && i.data.length > 0),
-    'each photo arrived as non-empty base64 jpeg'
-  )
-  // 3000px of white page compresses to far less than the original; the exact
-  // size varies by encoder, but a megabyte of base64 would mean no downscale.
-  assert(
-    payload.images.every(i => i.data.length < 1_000_000),
-    'photos were downscaled before upload'
-  )
-  log('the payload held both photos, compressed and base64-encoded')
+  assert(seenPayloads.length === 1, `one import call, got ${seenPayloads.length}`)
+  assert(seenPayloads[0]?.url === SOUP_URL, `the address went up, got ${seenPayloads[0]?.url}`)
+  log('the address was sent to the importer, not made the name of an empty recipe')
 
   const soupText = await mainText()
-  assert(soupText.includes('Lentil soup'), 'the recipe page shows the extracted name')
+  // The name and the method are editable fields, so they are read as values
+  // rather than as text: what is on the screen is what can be corrected.
+  assert(
+    (await page.getByLabel('Recipe name').inputValue()) === 'Lentil soup',
+    'the recipe page shows the extracted name'
+  )
   assert(soupText.includes('chopped tomatoes'), 'the ingredient lines are shown')
-  assert(soupText.includes('Soften the onion'), 'the method is shown')
-  log('name, ingredients and method all visible on the recipe page')
+  assert(soupText.includes('400g'), 'the quantities came across')
+  assert(
+    (await page.getByLabel('Notes').inputValue()).includes('Soften the onion'),
+    'the method is shown'
+  )
+  log('name, ingredients, quantities and method all visible on the recipe page')
 
   const recipes = (await readTable('recipes')).filter(r => !r.deleted_at)
-  const soup = recipes.find(r => r.name === 'Lentil soup')
+  const soup = recipes.find(r => r.id === soupId)
   assert(soup, 'the recipe row exists')
+  assert(soup.source_url === SOUP_URL, `the row remembers where it came from, got ${soup.source_url}`)
   assert(soup.base_servings === 4, `servings extracted, got ${soup.base_servings}`)
   assert(soup.prep_minutes === 10 && soup.cook_minutes === 30, 'prep and cook minutes extracted')
-  log('the recipe row carries servings and times')
+  log('the recipe row carries the source address, servings and times')
+
+  assert(
+    await page.getByRole('link', { name: 'View the original page' }).getAttribute('href') === SOUP_URL,
+    'the recipe page links back to the page it came from'
+  )
+  log('the original page is one tap away')
 
   const lines = (await readTable('recipe_ingredients'))
     .filter(l => !l.deleted_at && l.recipe_id === soup.id)
@@ -227,11 +219,18 @@ try {
   assert(tomatoes?.base_unit === 'g', `unit inferred from "400g", got ${tomatoes?.base_unit}`)
   log('every line canonicalised, units inferred — exactly as if typed')
 
-  // --- A second import sharing an ingredient: no second row ----------------
-  cannedRecipe = BOLOGNESE
-  await page.getByRole('link', { name: 'Recipes', exact: true }).click()
-  await page.waitForURL('**/recipes')
-  await importPhotos(['bolognese'])
+  // --- The same link again: the recipe that exists, not a second copy -------
+  await backToRecipes()
+  const again = await paste(SOUP_URL)
+  assert(again === soupId, 'pasting the same link lands on the recipe it already made')
+  assert(seenPayloads.length === 1, `and costs nothing to import, got ${seenPayloads.length} calls`)
+  const afterRepeat = (await readTable('recipes')).filter(r => !r.deleted_at)
+  assert(afterRepeat.length === 1, `no duplicate recipe, got ${afterRepeat.length}`)
+  log('the same address twice is the same recipe, fetched once')
+
+  // --- A different link sharing an ingredient: no second canonical row ------
+  await backToRecipes()
+  await paste(CURRY_URL)
   log('imported a second recipe that also wants chopped tomatoes')
 
   const after = (await readTable('ingredients')).filter(i => !i.deleted_at)
@@ -240,13 +239,26 @@ try {
   assert(after.length === 4, `only the genuinely new ingredient was coined, got ${after.length}`)
   log('the shared ingredient resolved to the existing row, coining nothing')
 
-  console.log('\n  PASS — a photo became a recipe, canonicalised like a typed one\n')
+  // --- Typing a name still adds a recipe by that name -----------------------
+  await backToRecipes()
+  await page.getByTestId('recipe-draft').fill('Beans on toast')
+  await page.getByRole('button', { name: 'Add recipe', exact: true }).click()
+  await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 20_000 })
+  assert(
+    (await page.getByLabel('Recipe name').inputValue()) === 'Beans on toast',
+    'a typed name still makes a recipe by that name'
+  )
+  assert(seenPayloads.length === 2, `and imports nothing, got ${seenPayloads.length} calls`)
+  log('the same box still adds a recipe by name, without importing anything')
+
+  console.log('\n  PASS — a link became a recipe, canonicalised like a typed one\n')
 } catch (e) {
   console.error(`\n  ${e.message.split('\n').slice(0, 8).join('\n  ')}\n`)
   console.error('  url  :', page.url())
   console.error('  main :', (await mainText().catch(() => '')).slice(0, 400))
+  console.error('  calls:', JSON.stringify(seenPayloads))
   console.error('  recipes:', JSON.stringify((await readTable('recipes').catch(() => []))
-    .map(r => ({ name: r.name, servings: r.base_servings }))))
+    .map(r => ({ name: r.name, source: r.source_url }))))
   console.error('  ingredients:', JSON.stringify((await readTable('ingredients').catch(() => []))
     .map(r => ({ name: r.name, unit: r.base_unit }))))
   process.exitCode = 1

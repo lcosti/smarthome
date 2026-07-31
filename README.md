@@ -1,17 +1,23 @@
 # Household meal planner
 
 An offline-first meal planner for one household, described in
-[CLAUDE.md](./CLAUDE.md). Phases 1 to 4 are built: the shopping list, a recipe
+[CLAUDE.md](./CLAUDE.md). All five phases are built: the shopping list, a recipe
 library with a weekly plan the list is derived from, canonical ingredients so that
-two recipes wanting the same thing become one line to buy, and a generator that
-fills the week from the library.
+two recipes wanting the same thing become one line to buy, a generator that fills
+the week from the library, and recipe import.
 
 The household roster feeds the generator: people (children and babies included,
 with no login), what each of them cannot or will not eat, and who is home on which
 night. Life stage is derived from a date of birth every time it is read, so the
 baby ages up on its own.
 
-Recipe import from URLs (phase 5) is not built.
+A recipe gets into the library three ways: typed, photographed, or pasted as a
+link. The link path fetches the page in an Edge Function — a static site cannot
+read another origin's HTML — and reads the schema.org `Recipe` JSON-LD that nearly
+every recipe site already publishes. That path costs nothing: no model call, no
+wait. Only a page without it falls back to the LLM. Either way the quantity is
+split off each ingredient line, so an import lands in the same canonical
+ingredients a typed recipe would.
 
 Nuxt 4 SPA (`ssr: false`) + Supabase, deployed as a static bundle to Netlify.
 State lives in Pinia, persists to IndexedDB via Dexie, and syncs through a
@@ -70,8 +76,8 @@ merged, the list healing with no re-derive, "800g · 2 tins", and ticking the li
 taking both rows behind it. It reads IndexedDB as well as the screen, because "one
 line" and "one row" are different claims and only one of them is visible.
 
-`pnpm acceptance:phase4` drives a photograph of a recipe into a recipe in the
-library, with the LLM stubbed at the network seam so it needs no API key.
+`pnpm acceptance:photo-import` drives a photograph of a recipe into a recipe in
+the library, with the LLM stubbed at the network seam so it needs no API key.
 
 `pnpm acceptance:roster` adds a child, checks the life stage was derived rather
 than typed, records an allergy, and marks them out on one night. Its load-bearing
@@ -83,10 +89,28 @@ night by hand and fills the rest. It checks that nothing repeats, that the aller
 never reaches the plan or the list, that the hand-chosen night survives, and that
 servings came from the roster rather than the recipe default.
 
+`pnpm acceptance:url-import` pastes a recipe's address into the one box on the
+recipes page and checks it was fetched rather than made the name of an empty
+recipe: the address is remembered on the row, the quantities arrive split off the
+names, every line is canonicalised, and pasting the same address again lands on
+the recipe it already made instead of a second copy. The Edge Function is stubbed
+at the network seam; its JSON-LD reader is covered by `pnpm test`.
+
+`pnpm acceptance:board` opens the wall dashboard at 1920×1200 — the size it will
+actually hang at — and drives it through five of its states: a brand-new
+household with nothing set up, no plan and the one filled button, pressing it to
+get a real week, an empty shopping list, and the network dropping. It also walks
+all four views, ticking an item off the list and planning a night from the wall,
+and checks the header survives every move without changing. It checks the frame does not scroll in either direction, that
+the roster adapts by derived life stage, and that going offline keeps every fact
+on screen while removing the now-marker, with no spinner and no error screen
+anywhere. Screenshots of each state land in `.acceptance/board/`.
+
 ```bash
 pnpm exec playwright install chromium   # once
 pnpm generate && pnpm acceptance && pnpm acceptance:phase2 && pnpm acceptance:phase3
-pnpm acceptance:phase4 && pnpm acceptance:roster && pnpm acceptance:generator
+pnpm acceptance:photo-import && pnpm acceptance:roster && pnpm acceptance:generator
+pnpm acceptance:url-import && pnpm acceptance:board
 ```
 
 They need the local Supabase stack running, and each serves the built bundle itself
@@ -160,6 +184,86 @@ tomatoes after the line was ticked could never surface, because a checked row is
 frozen. Grouping at render time has none of that, and it means a merge, a parser
 improvement or a new purchase unit applies retroactively with nothing rewritten.
 
+## The wall dashboard
+
+`/board` is a display rather than a page: one fixed 1920×1200 frame for an
+always-on kitchen tablet, with no scrolling, no spinners and no error screens.
+It has no phone tab bar, and it forces dark mode while it is open.
+
+It is a shell with four views, linked from the middle of the header:
+
+| View | What it is for |
+|---|---|
+| `/board` | Today: tonight's meal, who is eating it, the schedule, the list, the week |
+| `/board/list` | The shopping list at wall size — tap a line to tick it off |
+| `/board/week` | Seven nights from tonight; tap one to choose or clear a recipe |
+| `/board/recipes` | The library, and a recipe at hob-readable size |
+
+The header is the constant: `app/pages/board.vue` owns the frame, the clock and
+that strip, and each view is a child route rendered under it, so switching views
+never repaints the top of the screen. `buildHeader` is split out of `buildBoard`
+for the same reason — the shell needs the header without deriving a hero first.
+
+The week view deliberately runs from tonight rather than Monday to Sunday. The
+phone plans calendar weeks, because that is how a shop is planned; a wall on a
+Friday offering to cook four nights that have already passed is offering
+nothing.
+
+Everything it shows is derived in `app/utils/board.ts` — one pure function, one
+view model. Its seven content states (setup, nominal, no plan, empty list,
+offline, nobody home, late evening) are **not** seven templates: they fall out of
+the facts, which is why offline and an empty list can be true at the same time as
+any of the others. `tests/board.test.ts` covers all seven.
+
+`setup` is the one the design did not have. Every other state assumes a working
+household, so a brand-new one fell through to "nobody home for dinner — the
+calendar has everyone out": there was no everyone, and no calendar. It also made
+the one filled button unreachable, and the generator does nothing without a
+roster and a library anyway. So a household missing either gets a truthful hero,
+a three-step checklist, and a button pointing at whichever step is actually next.
+
+The same rule applies to the smaller copy: green is spent only on a list that was
+cleared, not one never used; the schedule says `No calendar connected` rather
+than blaming staleness for an absence that predates it; and a device that has
+never completed a sync is new, not stale, so it gets no offline pill.
+
+The board re-derives on a 30-second tick, so it moves from tonight's meal to
+tomorrow's on its own once dinner is an hour and a half behind it. Person colours
+come from `app/utils/person-colors.ts`, which rotates hue at fixed lightness and
+chroma — a fifth household member is one entry in `HUES`, not a new palette. The
+whole frame drifts a pixel at a time on a slow loop, which is burn-in mitigation
+for a screen that never turns off.
+
+Today's calendar comes from `calendar_events`, a read-only synced table written
+only by the `sync-calendar` Edge Function (see below). Weather comes from
+Open-Meteo, cached in localStorage so the offline board keeps the last reading.
+
+### Google Calendar
+
+`supabase/functions/sync-calendar` reads the family's calendars with a Google
+service account every five minutes (a `pg_cron` job created by
+`20260730000005_calendar_events.sql`) and upserts them into `calendar_events`.
+Clients only ever read that table. The cache is not an optimisation — it is the
+only reason the schedule card survives the wifi dropping.
+
+One-time setup is documented in the migration's header: a Google Cloud project
+with the Calendar API enabled, a service account whose email the calendars are
+shared with, then `supabase secrets set` and two `vault.create_secret` calls.
+Until those exist the cron job fires and does nothing, which is the right
+behaviour for a household that has not connected a calendar.
+
+It needs no Google account to develop against:
+
+```bash
+echo 'GOOGLE_CALENDAR_MOCK=1' >> supabase/functions/.env
+supabase functions serve sync-calendar --env-file supabase/functions/.env
+curl -X POST http://127.0.0.1:54321/functions/v1/sync-calendar   # twice: the
+# second run soft-deletes the event the fixtures drop
+```
+
+The scheduled sync does **not** replace `.github/workflows/keepalive.yml`. A cron
+job inside a paused database cannot unpause it, so the external ping stays.
+
 ## Deploying
 
 Once you have created a Supabase project (free tier) and a Netlify site:
@@ -170,6 +274,14 @@ Once you have created a Supabase project (free tier) and a Netlify site:
    pnpm supabase link --project-ref <ref>
    pnpm supabase db push
    pnpm supabase functions deploy keepalive
+   ```
+
+   The two import functions need an Anthropic key, so deploy them only once it is
+   set. Without it, typing and photographing still work, and a pasted link still
+   works for any page that publishes JSON-LD — only the fallback needs the model.
+   ```bash
+   pnpm supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+   pnpm supabase functions deploy import-recipe-photo import-recipe-url
    ```
 
 2. **Netlify.** Create a site from this repo. `netlify.toml` sets the build
