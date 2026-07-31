@@ -40,21 +40,20 @@ const toastStyle = computed(() => {
       </p>
     </div>
 
-    <div
+    <!-- Green only when the list was cleared, never when it was never used. -->
+    <UEmpty
       v-if="shopping.empty"
-      class="flex min-h-[260px] flex-col justify-center gap-3.5"
-    >
-      <!-- Green only when the list was cleared, never when it was never used. -->
-      <p
-        class="text-[56px] font-semibold tracking-[-0.02em]"
-        :class="shopping.resolved ? 'text-primary' : 'text-muted'"
-      >
-        {{ shopping.emptyTitle }}
-      </p>
-      <p class="text-pretty text-[24px] text-muted">
-        {{ shopping.emptyBody }}
-      </p>
-    </div>
+      :title="shopping.emptyTitle"
+      :description="shopping.emptyBody"
+      class="min-h-[260px] flex-1"
+      :ui="{
+        header: 'items-start text-left',
+        title: shopping.resolved
+          ? 'text-[56px] font-semibold tracking-[-0.02em] text-primary'
+          : 'text-[56px] font-semibold tracking-[-0.02em] text-muted',
+        description: 'text-pretty text-[24px] text-muted'
+      }"
+    />
 
     <div
       v-else

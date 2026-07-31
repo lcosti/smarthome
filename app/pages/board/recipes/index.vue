@@ -46,42 +46,45 @@ function minutesOf(recipeId: string) {
       </p>
     </div>
 
-    <div
+    <UPageGrid
       v-if="recipes.recipes.length"
-      class="grid min-h-0 flex-1 grid-cols-5 content-start gap-[18px] overflow-hidden"
+      class="min-h-0 flex-1 content-start gap-[18px] overflow-hidden lg:grid-cols-5"
     >
-      <NuxtLink
+      <UPageCard
         v-for="recipe in recipes.recipes"
         :key="recipe.id"
         :to="`/board/recipes/${recipe.id}`"
-        class="flex flex-col gap-2 rounded-[14px] border border-default bg-default px-6 py-5
-               transition-opacity duration-[80ms] active:opacity-85"
+        :title="recipe.name"
+        :description="`${minutesOf(recipe.id) ?? '—'} min · serves ${recipe.base_servings}`"
+        variant="outline"
+        :ui="{
+          root: 'rounded-[14px] bg-elevated px-6 py-5 transition-opacity duration-[80ms] active:opacity-85',
+          title: 'line-clamp-2 text-[26px] font-medium text-default',
+          description: 'font-mono text-[18px] text-dimmed'
+        }"
       >
-        <span class="line-clamp-2 text-[26px] font-medium text-default">{{ recipe.name }}</span>
-        <span class="font-mono text-[18px] text-dimmed">
-          {{ minutesOf(recipe.id) ?? '—' }} min · serves {{ recipe.base_servings }}
-        </span>
         <UBadge
           v-if="plannedIds.get(recipe.id)"
           color="warning"
           variant="soft"
-          :ui="{ base: 'mt-auto self-start rounded-full px-3.5 py-1 font-mono text-[17px] uppercase tracking-[0.06em] ring-1 ring-warning/50' }"
+          :ui="{ base: 'w-fit self-start rounded-full px-3.5 py-1 font-mono text-[17px] uppercase tracking-[0.06em] ring-1 ring-warning/50' }"
         >
           {{ plannedIds.get(recipe.id) }}
         </UBadge>
-      </NuxtLink>
-    </div>
+      </UPageCard>
+    </UPageGrid>
 
-    <div
+    <UEmpty
       v-else
-      class="flex flex-1 flex-col items-center justify-center gap-4"
-    >
-      <p class="text-[56px] font-semibold text-muted">
-        No recipes yet
-      </p>
-      <p class="text-[26px] text-muted">
-        Add a few from your phone — the generator builds the week out of them.
-      </p>
-    </div>
+      icon="i-lucide-book-open"
+      title="No recipes yet"
+      description="Add a few from your phone — the generator builds the week out of them."
+      class="flex-1"
+      :ui="{
+        avatar: 'size-16 bg-transparent text-dimmed',
+        title: 'text-[56px] font-semibold text-muted',
+        description: 'text-[26px] text-muted'
+      }"
+    />
   </div>
 </template>

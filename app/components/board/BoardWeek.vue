@@ -19,15 +19,18 @@ defineProps<{ week: WeekSlot[] }>()
     </h2>
 
     <div class="grid grid-cols-6 gap-3.5">
-      <div
+      <UCard
         v-for="slot in week"
         :key="slot.date"
-        class="flex min-w-0 flex-col gap-2 rounded-xl border px-[18px] py-3.5"
-        :class="slot.highlighted
-          ? 'border-warning/50 bg-warning/10'
-          : slot.empty
-            ? 'border-default/60 bg-default/40'
-            : 'border-default bg-default'"
+        variant="outline"
+        :ui="{
+          root: slot.highlighted
+            ? 'min-w-0 rounded-xl bg-warning/10 ring-warning/50'
+            : slot.empty
+              ? 'min-w-0 rounded-xl bg-default/40 ring-default/60'
+              : 'min-w-0 rounded-xl bg-default',
+          body: 'flex flex-col gap-2 px-[18px] py-3.5 sm:p-0 sm:px-[18px] sm:py-3.5'
+        }"
       >
         <span
           class="font-mono text-[19px] uppercase tracking-[0.08em]"
@@ -39,7 +42,7 @@ defineProps<{ week: WeekSlot[] }>()
             ? 'text-highlighted'
             : slot.empty ? 'text-dimmed' : 'text-default'"
         >{{ slot.dish }}</span>
-      </div>
+      </UCard>
     </div>
   </section>
 </template>

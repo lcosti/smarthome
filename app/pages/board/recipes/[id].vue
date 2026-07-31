@@ -62,10 +62,19 @@ const steps = computed(() =>
     </div>
 
     <div class="grid min-h-0 flex-1 grid-cols-[1fr_1.6fr] gap-[22px] overflow-hidden">
-      <section class="flex min-h-0 flex-col gap-3 overflow-hidden rounded-2xl border border-default bg-elevated px-8 py-6">
-        <h3 class="shrink-0 font-mono text-[21px] uppercase tracking-[0.14em] text-muted">
-          Ingredients
-        </h3>
+      <UCard
+        variant="outline"
+        :ui="{
+          root: 'flex min-h-0 flex-col overflow-hidden rounded-2xl bg-elevated',
+          header: 'px-8 pt-6 pb-0 sm:px-8',
+          body: 'flex min-h-0 flex-1 flex-col px-8 py-4 sm:p-0 sm:px-8 sm:py-4'
+        }"
+      >
+        <template #header>
+          <h3 class="font-mono text-[21px] uppercase tracking-[0.14em] text-muted">
+            Ingredients
+          </h3>
+        </template>
         <ul class="flex min-h-0 flex-col gap-2.5 overflow-hidden">
           <li
             v-for="line in lines"
@@ -86,12 +95,21 @@ const steps = computed(() =>
         >
           No ingredients listed.
         </p>
-      </section>
+      </UCard>
 
-      <section class="flex min-h-0 flex-col gap-3 overflow-hidden rounded-2xl border border-default bg-elevated px-8 py-6">
-        <h3 class="shrink-0 font-mono text-[21px] uppercase tracking-[0.14em] text-muted">
-          Method
-        </h3>
+      <UCard
+        variant="outline"
+        :ui="{
+          root: 'flex min-h-0 flex-col overflow-hidden rounded-2xl bg-elevated',
+          header: 'px-8 pt-6 pb-0 sm:px-8',
+          body: 'flex min-h-0 flex-1 flex-col px-8 py-4 sm:p-0 sm:px-8 sm:py-4'
+        }"
+      >
+        <template #header>
+          <h3 class="font-mono text-[21px] uppercase tracking-[0.14em] text-muted">
+            Method
+          </h3>
+        </template>
         <ol class="flex min-h-0 flex-col gap-4 overflow-hidden">
           <li
             v-for="(step, index) in steps"
@@ -108,25 +126,22 @@ const steps = computed(() =>
         >
           No method written down. It is on the phone, or in somebody's head.
         </p>
-      </section>
+      </UCard>
     </div>
   </div>
 
   <!-- A recipe deleted on another device while this was open. Not an error. -->
-  <div
+  <UEmpty
     v-else
-    class="flex h-full flex-col items-center justify-center gap-4"
-  >
-    <p class="text-[56px] font-semibold text-muted">
-      That recipe is gone
-    </p>
-    <UButton
-      to="/board/recipes"
-      color="neutral"
-      variant="subtle"
-      size="xl"
-      label="All recipes"
-      class="h-[72px] rounded-[14px] px-8 text-[24px]"
-    />
-  </div>
+    icon="i-lucide-book-open"
+    title="That recipe is gone"
+    description="It was deleted on another device while this was open."
+    :actions="[{ label: 'All recipes', to: '/board/recipes', color: 'neutral', variant: 'subtle', size: 'xl' }]"
+    class="h-full"
+    :ui="{
+      avatar: 'size-16 bg-transparent text-dimmed',
+      title: 'text-[56px] font-semibold text-muted',
+      description: 'text-[26px] text-muted'
+    }"
+  />
 </template>

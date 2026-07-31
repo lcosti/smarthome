@@ -113,37 +113,37 @@ function dateLabelOf(date: string) {
         </div>
       </div>
 
-      <div
+      <UPageGrid
         v-if="recipes.recipes.length"
-        class="grid min-h-0 flex-1 grid-cols-4 content-start gap-[18px] overflow-hidden"
+        class="min-h-0 flex-1 content-start gap-[18px] overflow-hidden lg:grid-cols-4"
       >
-        <button
+        <UPageCard
           v-for="recipe in recipes.recipes"
           :key="recipe.id"
-          type="button"
-          class="flex flex-col gap-2 rounded-[14px] border border-default bg-default px-6 py-5
-                 text-left transition-opacity duration-[80ms] active:opacity-85"
+          :title="recipe.name"
+          :description="`${(recipe.prep_minutes ?? 0) + (recipe.cook_minutes ?? 0) || '—'} min · serves ${recipe.base_servings}`"
+          variant="outline"
+          :ui="{
+            root: 'rounded-[14px] bg-elevated px-6 py-5 transition-opacity duration-[80ms] active:opacity-85',
+            title: 'line-clamp-2 text-[28px] font-medium text-default',
+            description: 'font-mono text-[19px] text-dimmed'
+          }"
           @click="choose(recipe.id)"
-        >
-          <span class="line-clamp-2 text-[28px] font-medium text-default">{{ recipe.name }}</span>
-          <span class="font-mono text-[19px] text-dimmed">
-            {{ (recipe.prep_minutes ?? 0) + (recipe.cook_minutes ?? 0) || '—' }} min ·
-            serves {{ recipe.base_servings }}
-          </span>
-        </button>
-      </div>
+        />
+      </UPageGrid>
 
-      <div
+      <UEmpty
         v-else
-        class="flex flex-1 flex-col items-center justify-center gap-4"
-      >
-        <p class="text-[48px] font-semibold text-muted">
-          No recipes yet
-        </p>
-        <p class="text-[26px] text-muted">
-          Add a few from your phone and they show up here.
-        </p>
-      </div>
+        icon="i-lucide-book-open"
+        title="No recipes yet"
+        description="Add a few from your phone and they show up here."
+        class="flex-1"
+        :ui="{
+          avatar: 'size-14 bg-transparent text-dimmed',
+          title: 'text-[48px] font-semibold text-muted',
+          description: 'text-[26px] text-muted'
+        }"
+      />
     </template>
 
     <!-- The week itself -->
@@ -163,15 +163,17 @@ function dateLabelOf(date: string) {
       </div>
 
       <div class="grid min-h-0 flex-1 grid-cols-7 gap-[14px] overflow-hidden">
-        <button
+        <UCard
           v-for="night in nights"
           :key="night.date"
-          type="button"
-          class="flex min-h-0 flex-col gap-3 rounded-[14px] border px-5 py-4 text-left
-                 transition-opacity duration-[80ms] active:opacity-85"
-          :class="night.date === today
-            ? 'border-warning/50 bg-warning/10'
-            : 'border-default bg-default'"
+          as="button"
+          variant="outline"
+          :ui="{
+            root: night.date === today
+              ? 'flex min-h-0 flex-col rounded-[14px] bg-warning/10 ring-warning/50 text-left transition-opacity duration-[80ms] active:opacity-85'
+              : 'flex min-h-0 flex-col rounded-[14px] bg-elevated text-left transition-opacity duration-[80ms] active:opacity-85',
+            body: 'flex min-h-0 flex-1 flex-col gap-3 px-5 py-4 sm:p-0 sm:px-5 sm:py-4'
+          }"
           @click="choosing = night.date"
         >
           <span class="shrink-0">
@@ -206,7 +208,16 @@ function dateLabelOf(date: string) {
             <span class="text-[22px]">Add dinner</span>
           </span>
 
-          <span class="flex shrink-0 flex-wrap gap-1.5">
+          <!--
+            Overlapped rather than laid out in a row: on a narrow column a
+            household of five wraps to two lines and pushes the dish out of the
+            card, and who is eating is a glance rather than a roll-call.
+          -->
+          <UAvatarGroup
+            :max="5"
+            class="shrink-0"
+            :ui="{ base: 'ring-0' }"
+          >
             <BoardAvatar
               v-for="person in diners(night.date)"
               :key="person.id"
@@ -214,8 +225,8 @@ function dateLabelOf(date: string) {
               :hue="personHue(person.id, people.people)"
               :size="34"
             />
-          </span>
-        </button>
+          </UAvatarGroup>
+        </UCard>
       </div>
     </template>
   </div>

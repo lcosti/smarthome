@@ -60,6 +60,9 @@ const columns = computed(() => {
 
 const remaining = computed(() => list.groups.reduce((sum, g) => sum + g.entries.length, 0))
 const checked = computed(() => list.checkedItems.length)
+
+/** Cleared before a shop, or never used at all. Only the first earns green. */
+const everUsed = computed(() => sync.rowsOf('shopping_list_items').size > 0)
 </script>
 
 <template>
@@ -87,20 +90,20 @@ const checked = computed(() => list.checkedItems.length)
     </div>
 
     <!-- Nothing to buy: the same distinction the Today card makes. -->
-    <div
+    <UEmpty
       v-if="!remaining"
-      class="flex flex-1 flex-col items-center justify-center gap-4"
-    >
-      <p
-        class="text-[72px] font-semibold tracking-[-0.02em]"
-        :class="sync.rowsOf('shopping_list_items').size ? 'text-primary' : 'text-muted'"
-      >
-        {{ sync.rowsOf('shopping_list_items').size ? 'Nothing to buy' : 'Nothing on the list yet' }}
-      </p>
-      <p class="text-[26px] text-muted">
-        Add something from your phone and it shows up here.
-      </p>
-    </div>
+      :icon="everUsed ? 'i-lucide-circle-check-big' : 'i-lucide-shopping-cart'"
+      :title="everUsed ? 'Nothing to buy' : 'Nothing on the list yet'"
+      description="Add something from your phone and it shows up here."
+      class="flex-1"
+      :ui="{
+        avatar: everUsed ? 'size-16 bg-transparent text-primary' : 'size-16 bg-transparent text-dimmed',
+        title: everUsed
+          ? 'text-[64px] font-semibold tracking-[-0.02em] text-primary'
+          : 'text-[64px] font-semibold tracking-[-0.02em] text-muted',
+        description: 'text-[26px] text-muted'
+      }"
+    />
 
     <div
       v-else
@@ -109,45 +112,56 @@ const checked = computed(() => list.checkedItems.length)
       <div
         v-for="(column, index) in columns"
         :key="index"
-        class="flex min-h-0 flex-col gap-5 overflow-hidden"
+        class="flex min-h-0 flex-col gap-[18px] overflow-hidden"
       >
-        <section
+        <UCard
           v-for="group in column"
           :key="group.id"
-          class="flex flex-col gap-2"
+          variant="outline"
+          :ui="{
+            root: 'rounded-2xl bg-elevated',
+            header: 'px-6 pt-4 pb-2 sm:px-6',
+            body: 'px-4 pb-3 pt-0 sm:p-0 sm:px-4 sm:pb-3'
+          }"
         >
-          <h3 class="font-mono text-[20px] uppercase tracking-[0.14em] text-dimmed">
-            {{ group.name }}
-          </h3>
+          <template #header>
+            <h3 class="font-mono text-[20px] uppercase tracking-[0.14em] text-dimmed">
+              {{ group.name }}
+            </h3>
+          </template>
 
           <!--
-            One line per item, deliberately. The row carried the recipe it came
-            from underneath the name, which doubled its height and cost about a
-            third of the items on screen — and on a frame that cannot scroll,
-            provenance you can read is worth less than an item you can see. Both
-            phones still show it.
+            A real checkbox rather than a button that looks like one: ticking an
+            item off is exactly what the control means, and it brings the
+            keyboard and screen-reader behaviour with it. The label is the whole
+            row, so anywhere on the line is a hit — which is what matters with a
+            bag of shopping in one hand.
           -->
-          <button
+          <UCheckbox
             v-for="entry in group.entries"
             :key="entry.key"
-            type="button"
-            class="flex items-center gap-4 rounded-[12px] border border-default bg-default
-                   px-5 py-2.5 text-left transition-opacity duration-[80ms] active:opacity-85"
-            @click="list.toggleEntry(entry)"
+            :model-value="false"
+            color="primary"
+            size="xl"
+            :ui="{
+              root: 'items-center gap-4 rounded-[12px] px-2 py-2.5 transition-opacity duration-[80ms] active:opacity-85',
+              base: 'size-7 shrink-0',
+              wrapper: 'min-w-0 flex-1',
+              label: 'w-full text-[27px] leading-tight text-default'
+            }"
+            @update:model-value="list.toggleEntry(entry)"
           >
-            <UIcon
-              name="i-lucide-circle-dashed"
-              class="size-7 shrink-0 text-dimmed"
-            />
-            <span class="min-w-0 flex-1 truncate text-[27px] leading-tight text-default">
-              {{ entry.name }}
-            </span>
-            <span
-              v-if="entry.quantityLabel"
-              class="shrink-0 whitespace-nowrap text-[23px] text-muted"
-            >{{ entry.quantityLabel }}</span>
-          </button>
-        </section>
+            <template #label>
+              <span class="flex w-full min-w-0 items-baseline gap-3">
+                <span class="min-w-0 flex-1 truncate">{{ entry.name }}</span>
+                <span
+                  v-if="entry.quantityLabel"
+                  class="shrink-0 whitespace-nowrap text-[23px] text-muted"
+                >{{ entry.quantityLabel }}</span>
+              </span>
+            </template>
+          </UCheckbox>
+        </UCard>
       </div>
     </div>
   </div>
