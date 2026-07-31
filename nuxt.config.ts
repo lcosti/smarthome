@@ -73,9 +73,33 @@ export default defineNuxtConfig({
   // is still there, correctly sized and coloured, simply with no mask to paint.
   // The weather ones cannot be found by scanning at all, since the name is
   // chosen from a weather code at runtime.
+  //
+  // Nor can the ones Nuxt UI's own components reach for — the spinner on a
+  // loading button, the tick inside a checkbox, the chevrons on a number input,
+  // the cross that closes a modal. Those names live in node_modules, where the
+  // scanner does not look, so they are listed here by hand.
   icon: {
     clientBundle: {
       icons: [
+        // Injected by Nuxt UI components rather than written in our templates.
+        'lucide:loader-circle',
+        'lucide:chevron-down',
+        'lucide:chevron-up',
+        'lucide:chevron-left',
+        'lucide:chevron-right',
+        'lucide:x',
+        'lucide:minus',
+        'lucide:plus',
+        'lucide:search',
+        'lucide:info',
+        'lucide:circle-alert',
+        'lucide:triangle-alert',
+        'lucide:lightbulb',
+        'lucide:copy',
+        'lucide:copy-check',
+        // Chosen at runtime by ChecklistRow, from the state of the line.
+        'lucide:circle',
+        'lucide:package-check',
         'lucide:sun',
         'lucide:moon',
         'lucide:cloud',
