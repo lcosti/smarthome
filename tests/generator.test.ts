@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildContext,
   defaultEffortBudget,
   eaters,
   generateWeek,
+  rankCandidates,
+  suggestionReason,
+  topCandidates,
   type GenerateInput,
   type GeneratorLine,
-  type GeneratorRecipe
+  type GeneratorRecipe,
+  type RankReason,
+  type RankedCandidate
 } from '../app/utils/generator'
 
 /** Deterministic randomness, so an assertion about a pick means something. */
@@ -467,6 +473,125 @@ describe('nights a person already chose', () => {
     })
     expect(picks.every(p => p.recipeId === 'r2')).toBe(true)
     expect(picks).toHaveLength(1)
+  })
+})
+
+describe('rankCandidates', () => {
+  /** A context over a fixed library, so a ranking assertion is about scoring alone. */
+  function context(over: Partial<GenerateInput> = {}) {
+    return buildContext({
+      nights: week(),
+      recipes: [recipe({ id: 'r1' }), recipe({ id: 'r2' }), recipe({ id: 'r3' })],
+      lines: [],
+      constraints: [],
+      history: [],
+      ...over
+    })
+  }
+
+  const monday = { date: '2026-08-03', people: [ADULT, TODDLER] }
+
+  it('scores every live recipe the night could have', () => {
+    expect(rankCandidates(context(), monday).map(c => c.recipe.id)).toEqual(['r1', 'r2', 'r3'])
+  })
+
+  it('leaves out anything an allergy rules out, rather than scoring it low', () => {
+    const ranked = rankCandidates(
+      context({
+        lines: [line('r2', 'peanut butter')],
+        constraints: [{ person_id: ADULT.id, kind: 'allergy', tag: 'peanut', deleted_at: null }]
+      }),
+      monday
+    )
+    expect(ranked.map(c => c.recipe.id)).toEqual(['r1', 'r3'])
+  })
+
+  it('leaves out what the week has already chosen', () => {
+    const ranked = rankCandidates(
+      context({ alreadyPlanned: [{ date: '2026-08-04', recipe_id: 'r1' }] }),
+      monday
+    )
+    expect(ranked.map(c => c.recipe.id)).toEqual(['r2', 'r3'])
+  })
+
+  it('keeps library order, because the weighted pick draws against it', () => {
+    // Sorting here would remap every seeded outcome onto a different recipe.
+    const ranked = rankCandidates(
+      context({ history: [{ date: '2026-08-02', recipe_id: 'r1' }] }),
+      monday
+    )
+    expect(ranked.map(c => c.recipe.id)).toEqual(['r1', 'r2', 'r3'])
+    expect(ranked[0]!.score).toBeLessThan(ranked[1]!.score)
+  })
+
+  it('ranks something cooked yesterday below something never cooked', () => {
+    const [best] = topCandidates(
+      context({ history: [{ date: '2026-08-02', recipe_id: 'r1' }] }),
+      monday,
+      3
+    )
+    expect(best!.recipe.id).not.toBe('r1')
+  })
+
+  it('rewards sharing an ingredient with a night already planned', () => {
+    const ranked = topCandidates(
+      context({
+        lines: [line('r1', 'coriander', 'i-cor'), line('r2', 'coriander', 'i-cor')],
+        alreadyPlanned: [{ date: '2026-08-04', recipe_id: 'r1' }],
+        // Everything equally rested, so overlap is the only thing left to
+        // separate them — otherwise r3's never-cooked bonus is the louder fact.
+        history: [
+          { date: '2026-06-01', recipe_id: 'r2' },
+          { date: '2026-06-01', recipe_id: 'r3' }
+        ]
+      }),
+      monday,
+      3
+    )
+    expect(ranked[0]!.recipe.id).toBe('r2')
+    expect(ranked[0]!.reason).toEqual({ kind: 'overlap', shared: 1 })
+  })
+
+  it('is empty when every recipe is already spoken for', () => {
+    expect(rankCandidates(
+      context({
+        alreadyPlanned: [
+          { date: '2026-08-04', recipe_id: 'r1' },
+          { date: '2026-08-05', recipe_id: 'r2' },
+          { date: '2026-08-06', recipe_id: 'r3' }
+        ]
+      }),
+      monday
+    )).toEqual([])
+  })
+})
+
+describe('suggestionReason', () => {
+  const candidate = (reason: RankReason): RankedCandidate => ({
+    recipe: recipe({ id: 'r1' }),
+    score: 0,
+    weight: 1,
+    reason
+  })
+
+  it('leads with the cupboard when the cupboard covers it', () => {
+    expect(suggestionReason(candidate({ kind: 'never' }), { allPantry: true }))
+      .toBe('All pantry — nothing to buy')
+  })
+
+  it('names the night the time fits', () => {
+    expect(suggestionReason(candidate({ kind: 'quick', minutes: 25, budget: 30 })))
+      .toBe('25 min — fits a 30 min night')
+  })
+
+  it('counts weeks rather than days since it was last cooked', () => {
+    expect(suggestionReason(candidate({ kind: 'rested', days: 15 })))
+      .toBe('Nothing like it for 2 weeks')
+  })
+
+  it('prefers a track record when there is one', () => {
+    expect(suggestionReason(candidate({ kind: 'rested', days: 15 }), { cookedTimes: 11 }))
+      .toBe('Cooked 11× — nobody complains')
   })
 })
 

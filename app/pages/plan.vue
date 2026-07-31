@@ -88,10 +88,16 @@ async function derive() {
 </script>
 
 <template>
-  <div class="min-h-dvh">
+  <div :class="isWide ? 'min-h-0' : 'min-h-dvh'">
+    <!--
+      Phone only. On a wide screen the app header above already carries the tab
+      you are on, and the week strip lives inside the grid with the buttons that
+      act on it — two stacked bars saying "Plan" was a header arguing with a nav.
+    -->
     <AppPageHeader
+      v-if="!isWide"
       title="Plan"
-      content-class="max-w-xl lg:max-w-6xl"
+      content-class="max-w-xl"
     >
       <div class="flex items-center gap-1 lg:max-w-md">
         <UButton
@@ -122,7 +128,27 @@ async function derive() {
       </div>
     </AppPageHeader>
 
-    <main class="mx-auto max-w-xl px-3 pb-28 lg:max-w-6xl lg:px-6 lg:pb-8">
+    <!-- The wide shape is a screenful of its own and owns its margins. -->
+    <PlanWeekWide
+      v-if="isWide && sync.hydrated"
+      :nights="nights"
+      :today="today"
+      :week-start="weekStart"
+      :can-fill="canFill"
+      :can-derive="canDerive"
+      :filling="filling"
+      :deriving="deriving"
+      @open="openNight"
+      @fill="fill"
+      @derive="derive"
+      @step="weekOffset += $event"
+      @reset="weekOffset = 0"
+    />
+
+    <main
+      v-else
+      class="mx-auto max-w-xl px-3 pb-28"
+    >
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"
@@ -132,18 +158,7 @@ async function derive() {
 
       <template v-else>
         <!-- All seven nights always render: an empty one is the invitation. -->
-        <PlanWeekWide
-          v-if="isWide"
-          class="mt-3"
-          :nights="nights"
-          :today="today"
-          @open="openNight"
-        />
-
-        <ul
-          v-else
-          class="mt-3 rounded-lg border border-default bg-elevated/30"
-        >
+        <ul class="mt-3 rounded-lg border border-default bg-elevated/30">
           <PlanNightRow
             v-for="night in nights"
             :key="night.date"
@@ -155,18 +170,17 @@ async function derive() {
 
         <!--
           Fill is above derive because it comes first in the week: suggest,
-          adjust what you don't fancy, then shop. Stacked full-width on a phone
-          where they are the bottom of a column, side by side and sized to their
-          labels on a wide screen where a 1000px button is a wall.
+          adjust what you don't fancy, then shop. Stacked full-width, because
+          they are the bottom of a column and a thumb is the pointer.
         -->
-        <div class="mt-4 flex flex-col gap-3 lg:flex-row lg:gap-2">
+        <div class="mt-4 flex flex-col gap-3">
           <UButton
             v-if="canFill"
             class="justify-center"
             size="xl"
             color="neutral"
             variant="subtle"
-            :block="!isWide"
+            block
             icon="i-lucide-wand-sparkles"
             :loading="filling"
             @click="fill"
@@ -177,7 +191,7 @@ async function derive() {
           <UButton
             class="justify-center"
             size="xl"
-            :block="!isWide"
+            block
             icon="i-lucide-shopping-cart"
             :disabled="!canDerive"
             :loading="deriving"
@@ -189,7 +203,7 @@ async function derive() {
 
         <p
           v-if="!canDerive"
-          class="mt-2 text-center text-sm text-dimmed lg:text-left"
+          class="mt-2 text-center text-sm text-dimmed"
         >
           Plan a night first, then this puts its ingredients on the list.
         </p>

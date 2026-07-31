@@ -1,103 +1,174 @@
 <script setup lang="ts">
-import { useAttendanceStore } from '../stores/attendance'
-import { usePeopleStore } from '../stores/people'
-import { dishLabel, type PlannedNight } from '../stores/plan'
-import { initialOf, personHue } from '../utils/person-colors'
+import { usePlanStore, type PlannedNight } from '../stores/plan'
+import { isoDate, mondayOf, weekLabel } from '../utils/week'
 
 /**
- * The week as seven columns, for a screen with the width for it.
+ * The week as a screenful, for a screen with the room for it.
  *
- * A column per night is the only layout where "what are we doing Thursday" is
- * answered without reading. The phone gets the same seven nights as rows, for
- * the same reason in reverse.
+ * Seven thin columns answered exactly one question — what is on Thursday — and
+ * made everything else somebody else's job. Four across and two down gives each
+ * night the height to carry what it is, whether it has been shopped for, and who
+ * is at the table, and leaves an eighth cell for the four facts about the week
+ * that no single night knows.
  *
- * Presentational only: the page above owns which week is on screen and opens
- * the night editor, so both shapes edit through exactly one component and
- * cannot drift apart over what changing a night means.
+ * Nothing on this screen scrolls the page. The grid is fixed to the viewport and
+ * the aside scrolls on its own, so pressing "fill" never moves the thing you were
+ * looking at.
+ *
+ * The phone gets the same seven nights as rows. Both shapes edit through the one
+ * night editor the page above owns, so neither can grow an opinion the other
+ * does not have.
  */
-defineProps<{ nights: PlannedNight[], today: string }>()
+const { nights, today, weekStart, canFill, canDerive, filling, deriving } = defineProps<{
+  nights: PlannedNight[]
+  today: string
+  weekStart: string
+  canFill: boolean
+  canDerive: boolean
+  filling: boolean
+  deriving: boolean
+}>()
 
-defineEmits<{ open: [date: string] }>()
+const emit = defineEmits<{
+  open: [date: string]
+  fill: []
+  derive: []
+  /** Weeks to move, and back to the week the household is living in. */
+  step: [weeks: number]
+  reset: []
+}>()
 
-const people = usePeopleStore()
-const attendance = useAttendanceStore()
+const plan = usePlanStore()
+const toast = useToast()
 
-function dayLabelOf(date: string) {
-  const [year, month, day] = date.split('-').map(Number)
-  return new Date(year!, month! - 1, day!).toLocaleDateString(undefined, { weekday: 'short' })
-}
+const monday = computed(() => {
+  const [year, month, day] = weekStart.split('-').map(Number)
+  return new Date(year!, month! - 1, day!)
+})
 
-function dateLabelOf(date: string) {
-  const [year, month, day] = date.split('-').map(Number)
-  return new Date(year!, month! - 1, day!).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+/** Whether the week on screen is the one the household is living in. */
+const thisWeek = computed(() => weekStart === isoDate(mondayOf(new Date())))
+
+/**
+ * Ranked meals for every night still empty, scored once for the whole week.
+ *
+ * Three per night: two fit on a card, and the aside shows the rest of the first
+ * night's shortlist rather than a second opinion about the same meal.
+ */
+const suggestions = computed(() => plan.weekSuggestions(weekStart, 4))
+
+/** The night the aside plans onto — the first one still open. */
+const target = computed(() => nights.find(night => !night.entries.length)?.date ?? null)
+
+const asideSuggestions = computed(() =>
+  target.value ? suggestions.value.get(target.value) ?? [] : []
+)
+
+/** What pressing the shopping button would actually do, so it can say so. */
+const preview = computed(() => (canDerive ? plan.derivePreview(weekStart) : null))
+
+const deriveLabel = computed(() => {
+  const added = preview.value?.added ?? 0
+  return added ? `Add ${added} item${added === 1 ? '' : 's'} to list` : 'Add to shopping list'
+})
+
+async function pick(date: string, recipeId: string) {
+  const row = await plan.setNight(date, recipeId)
+  if (!row) return
+  toast.add({
+    title: `${plan.plannedEntry(row).recipe?.name ?? 'Dinner'} planned`,
+    icon: 'i-lucide-check',
+    color: 'success'
+  })
 }
 </script>
 
 <template>
-  <div class="grid grid-cols-7 gap-2">
-    <UCard
-      v-for="night in nights"
-      :key="night.date"
-      as="button"
-      variant="outline"
-      :ui="{
-        root: night.date === today
-          ? 'flex min-h-[160px] flex-col rounded-lg bg-primary/10 ring-primary/50 text-left transition-opacity duration-[80ms] active:opacity-85'
-          : 'flex min-h-[160px] flex-col rounded-lg bg-elevated text-left transition-opacity duration-[80ms] active:opacity-85',
-        body: 'flex min-h-0 flex-1 flex-col gap-2 px-3.5 py-2.5 sm:p-0 sm:px-3.5 sm:py-2.5'
-      }"
-      @click="$emit('open', night.date)"
-    >
-      <span class="shrink-0">
-        <span
-          class="block font-mono text-xs uppercase tracking-[0.08em]"
-          :class="night.date === today ? 'text-primary' : 'text-dimmed'"
-        >{{ dayLabelOf(night.date) }}</span>
-        <span class="block font-mono text-[11px] text-dimmed">{{ dateLabelOf(night.date) }}</span>
-      </span>
+  <!-- A screenful, not a page. 4rem is the app header above it. -->
+  <div class="flex h-[calc(100dvh-4rem)] min-h-0 flex-col gap-4 px-6 py-4">
+    <div class="flex shrink-0 items-center gap-4">
+      <h2 class="text-2xl font-semibold tracking-[-0.025em] text-highlighted">
+        Plan
+      </h2>
 
-      <span
-        v-if="night.entries.length"
-        class="min-w-0 flex-1"
-      >
-        <span class="line-clamp-3 text-sm font-medium text-highlighted">
-          {{ dishLabel(night.entries[0]!) }}
-        </span>
-        <span class="mt-0.5 block font-mono text-xs text-dimmed">
-          {{ night.entries[0]!.entry.servings }} servings
-        </span>
-      </span>
-
-      <!-- An empty night is an invitation, not a gap. -->
-      <span
-        v-else
-        class="flex flex-1 items-start gap-1.5 text-dimmed"
-      >
-        <UIcon
-          name="i-lucide-plus"
-          class="size-4 shrink-0"
+      <div class="flex items-center gap-0.5 rounded-lg bg-elevated/50 p-1 ring ring-default">
+        <UButton
+          icon="i-lucide-chevron-left"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          aria-label="Previous week"
+          @click="emit('step', -1)"
         />
-        <span class="text-sm">Add dinner</span>
-      </span>
-
-      <!--
-        Overlapped rather than laid out in a row: on a narrow column a household
-        of five wraps to two lines and pushes the dish out of the card, and who
-        is eating is a glance rather than a roll-call.
-      -->
-      <UAvatarGroup
-        :max="5"
-        class="shrink-0"
-        :ui="{ base: 'ring-0' }"
-      >
-        <BoardAvatar
-          v-for="person in attendance.presentOn(night.date)"
-          :key="person.id"
-          :initial="initialOf(person.name)"
-          :hue="personHue(person.id, people.people)"
-          :size="28"
+        <button
+          type="button"
+          class="min-w-[9rem] px-2 py-1 text-center text-sm font-medium text-default"
+          :aria-label="thisWeek ? undefined : 'Back to this week'"
+          @click="emit('reset')"
+        >
+          {{ weekLabel(monday) }}
+          <span
+            v-if="!thisWeek"
+            class="ml-1 text-dimmed"
+          >· this week</span>
+        </button>
+        <UButton
+          icon="i-lucide-chevron-right"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          aria-label="Next week"
+          @click="emit('step', 1)"
         />
-      </UAvatarGroup>
-    </UCard>
+      </div>
+
+      <!-- Suggest, adjust what you don't fancy, then shop: the order of the week. -->
+      <div class="ml-auto flex items-center gap-2">
+        <UButton
+          v-if="canFill"
+          color="neutral"
+          variant="subtle"
+          size="lg"
+          icon="i-lucide-wand-sparkles"
+          label="Fill empty nights"
+          :loading="filling"
+          @click="emit('fill')"
+        />
+        <UButton
+          color="primary"
+          variant="solid"
+          size="lg"
+          icon="i-lucide-shopping-cart"
+          :label="deriveLabel"
+          :disabled="!canDerive"
+          :loading="deriving"
+          @click="emit('derive')"
+        />
+      </div>
+    </div>
+
+    <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_20rem] gap-4 overflow-hidden">
+      <!-- Seven nights and the week itself, always all eight: an empty night is the invitation. -->
+      <div class="grid min-h-0 grid-cols-4 grid-rows-2 gap-3">
+        <PlanNightCard
+          v-for="night in nights"
+          :key="night.date"
+          :night="night"
+          :today="night.date === today"
+          :suggestions="(suggestions.get(night.date) ?? []).slice(0, 2)"
+          @open="emit('open', night.date)"
+          @pick="pick(night.date, $event)"
+        />
+
+        <PlanWeekStats :nights="nights" />
+      </div>
+
+      <PlanWeekAside
+        :nights="nights"
+        :suggestions="asideSuggestions"
+        :target="target"
+        @pick="target && pick(target, $event)"
+      />
+    </div>
   </div>
 </template>

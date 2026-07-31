@@ -62,6 +62,32 @@ export interface CookedBefore {
   recipe_id: string
 }
 
+/**
+ * Why a candidate scored the way it did, as data rather than a sentence.
+ *
+ * Whichever component moved the score most, so a suggestion can say something
+ * true about itself without the scorer having to know how a screen words things.
+ * `suggestionReason` below is the one place that turns these into English.
+ */
+export interface RankReason {
+  kind: 'never' | 'rested' | 'quick' | 'overlap' | 'liked'
+  /** 'rested': whole days since it was last cooked. */
+  days?: number
+  /** 'quick': prep plus cook, against the night's budget. */
+  minutes?: number
+  budget?: number
+  /** 'overlap': canonical ingredients shared with the rest of the week. */
+  shared?: number
+}
+
+export interface RankedCandidate {
+  recipe: GeneratorRecipe
+  score: number
+  /** What the weighted pick actually draws against: exp(score / temperature). */
+  weight: number
+  reason: RankReason
+}
+
 export interface Pick {
   date: string
   recipeId: string
@@ -189,16 +215,27 @@ function pickWeighted<T>(entries: { item: T, weight: number }[], random: () => n
 }
 
 /**
- * Fill the nights that have somebody eating and nothing planned.
+ * Everything the scorer needs that does not change from night to night.
  *
- * Nights nobody is home get nothing, which is the correct plan for them. Nights
- * where every candidate is filtered out also get nothing rather than something
- * somebody is allergic to.
+ * `chosen` and `chosenIngredients` are the exception and are deliberately
+ * mutable: nights are decided in order, and each decision narrows the next.
+ * A caller only ranking — the Plan view's suggestions — builds one of these and
+ * never touches them.
  */
-export function generateWeek(input: GenerateInput): Pick[] {
-  const random = input.random ?? Math.random
-  const budgetFor = input.effortBudget ?? defaultEffortBudget
+export interface GeneratorContext {
+  liveRecipes: GeneratorRecipe[]
+  namesOf: Map<string, string[]>
+  canonicalOf: Map<string, Set<string>>
+  lastCooked: Map<string, string>
+  constraintsByPerson: Map<string, GeneratorConstraint[]>
+  /** Recipes already spoken for this week. Nothing is offered twice. */
+  chosen: Set<string>
+  chosenIngredients: Set<string>
+  budgetFor: (date: string) => number
+}
 
+/** The once-per-run indexes, so ranking and generating can share them. */
+export function buildContext(input: GenerateInput): GeneratorContext {
   const liveRecipes = input.recipes.filter(recipe => !recipe.deleted_at)
   const liveConstraints = input.constraints.filter(constraint => !constraint.deleted_at)
 
@@ -236,6 +273,186 @@ export function generateWeek(input: GenerateInput): Pick[] {
     for (const id of canonicalOf.get(entry.recipe_id) ?? []) chosenIngredients.add(id)
   }
 
+  return {
+    liveRecipes,
+    namesOf,
+    canonicalOf,
+    lastCooked,
+    constraintsByPerson,
+    chosen,
+    chosenIngredients,
+    budgetFor: input.effortBudget ?? defaultEffortBudget
+  }
+}
+
+/**
+ * Every recipe this night could have, scored.
+ *
+ * The whole of the selection policy lives here, so the button that fills a week
+ * and the panel that suggests one meal can never disagree about what is allowed
+ * or what is good. Anything ruled out by an allergy is absent, not low-scoring.
+ *
+ * Returned in library order, not score order, and that is load-bearing:
+ * `generateWeek` draws from this list with a weighted pick, and a weighted pick
+ * maps a given random number onto a different recipe if the list is permuted.
+ * Sorting here would silently reshuffle every seeded outcome. Callers who want
+ * a leaderboard use {@link topCandidates}.
+ */
+export function rankCandidates(context: GeneratorContext, night: GeneratorNight): RankedCandidate[] {
+  const present = night.people.map(person => person.id)
+  const hard: string[] = []
+  const dislikes: string[] = []
+  const preferences: string[] = []
+  for (const id of present) {
+    for (const constraint of context.constraintsByPerson.get(id) ?? []) {
+      if (isHardConstraint(constraint.kind)) hard.push(constraint.tag)
+      else if (constraint.kind === 'dislike') dislikes.push(constraint.tag)
+      else preferences.push(constraint.tag)
+    }
+  }
+
+  const budget = context.budgetFor(night.date)
+  const ranked: RankedCandidate[] = []
+
+  for (const recipe of context.liveRecipes) {
+    // No recipe twice in one week, however good it looks.
+    if (context.chosen.has(recipe.id)) continue
+
+    const names = context.namesOf.get(recipe.id) ?? []
+    // The one filter that is not negotiable.
+    if (hard.some(tag => mentions(tag, names))) continue
+
+    let score = 0
+    // Whichever component actually *added* the most is the reason, tracked as
+    // the score is built rather than reconstructed from the total afterwards.
+    // Only bonuses compete: a penalty avoided is not an argument for a meal.
+    let reason: RankReason | null = null
+    let strongest = 0
+
+    const previously = context.lastCooked.get(recipe.id)
+    const rested = previously ? daysBetween(previously, night.date) : null
+    if (rested === null) {
+      score += WEIGHTS.neverCookedBonus
+      reason = { kind: 'never' }
+      strongest = WEIGHTS.neverCookedBonus
+    } else {
+      const staleness = Math.max(0, WEIGHTS.recencyWindowDays - rested) / WEIGHTS.recencyWindowDays
+      score -= WEIGHTS.recencyPenalty * staleness
+    }
+
+    let shared = 0
+    for (const id of context.canonicalOf.get(recipe.id) ?? []) {
+      if (context.chosenIngredients.has(id)) shared++
+    }
+    const overlap = Math.min(shared * WEIGHTS.overlapBonus, WEIGHTS.overlapCap)
+    score += overlap
+    if (overlap > strongest) {
+      reason = { kind: 'overlap', shared }
+      strongest = overlap
+    }
+
+    const minutes = (recipe.prep_minutes ?? 0) + (recipe.cook_minutes ?? 0)
+    const over = minutes > budget
+    if (minutes > 0) {
+      const drift = Math.min(
+        over
+          ? (minutes - budget) * WEIGHTS.overBudgetPenalty
+          : (budget - minutes) * WEIGHTS.underBudgetPenalty,
+        WEIGHTS.effortCap
+      )
+      score -= drift
+    }
+
+    let liked = 0
+    for (const tag of dislikes) if (mentions(tag, names)) score -= WEIGHTS.dislikePenalty
+    for (const tag of preferences) {
+      if (!mentions(tag, names)) continue
+      score += WEIGHTS.preferenceBonus
+      liked += WEIGHTS.preferenceBonus
+    }
+    if (liked > strongest) reason = { kind: 'liked' }
+
+    // Nothing scored it up, so say the plainest true thing instead. Fitting the
+    // night is worth a mention; being over it is a cost and stays unsaid.
+    if (!reason) {
+      reason = minutes > 0 && !over
+        ? { kind: 'quick', minutes, budget }
+        : rested === null ? { kind: 'never' } : { kind: 'rested', days: rested }
+    }
+
+    ranked.push({ recipe, score, weight: Math.exp(score / WEIGHTS.temperature), reason })
+  }
+
+  return ranked
+}
+
+/** The same candidates as a leaderboard, best first. Ties break by name, not by chance. */
+export function topCandidates(
+  context: GeneratorContext,
+  night: GeneratorNight,
+  limit: number
+): RankedCandidate[] {
+  return rankCandidates(context, night)
+    .sort((a, b) => b.score - a.score || a.recipe.name.localeCompare(b.recipe.name))
+    .slice(0, limit)
+}
+
+/**
+ * A suggestion's one-line case for itself.
+ *
+ * Deliberately here rather than in a component: the sentence has to stay true to
+ * what the scorer actually rewarded, and the two drifting apart is how an app
+ * starts lying about why it suggested something.
+ *
+ * `allPantry` is passed in because whether the cupboard already covers a recipe
+ * is not part of the score — the generator is pure and knows nothing about
+ * stock — but it is the most persuasive thing that can be said about a meal, so
+ * it wins when it is true.
+ */
+export function suggestionReason(
+  candidate: RankedCandidate,
+  options: { allPantry?: boolean, cookedTimes?: number } = {}
+): string {
+  if (options.allPantry) return 'All pantry — nothing to buy'
+
+  const { reason } = candidate
+  switch (reason.kind) {
+    case 'never':
+      return 'Never cooked — worth a try'
+    case 'overlap':
+      return reason.shared === 1
+        ? 'Shares an ingredient with the rest of the week'
+        : `Shares ${reason.shared} ingredients with the rest of the week`
+    case 'quick':
+      return `${reason.minutes} min — fits a ${reason.budget} min night`
+    case 'liked':
+      return 'Somebody eating asked for it'
+    case 'rested': {
+      const weeks = Math.floor((reason.days ?? 0) / 7)
+      if (options.cookedTimes && options.cookedTimes > 2) {
+        return `Cooked ${options.cookedTimes}× — nobody complains`
+      }
+      if (weeks >= 4) return 'Not cooked in over a month'
+      if (weeks >= 1) return `Nothing like it for ${weeks === 1 ? 'a week' : `${weeks} weeks`}`
+      return 'Not on the plan yet'
+    }
+    default:
+      return 'Not on the plan yet'
+  }
+}
+
+/**
+ * Fill the nights that have somebody eating and nothing planned.
+ *
+ * Nights nobody is home get nothing, which is the correct plan for them. Nights
+ * where every candidate is filtered out also get nothing rather than something
+ * somebody is allergic to.
+ */
+export function generateWeek(input: GenerateInput): Pick[] {
+  const random = input.random ?? Math.random
+  const context = buildContext(input)
+  const { chosen, chosenIngredients, canonicalOf } = context
+
   const plannedDates = new Set((input.alreadyPlanned ?? []).map(entry => entry.date))
   const picks: Pick[] = []
 
@@ -248,61 +465,13 @@ export function generateWeek(input: GenerateInput): Pick[] {
     const eating = eaters(night.people)
     if (!eating.length) continue
 
-    const present = night.people.map(person => person.id)
-    const hard: string[] = []
-    const dislikes: string[] = []
-    const preferences: string[] = []
-    for (const id of present) {
-      for (const constraint of constraintsByPerson.get(id) ?? []) {
-        if (isHardConstraint(constraint.kind)) hard.push(constraint.tag)
-        else if (constraint.kind === 'dislike') dislikes.push(constraint.tag)
-        else preferences.push(constraint.tag)
-      }
-    }
-
-    const budget = budgetFor(night.date)
-    const candidates: { item: GeneratorRecipe, weight: number }[] = []
-
-    for (const recipe of liveRecipes) {
-      // No recipe twice in one week, however good it looks.
-      if (chosen.has(recipe.id)) continue
-
-      const names = namesOf.get(recipe.id) ?? []
-      // The one filter that is not negotiable.
-      if (hard.some(tag => mentions(tag, names))) continue
-
-      let score = 0
-
-      const previously = lastCooked.get(recipe.id)
-      if (!previously) {
-        score += WEIGHTS.neverCookedBonus
-      } else {
-        const rested = daysBetween(previously, night.date)
-        const staleness = Math.max(0, WEIGHTS.recencyWindowDays - rested) / WEIGHTS.recencyWindowDays
-        score -= WEIGHTS.recencyPenalty * staleness
-      }
-
-      let shared = 0
-      for (const id of canonicalOf.get(recipe.id) ?? []) {
-        if (chosenIngredients.has(id)) shared++
-      }
-      score += Math.min(shared * WEIGHTS.overlapBonus, WEIGHTS.overlapCap)
-
-      const minutes = (recipe.prep_minutes ?? 0) + (recipe.cook_minutes ?? 0)
-      if (minutes > 0) {
-        const drift = minutes > budget
-          ? (minutes - budget) * WEIGHTS.overBudgetPenalty
-          : (budget - minutes) * WEIGHTS.underBudgetPenalty
-        score -= Math.min(drift, WEIGHTS.effortCap)
-      }
-
-      for (const tag of dislikes) if (mentions(tag, names)) score -= WEIGHTS.dislikePenalty
-      for (const tag of preferences) if (mentions(tag, names)) score += WEIGHTS.preferenceBonus
-
-      candidates.push({ item: recipe, weight: Math.exp(score / WEIGHTS.temperature) })
-    }
-
-    const winner = pickWeighted(candidates, random)
+    const winner = pickWeighted(
+      rankCandidates(context, night).map(candidate => ({
+        item: candidate.recipe,
+        weight: candidate.weight
+      })),
+      random
+    )
     if (!winner) continue
 
     chosen.add(winner.id)
