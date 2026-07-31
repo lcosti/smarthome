@@ -50,6 +50,20 @@ export interface PurchaseUnitLike extends PurchaseUnit {
 export interface AggregateContext {
   ingredients: Map<string, IngredientWithUnit>
   purchaseUnits: PurchaseUnitLike[]
+  /**
+   * Base units of each ingredient already in the house, by ingredient id.
+   *
+   * Optional, and absent means absent: a household that has never recorded any
+   * stock gets exactly the list it got before the pantry existed.
+   */
+  pantry?: Map<string, number>
+}
+
+/** What a line needs, what the cupboard covers, and what is therefore left to buy. */
+export interface PantryCoverage {
+  need: number
+  have: number
+  toBuy: number
 }
 
 /**
@@ -68,6 +82,12 @@ export interface ListEntry<T extends ItemLike = ItemLike> {
   items: T[]
   /** Set only when this line is a group of rows sharing an ingredient. */
   ingredient: IngredientWithUnit | null
+  /**
+   * What the pantry covers of this line, or null when it covers nothing — because
+   * there is no stock, or because the quantity is prose no arithmetic can touch.
+   * `toBuy === 0` is the line that is already in the house.
+   */
+  pantry: PantryCoverage | null
 }
 
 function byCreated(a: { created_at: string }, b: { created_at: string }) {
@@ -90,15 +110,15 @@ function unitsFor(ingredientId: string, context: AggregateContext): PurchaseUnit
  * Add up what can be added up, and keep the rest as written.
  *
  * A line reading "a splash of passata" cannot join a total, but dropping it would
- * mean the list quietly asked for less than the recipes do. It is appended
+ * mean the list quietly asked for less than the recipes do. It is kept aside
  * verbatim instead, so the number stays true to the rows it came from and the
  * words are still there to read.
  */
-function groupLabel(
+function measure(
   items: ItemLike[],
   ingredient: IngredientWithUnit,
   context: AggregateContext
-): string | null {
+): { total: number, counted: number, tails: string[] } {
   const units = unitsFor(ingredient.id, context)
   let total = 0
   let counted = 0
@@ -116,20 +136,82 @@ function groupLabel(
     counted++
   }
 
+  return { total, counted, tails }
+}
+
+/** A base amount as "800g", followed by "2 tins" when that says something extra. */
+function amountParts(
+  amount: number,
+  ingredient: IngredientWithUnit,
+  context: AggregateContext
+): string[] {
+  const parts = [formatBaseAmount(amount, ingredient.base_unit)]
+  const unit = displayUnit(ingredient.id, context)
+  // Only worth saying when it is not simply repeating the number above.
+  if (unit && ingredient.base_unit !== 'count') {
+    const purchase = formatPurchase(amount, unit)
+    if (purchase) parts.push(purchase)
+  }
+  return parts
+}
+
+/**
+ * How much of a measured total the cupboard covers.
+ *
+ * Computed against the line's whole demand, which is the reason this can be as
+ * simple as one subtraction: every row wanting an ingredient has already
+ * collapsed into one line, so there is no allocating to do between them. The one
+ * known cost is an ingredient somebody has deliberately filed in two aisles —
+ * bucketing happens before this, so each bucket sees the whole of the stock and
+ * subtracts it twice. Rare, visible, and better than dragging the two lines back
+ * together against what a person explicitly asked for.
+ */
+function coverageOf(
+  total: number,
+  counted: number,
+  ingredient: IngredientWithUnit,
+  context: AggregateContext
+): PantryCoverage | null {
+  if (counted < 1 || !(total > 0)) return null
+  const onHand = context.pantry?.get(ingredient.id) ?? 0
+  if (!(onHand > 0)) return null
+  const have = Math.min(total, onHand)
+  return { need: total, have, toBuy: total - have }
+}
+
+/**
+ * What to show where the quantity goes, once the cupboard has had its say.
+ *
+ * The number is always what to put in the trolley, because that is the question
+ * being asked while standing in an aisle. Where it came from is said in words
+ * beside it, so a line that shrank never looks like a line that was wrong.
+ */
+function labelFor(
+  measured: { total: number, counted: number, tails: string[] },
+  coverage: PantryCoverage | null,
+  ingredient: IngredientWithUnit,
+  context: AggregateContext
+): string | null {
+  const { total, counted, tails } = measured
   const parts: string[] = []
+
   if (counted > 0) {
-    parts.push(formatBaseAmount(total, ingredient.base_unit))
-    const unit = displayUnit(ingredient.id, context)
-    // Only worth saying when it is not simply repeating the number above.
-    if (unit && ingredient.base_unit !== 'count') {
-      const purchase = formatPurchase(total, unit)
-      if (purchase) parts.push(purchase)
+    if (!coverage) {
+      parts.push(...amountParts(total, ingredient, context))
+    } else if (coverage.toBuy > 0) {
+      parts.push(...amountParts(coverage.toBuy, ingredient, context))
+      parts.push(`${formatBaseAmount(coverage.have, ingredient.base_unit)} in the pantry`)
+    } else {
+      // Nothing to buy. The recipe's own amount is still the useful number — it is
+      // what to take out of the cupboard.
+      parts.push(...amountParts(total, ingredient, context))
+      parts.push('from the pantry')
     }
   }
 
-  const measured = parts.join(' · ')
-  if (measured && tails.length) return `${measured} + ${tails.join(', ')}`
-  if (measured) return measured
+  const label = parts.join(' · ')
+  if (label && tails.length) return `${label} + ${tails.join(', ')}`
+  if (label) return label
   return tails.length ? tails.join(', ') : null
 }
 
@@ -148,15 +230,33 @@ function groupLabel(
  * something already in the trolley.
  */
 export function buildEntries<T extends ItemLike>(items: T[], context: AggregateContext): ListEntry<T>[] {
-  const single = (item: T): ListEntry<T> => ({
-    key: item.id,
-    name: item.name,
-    // Verbatim, as before Phase 3. One row needs no arithmetic, and rewriting
-    // "2 tins" as "800g · 2 tins" would be noise at the shelf.
-    quantityLabel: item.quantity?.trim() || null,
-    items: [item],
-    ingredient: null
-  })
+  /**
+   * One row on its own. Its quantity stays verbatim, as before Phase 3 — rewriting
+   * "2 tins" as "800g · 2 tins" would be noise at the shelf — unless the cupboard
+   * has something to say about it, which is a fact worth the rewrite.
+   */
+  const single = (item: T, ingredient: IngredientWithUnit | null): ListEntry<T> => {
+    // Only worth any arithmetic when there is stock of this to subtract. Without
+    // a pantry this is the function it has always been.
+    const stocked = ingredient && (context.pantry?.get(ingredient.id) ?? 0) > 0
+    const measured = stocked && ingredient ? measure([item], ingredient, context) : null
+    const coverage = measured && ingredient
+      ? coverageOf(measured.total, measured.counted, ingredient, context)
+      : null
+
+    return {
+      key: item.id,
+      name: item.name,
+      quantityLabel: coverage && measured && ingredient
+        ? labelFor(measured, coverage, ingredient, context)
+        : item.quantity?.trim() || null,
+      items: [item],
+      // Null even when the ingredient is known: this field means "this line is a
+      // group", and one row is not one, however well the app knows what it is.
+      ingredient: null,
+      pantry: coverage
+    }
+  }
 
   const buckets = new Map<string, { ingredient: IngredientWithUnit, items: T[] }>()
   const loners: T[] = []
@@ -172,22 +272,25 @@ export function buildEntries<T extends ItemLike>(items: T[], context: AggregateC
     else buckets.set(ingredient.id, { ingredient, items: [item] })
   }
 
-  const entries: ListEntry<T>[] = loners.map(single)
+  const entries: ListEntry<T>[] = loners.map(item => single(item, null))
 
   for (const { ingredient, items: grouped } of buckets.values()) {
     // One row is still one row: showing it under its canonical name would rename
     // what the recipe said for no benefit.
     if (grouped.length < 2) {
-      entries.push(single(grouped[0]!))
+      entries.push(single(grouped[0]!, ingredient))
       continue
     }
     const ordered = [...grouped].sort(byCreated)
+    const measured = measure(ordered, ingredient, context)
+    const coverage = coverageOf(measured.total, measured.counted, ingredient, context)
     entries.push({
       key: `ingredient:${ingredient.id}`,
       name: ingredient.name,
-      quantityLabel: groupLabel(ordered, ingredient, context),
+      quantityLabel: labelFor(measured, coverage, ingredient, context),
       items: ordered,
-      ingredient
+      ingredient,
+      pantry: coverage
     })
   }
 

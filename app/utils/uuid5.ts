@@ -123,3 +123,22 @@ export const ATTENDANCE_NAMESPACE = 'd41c8f26-5a93-4e07-b8d1-2f7a6c904e35'
  * one. Fixed forever.
  */
 export const CONSTRAINT_NAMESPACE = '9e5b3a74-1c62-4d8f-a057-3b8e1d47c026'
+
+/**
+ * The namespace for pantry stock, keyed on (household, ingredient).
+ *
+ * There is one answer to "how many onions are in the house", so there has to be
+ * one row holding it. Two people unpacking the same shop offline would otherwise
+ * create two, and the app would read whichever it saw rather than the truth.
+ * Fixed forever.
+ */
+export const PANTRY_NAMESPACE = 'a5f30e62-8b14-4c79-9d2a-6e0b3f81c47d'
+
+/**
+ * The namespace for pantry reservations, keyed on (plan entry, ingredient).
+ *
+ * This is what makes deriving a week safe to repeat. The same night wanting the
+ * same ingredient always mints the same id, so pressing the button again rewrites
+ * one row instead of spending the stock a second time. Fixed forever.
+ */
+export const PANTRY_RESERVATION_NAMESPACE = '2f8c6b91-4d07-45ea-83b6-7c1a9e05d234'

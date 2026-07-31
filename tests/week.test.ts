@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, dayLabel, isoDate, mondayOf, todayIso, weekDates, weekLabel } from '../app/utils/week'
+import {
+  addDays, dayLabel, isoDate, isoWeekNumber, mondayOf, todayIso, weekDates, weekLabel
+} from '../app/utils/week'
 
 describe('isoDate', () => {
   it('formats a local calendar date', () => {
@@ -125,5 +127,32 @@ describe('labels', () => {
 describe('todayIso', () => {
   it('agrees with isoDate of now', () => {
     expect(todayIso()).toBe(isoDate(new Date()))
+  })
+})
+
+describe('isoWeekNumber', () => {
+  it('numbers an ordinary week', () => {
+    // The Friday the design was drawn for.
+    expect(isoWeekNumber(new Date(2026, 6, 31))).toBe(31)
+    // Every day of that week is the same number.
+    expect(isoWeekNumber(new Date(2026, 6, 27))).toBe(31)
+    expect(isoWeekNumber(new Date(2026, 7, 2))).toBe(31)
+  })
+
+  it('gives January its predecessor\'s number when the year starts mid-week', () => {
+    // 1 January 2027 is a Friday, so that week's Thursday is still in 2026:
+    // week 53 of 2026, not week 1 of 2027.
+    expect(isoWeekNumber(new Date(2027, 0, 1))).toBe(53)
+    expect(isoWeekNumber(new Date(2027, 0, 4))).toBe(1)
+  })
+
+  it('gives late December next year\'s number when the year ends mid-week', () => {
+    // 31 December 2024 is a Tuesday, in the week whose Thursday is 2 January.
+    expect(isoWeekNumber(new Date(2024, 11, 31))).toBe(1)
+  })
+
+  it('numbers a year that starts on a Thursday from the first', () => {
+    // 1 January 2026 is a Thursday, so it is in week 1 by definition.
+    expect(isoWeekNumber(new Date(2026, 0, 1))).toBe(1)
   })
 })

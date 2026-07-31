@@ -2,14 +2,27 @@ import { defineStore } from 'pinia'
 import type { AggregateContext, ListEntry } from '../utils/aggregate'
 import { buildEntries } from '../utils/aggregate'
 import type { AisleRow, ItemRow } from '../utils/db'
+import { lineNeedBase } from '../utils/pantry'
 import { plainCopy } from '../utils/sync'
 import { asBaseUnit, useIngredientsStore } from './ingredients'
+import { usePantryStore } from './pantry'
+import { usePeopleStore } from './people'
 import { nowIso, useSyncStore } from './sync'
 
 export interface AisleGroup {
   id: string
   name: string
   entries: ListEntry<ItemRow>[]
+}
+
+/**
+ * The parts of a shopping list item a person can actually decide. Everything
+ * else on the row is provenance the app fills in — where it came from, who
+ * added it, which ingredient it resolved to — and is not a field to offer.
+ */
+export interface NewItemFields {
+  quantity?: string | null
+  aisleId?: string | null
 }
 
 function normaliseName(name: string) {
@@ -19,6 +32,8 @@ function normaliseName(name: string) {
 export const useListStore = defineStore('list', () => {
   const sync = useSyncStore()
   const ingredients = useIngredientsStore()
+  const pantry = usePantryStore()
+  const people = usePeopleStore()
 
   const items = computed(() => sync.rowsOf('shopping_list_items'))
   const aisles = computed(() => sync.rowsOf('aisles'))
@@ -42,7 +57,11 @@ export const useListStore = defineStore('list', () => {
     ingredients: new Map(
       [...ingredients.allRows.values()].map(row => [row.id, { ...row, base_unit: asBaseUnit(row.base_unit) }])
     ),
-    purchaseUnits: ingredients.purchaseUnits
+    purchaseUnits: ingredients.purchaseUnits,
+    // What is in the house, minus what the nights ahead have already claimed. An
+    // empty map — the usual case until somebody records some stock — leaves every
+    // line reading exactly as it did before the pantry existed.
+    pantry: pantry.available
   }))
 
   /**
@@ -86,6 +105,31 @@ export const useListStore = defineStore('list', () => {
   })
 
   /**
+   * Base units of each ingredient the list is currently asking for.
+   *
+   * The raw demand, before the cupboard has had its say — what the recipes want,
+   * not what is left to buy. Used to show somebody putting a shop away what the
+   * list expected of a line, so a mis-parsed "1kg" stands out beside it.
+   */
+  const neededByIngredient = computed(() => {
+    const totals = new Map<string, number>()
+    const context = aggregateContext.value
+    for (const item of liveItems.value) {
+      if (item.checked || !item.ingredient_id) continue
+      const ingredient = context.ingredients.get(item.ingredient_id)
+      if (!ingredient) continue
+      const amount = lineNeedBase(
+        item.quantity,
+        ingredient.base_unit,
+        ingredients.purchaseUnitsFor(ingredient.id)
+      )
+      if (amount === null) continue
+      totals.set(ingredient.id, (totals.get(ingredient.id) ?? 0) + amount)
+    }
+    return totals
+  })
+
+  /**
    * The aisle this item was filed under last time. Nobody should have to tell the
    * app that milk lives in Chilled more than once.
    */
@@ -97,6 +141,19 @@ export const useListStore = defineStore('list', () => {
       if (!best || row.updated_at > best.updated_at) best = row
     }
     return best?.aisle_id ?? null
+  }
+
+  /**
+   * The aisle a new item would be filed under if nobody said otherwise: what the
+   * household's canonical ingredient says, else wherever this name went last
+   * time.
+   *
+   * Exposed rather than kept private to {@link addItem} so a form can show the
+   * guess as an already-selected chip. Filing something invisibly and filing it
+   * in front of somebody are different acts — the second one is correctable.
+   */
+  function suggestedAisle(name: string): string | null {
+    return ingredients.resolve(name)?.aisle_id ?? rememberedAisle(name)
   }
 
   /**
@@ -129,8 +186,13 @@ export const useListStore = defineStore('list', () => {
    * Null means the item was not added. Without a household there is nothing to
    * attach the row to, and callers have to be able to tell — a dropped write that
    * looks like a successful one is the worst thing this app can do.
+   *
+   * Everything past the name is optional, because the fast path has to stay one
+   * field and one press. `aisleId` is deliberately three-valued: omitted takes
+   * {@link suggestedAisle}, whereas an explicit `null` is somebody choosing
+   * "Other" and must survive a guess that disagrees.
    */
-  async function addItem(rawName: string): Promise<ItemRow | null> {
+  async function addItem(rawName: string, fields: NewItemFields = {}): Promise<ItemRow | null> {
     const name = rawName.trim()
     if (!name || !sync.householdId) return null
     // Resolved if the household already knows this name, but never created: the
@@ -143,14 +205,18 @@ export const useListStore = defineStore('list', () => {
       id: crypto.randomUUID(),
       household_id: sync.householdId,
       name,
-      quantity: null,
-      aisle_id: ingredient?.aisle_id ?? rememberedAisle(name),
+      quantity: fields.quantity?.trim() || null,
+      aisle_id: 'aisleId' in fields ? fields.aisleId ?? null : suggestedAisle(name),
       checked: false,
       checked_at: null,
       source: 'adhoc',
       plan_entry_id: null,
       recipe_ingredient_id: null,
       ingredient_id: ingredient?.id ?? null,
+      // Who to credit on the wall board. Null from the shared tablet, which is
+      // nobody in particular — the board simply omits the line rather than
+      // guessing.
+      added_by: people.me?.id ?? null,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp
@@ -252,7 +318,9 @@ export const useListStore = defineStore('list', () => {
     liveItems,
     checkedItems,
     groups,
+    neededByIngredient,
     rememberedAisle,
+    suggestedAisle,
     sourceLabelFor,
     sourceLabelForEntry,
     addItem,

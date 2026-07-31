@@ -3,7 +3,16 @@
 
 @theme static {
   --font-sans: 'Public Sans', sans-serif;
+  /*
+    Times, dates and quantities only, never prose.
+    @nuxt/fonts (bundled with @nuxt/ui) self-hosts this, and workbox precaches
+    every woff2 — which matters, because the wall board has to paint its clock
+    with no network at all.
+  */
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
+  /* Nuxt's brand green. No longer the primary colour, but still what `success`
+     resolves to — the shopping list's one reward colour. */
   --color-green-50: #EFFDF5;
   --color-green-100: #D9FBE8;
   --color-green-200: #B3F5D1;
@@ -15,4 +24,40 @@
   --color-green-800: #016538;
   --color-green-900: #0A5331;
   --color-green-950: #052E16;
+}
+
+/*
+  Scrollbars. One kind, everywhere something scrolls.
+
+  A native scrollbar is browser chrome, and a pale grey 9px trough down the side
+  of a card reads as a rendering fault rather than as an affordance — most of
+  all on a tablet across the kitchen, which is where these were first quietened.
+
+  Quietened rather than removed. These are touchscreens and nobody drags the
+  handle, but a list that continues past the fold with nothing at all to say so
+  is a list you stop at the bottom of.
+
+  Global rather than scoped to one surface: every scrolling area in the app —
+  the ingredient list at the hob, the recipe pane, the shopping card — is the
+  same kind of thing, and a second style for the next one would be a second
+  answer to a settled question. iOS overlay scrollbars ignore this and keep
+  their own behaviour, which is already right.
+*/
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-border-accented) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--ui-border-accented);
 }

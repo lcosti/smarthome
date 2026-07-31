@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { RecipeIngredientRow, RecipeRow } from '../utils/db'
+import type { RecipeIngredientRow, RecipeRow, RecipeStepRow } from '../utils/db'
 import { plainCopy } from '../utils/sync'
 import { useListStore } from './list'
 import { nowIso, useSyncStore } from './sync'
@@ -14,6 +14,7 @@ export const useRecipesStore = defineStore('recipes', () => {
 
   const all = computed(() => sync.rowsOf('recipes'))
   const allLines = computed(() => sync.rowsOf('recipe_ingredients'))
+  const allSteps = computed(() => sync.rowsOf('recipe_steps'))
 
   /** Alphabetical: a household library is small, and it stays where you left it. */
   const recipes = computed(() =>
@@ -38,6 +39,18 @@ export const useRecipesStore = defineStore('recipes', () => {
     return row && !row.deleted_at ? row : undefined
   }
 
+  function stepById(id: string): RecipeStepRow | undefined {
+    const row = allSteps.value.get(id)
+    return row && !row.deleted_at ? row : undefined
+  }
+
+  /** The method, in the order it is cooked. Same rules as the ingredient lines. */
+  function stepsFor(recipeId: string): RecipeStepRow[] {
+    return [...allSteps.value.values()]
+      .filter(s => s.recipe_id === recipeId && !s.deleted_at)
+      .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at))
+  }
+
   /**
    * Where this ingredient has been filed before — on the shopping list, or on
    * another recipe. Typing "passata" into a recipe should land it in the same
@@ -60,6 +73,7 @@ export const useRecipesStore = defineStore('recipes', () => {
     name: string
     source_url?: string | null
     base_servings?: number
+    image_url?: string | null
   }) {
     const name = input.name.trim()
     if (!name || !sync.householdId) return
@@ -73,6 +87,7 @@ export const useRecipesStore = defineStore('recipes', () => {
       prep_minutes: null,
       cook_minutes: null,
       method: null,
+      image_url: input.image_url ?? null,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp
@@ -80,7 +95,7 @@ export const useRecipesStore = defineStore('recipes', () => {
   }
 
   type RecipePatch = Partial<Pick<RecipeRow,
-    'name' | 'source_url' | 'base_servings' | 'prep_minutes' | 'cook_minutes' | 'method'>>
+    'name' | 'source_url' | 'base_servings' | 'prep_minutes' | 'cook_minutes' | 'method' | 'image_url'>>
 
   async function updateRecipe(id: string, patch: RecipePatch) {
     const current = all.value.get(id)
@@ -139,6 +154,59 @@ export const useRecipesStore = defineStore('recipes', () => {
     await sync.commit('recipe_ingredients', { ...plainCopy(current), deleted_at: nowIso() })
   }
 
+  /**
+   * A step, appended.
+   *
+   * Deliberately the same four functions as the ingredient lines, doing the same
+   * four things — a step and an ingredient are both a short string in an order
+   * somebody rearranges, and the second copy of a working pattern is cheaper to
+   * read than an abstraction over one.
+   */
+  async function addStep(recipeId: string, body: string) {
+    const text = body.trim()
+    if (!text || !sync.householdId) return
+    const timestamp = nowIso()
+    const highest = stepsFor(recipeId).reduce((max, s) => Math.max(max, s.sort_order), 0)
+    return sync.commit('recipe_steps', {
+      id: crypto.randomUUID(),
+      household_id: sync.householdId,
+      recipe_id: recipeId,
+      body: text,
+      sort_order: highest + 1,
+      deleted_at: null,
+      created_at: timestamp,
+      updated_at: timestamp
+    })
+  }
+
+  async function updateStep(id: string, body: string) {
+    const current = allSteps.value.get(id)
+    const text = body.trim()
+    // An emptied step is a deletion somebody expressed by clearing the box, which
+    // is a likelier way to mean it than finding the button.
+    if (!current) return
+    if (!text) return deleteStep(id)
+    await sync.commit('recipe_steps', { ...plainCopy(current), body: text })
+  }
+
+  async function deleteStep(id: string) {
+    const current = allSteps.value.get(id)
+    if (!current) return
+    await sync.commit('recipe_steps', { ...plainCopy(current), deleted_at: nowIso() })
+  }
+
+  async function moveStep(id: string, direction: -1 | 1) {
+    const current = allSteps.value.get(id)
+    if (!current) return
+    const ordered = stepsFor(current.recipe_id)
+    const index = ordered.findIndex(s => s.id === id)
+    const target = ordered[index + direction]
+    const source = ordered[index]
+    if (!source || !target) return
+    await sync.commit('recipe_steps', { ...plainCopy(source), sort_order: target.sort_order })
+    await sync.commit('recipe_steps', { ...plainCopy(target), sort_order: source.sort_order })
+  }
+
   /** Swap sort_order with the neighbour, so lines read in cooking order. */
   async function moveIngredient(id: string, direction: -1 | 1) {
     const current = allLines.value.get(id)
@@ -159,6 +227,8 @@ export const useRecipesStore = defineStore('recipes', () => {
     recipeById,
     ingredientsFor,
     ingredientById,
+    stepsFor,
+    stepById,
     rememberedAisle,
     addRecipe,
     updateRecipe,
@@ -166,6 +236,10 @@ export const useRecipesStore = defineStore('recipes', () => {
     addIngredient,
     updateIngredient,
     deleteIngredient,
-    moveIngredient
+    moveIngredient,
+    addStep,
+    updateStep,
+    deleteStep,
+    moveStep
   }
 })

@@ -1,33 +1,76 @@
 <script setup lang="ts">
+import { usePlanStore } from '../../stores/plan'
 import { useRecipesStore } from '../../stores/recipes'
 import { useSyncStore } from '../../stores/sync'
+import { looksLikeUrl } from '../../utils/recipe-import'
+import { dayLabel } from '../../utils/week'
 
 const store = useRecipesStore()
 const sync = useSyncStore()
+const plan = usePlanStore()
+const route = useRoute()
 
-// One box does both jobs. Typing narrows the library; pressing add turns what you
-// typed into a recipe. Two separate inputs would mean choosing before you start.
+// A wide screen gets master and detail, which is a different tree with a
+// different script rather than the same one at another width.
+const isWide = useWide()
+
+/**
+ * `?swap=YYYY-MM-DD` turns the library into a picker for that night, which is
+ * what Tonight's "Swap meal" opens. Handled at both widths, because Tonight is
+ * at both widths.
+ */
+const swapDate = computed(() => {
+  const value = route.query.swap
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
+})
+
+async function pick(recipeId: string) {
+  const date = swapDate.value
+  if (!date) {
+    await navigateTo(`/recipes/${recipeId}`)
+    return
+  }
+  await plan.setNight(date, recipeId)
+  // Back where the errand started, rather than leaving somebody on the library
+  // to find their own way home.
+  await navigateTo('/today')
+}
+
+// One box does three jobs. Typing narrows the library; pressing add turns what
+// you typed into a recipe; and a pasted link is fetched rather than made the
+// name of an empty one. Separate inputs would mean choosing before you start.
 const draft = ref('')
+
+const pasted = computed(() => looksLikeUrl(draft.value))
 
 const matches = computed(() => {
   const needle = draft.value.trim().toLowerCase()
-  if (!needle) return store.recipes
+  if (!needle || pasted.value) return store.recipes
   return store.recipes.filter(r => r.name.toLowerCase().includes(needle))
 })
 
-async function add() {
-  const name = draft.value.trim()
-  if (!name) return
-  draft.value = ''
-  const created = await store.addRecipe({ name })
-  if (created) await navigateTo(`/recipes/${created.id}`)
-}
-
-// Photograph a cookbook page instead of typing it in. Multi-select because a
-// recipe often spans a spread: ingredients on one page, method overleaf.
-const photoImport = useRecipePhotoImport()
+// Photograph a cookbook page, or paste the link of one. Multi-select on the
+// photo path because a recipe often spans a spread: ingredients on one page,
+// method overleaf.
+const recipeImport = useRecipeImport()
 const photoInput = ref<HTMLInputElement>()
 const toast = useToast()
+
+async function add() {
+  const typed = draft.value.trim()
+  if (!typed || recipeImport.busy.value) return
+
+  if (looksLikeUrl(typed)) {
+    const recipeId = await recipeImport.importUrl(typed)
+    if (recipeId) draft.value = ''
+    await land(recipeId)
+    return
+  }
+
+  draft.value = ''
+  const created = await store.addRecipe({ name: typed })
+  if (created) await navigateTo(`/recipes/${created.id}`)
+}
 
 async function onPhotosPicked(event: Event) {
   const input = event.target as HTMLInputElement
@@ -35,23 +78,28 @@ async function onPhotosPicked(event: Event) {
   input.value = ''
   if (!files.length) return
 
-  const recipeId = await photoImport.importPhotos(files)
+  await land(await recipeImport.importPhotos(files))
+}
+
+/** The new recipe, or the reason there isn't one. */
+async function land(recipeId: string | null) {
   if (recipeId) {
     await navigateTo(`/recipes/${recipeId}`)
-  } else if (photoImport.error.value) {
-    toast.add({ title: photoImport.error.value, color: 'error' })
+  } else if (recipeImport.error.value) {
+    toast.add({ title: recipeImport.error.value, color: 'error' })
   }
 }
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
-    <header class="shrink-0 border-b border-default bg-default">
-      <div class="mx-auto max-w-xl px-3 pt-3 pb-2">
-        <h1 class="mb-2 text-lg font-semibold">
-          Recipes
-        </h1>
+  <RecipeLibraryWide v-if="isWide" />
 
+  <div
+    v-else
+    class="flex h-full flex-col"
+  >
+    <AppPageHeader :title="swapDate ? `Pick a meal for ${dayLabel(swapDate)}` : 'Recipes'">
+      <div>
         <form
           class="flex gap-2"
           @submit.prevent="add"
@@ -59,25 +107,26 @@ async function onPhotosPicked(event: Event) {
           <UInput
             v-model="draft"
             size="xl"
-            placeholder="Search or add a recipe"
+            placeholder="Search, add or paste a link"
             autocapitalize="sentences"
             enterkeyhint="done"
             class="flex-1"
+            data-testid="recipe-draft"
           />
           <UButton
             type="submit"
             size="xl"
-            icon="i-lucide-plus"
-            :disabled="!draft.trim()"
-            aria-label="Add recipe"
+            :icon="pasted ? 'i-lucide-link' : 'i-lucide-plus'"
+            :disabled="!draft.trim() || recipeImport.busy.value"
+            :aria-label="pasted ? 'Import recipe from the link' : 'Add recipe'"
           />
           <UButton
             size="xl"
             color="neutral"
             variant="outline"
-            :icon="photoImport.status.value === 'idle' ? 'i-lucide-camera' : ''"
-            :loading="photoImport.status.value !== 'idle'"
-            :disabled="photoImport.status.value !== 'idle'"
+            :icon="recipeImport.busy.value ? '' : 'i-lucide-camera'"
+            :loading="recipeImport.busy.value"
+            :disabled="recipeImport.busy.value"
             aria-label="Add recipe from a photo"
             @click="photoInput?.click()"
           />
@@ -96,13 +145,13 @@ async function onPhotosPicked(event: Event) {
         </form>
 
         <p
-          v-if="photoImport.status.value !== 'idle'"
+          v-if="recipeImport.progress.value"
           class="mt-2 text-sm text-muted"
         >
-          Reading recipe… this can take up to 30 seconds.
+          {{ recipeImport.progress.value }}
         </p>
       </div>
-    </header>
+    </AppPageHeader>
 
     <main class="mx-auto w-full max-w-xl min-h-0 flex-1 overflow-y-auto px-3 pb-6">
       <div
@@ -146,7 +195,8 @@ async function onPhotosPicked(event: Event) {
           :name="item.name"
           :ingredient-count="store.ingredientsFor(item.id).length"
           :servings="item.base_servings"
-          @select="navigateTo(`/recipes/${item.id}`)"
+          :image-url="item.image_url"
+          @select="pick(item.id)"
         />
       </ul>
     </main>

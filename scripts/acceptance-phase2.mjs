@@ -109,7 +109,7 @@ try {
 
   await page.getByRole('link', { name: 'Recipes' }).click()
   await page.waitForURL('**/recipes')
-  await page.getByPlaceholder('Search or add a recipe').fill('Chilli con carne')
+  await page.getByPlaceholder('Search, add or paste a link').fill('Chilli con carne')
   await page.getByRole('button', { name: 'Add recipe', exact: true }).click()
   await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 15_000 })
   log('created a recipe and landed on its page')

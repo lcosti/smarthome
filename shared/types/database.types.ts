@@ -123,6 +123,75 @@ export type Database = {
           },
         ]
       }
+      calendar_events: {
+        Row: {
+          all_day: boolean
+          calendar_id: string
+          created_at: string
+          deleted_at: string | null
+          end_date: string
+          ends_at: string
+          google_event_id: string
+          google_updated_at: string | null
+          household_id: string
+          id: string
+          person_id: string | null
+          start_date: string
+          starts_at: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          all_day: boolean
+          calendar_id: string
+          created_at?: string
+          deleted_at?: string | null
+          end_date: string
+          ends_at: string
+          google_event_id: string
+          google_updated_at?: string | null
+          household_id: string
+          id: string
+          person_id?: string | null
+          start_date: string
+          starts_at: string
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          all_day?: boolean
+          calendar_id?: string
+          created_at?: string
+          deleted_at?: string | null
+          end_date?: string
+          ends_at?: string
+          google_event_id?: string
+          google_updated_at?: string | null
+          household_id?: string
+          id?: string
+          person_id?: string | null
+          start_date?: string
+          starts_at?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_events_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_events_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dietary_constraints: {
         Row: {
           created_at: string
@@ -345,11 +414,14 @@ export type Database = {
       }
       meal_plan_entries: {
         Row: {
+          cook_person_id: string | null
           created_at: string
           date: string
           deleted_at: string | null
+          eat_time: string | null
           household_id: string
           id: string
+          leftover_of_entry_id: string | null
           meal: string
           note: string | null
           recipe_id: string
@@ -357,11 +429,14 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          cook_person_id?: string | null
           created_at?: string
           date: string
           deleted_at?: string | null
+          eat_time?: string | null
           household_id: string
           id: string
+          leftover_of_entry_id?: string | null
           meal?: string
           note?: string | null
           recipe_id: string
@@ -369,11 +444,14 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          cook_person_id?: string | null
           created_at?: string
           date?: string
           deleted_at?: string | null
+          eat_time?: string | null
           household_id?: string
           id?: string
+          leftover_of_entry_id?: string | null
           meal?: string
           note?: string | null
           recipe_id?: string
@@ -381,6 +459,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "meal_plan_entries_cook_person_id_fkey"
+            columns: ["cook_person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "meal_plan_entries_household_id_fkey"
             columns: ["household_id"]
@@ -393,6 +478,112 @@ export type Database = {
             columns: ["recipe_id"]
             isOneToOne: false
             referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pantry_items: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          on_hand: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          on_hand?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          ingredient_id?: string
+          on_hand?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pantry_items_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pantry_items_ingredient_id_fkey"
+            columns: ["ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "ingredients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pantry_reservations: {
+        Row: {
+          amount: number
+          created_at: string
+          date: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          plan_entry_id: string
+          settled_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          date: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          ingredient_id: string
+          plan_entry_id: string
+          settled_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          date?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          ingredient_id?: string
+          plan_entry_id?: string
+          settled_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pantry_reservations_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pantry_reservations_ingredient_id_fkey"
+            columns: ["ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "ingredients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pantry_reservations_plan_entry_id_fkey"
+            columns: ["plan_entry_id"]
+            isOneToOne: false
+            referencedRelation: "meal_plan_entries"
             referencedColumns: ["id"]
           },
         ]
@@ -509,6 +700,54 @@ export type Database = {
           },
         ]
       }
+      recipe_steps: {
+        Row: {
+          body: string
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          recipe_id: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          recipe_id: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          recipe_id?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_steps_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_steps_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recipes: {
         Row: {
           base_servings: number
@@ -517,6 +756,7 @@ export type Database = {
           deleted_at: string | null
           household_id: string
           id: string
+          image_url: string | null
           method: string | null
           name: string
           prep_minutes: number | null
@@ -530,6 +770,7 @@ export type Database = {
           deleted_at?: string | null
           household_id: string
           id: string
+          image_url?: string | null
           method?: string | null
           name: string
           prep_minutes?: number | null
@@ -543,6 +784,7 @@ export type Database = {
           deleted_at?: string | null
           household_id?: string
           id?: string
+          image_url?: string | null
           method?: string | null
           name?: string
           prep_minutes?: number | null
@@ -561,6 +803,7 @@ export type Database = {
       }
       shopping_list_items: {
         Row: {
+          added_by: string | null
           aisle_id: string | null
           checked: boolean
           checked_at: string | null
@@ -577,6 +820,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          added_by?: string | null
           aisle_id?: string | null
           checked?: boolean
           checked_at?: string | null
@@ -593,6 +837,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          added_by?: string | null
           aisle_id?: string | null
           checked?: boolean
           checked_at?: string | null
@@ -609,6 +854,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "shopping_list_items_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "shopping_list_items_aisle_id_fkey"
             columns: ["aisle_id"]

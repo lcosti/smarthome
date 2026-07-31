@@ -43,9 +43,9 @@ jobs:
       # from the functions directory: deno discovers its deno.json from the cwd,
       # and from the repo root it would resolve npm: imports against the app's
       # node_modules instead.
-      - name: Typecheck the Edge Function
+      - name: Typecheck the Edge Functions
         working-directory: supabase/functions
-        run: deno check import-recipe-photo/index.ts
+        run: deno check import-recipe-photo/index.ts import-recipe-url/index.ts
 
       - name: Test
         run: pnpm run test
@@ -115,13 +115,21 @@ jobs:
       - name: Phase 3 acceptance
         run: pnpm run acceptance:phase3
 
-      # The Edge Function is stubbed at the network seam, so this needs no
-      # Anthropic key — it proves everything the client owns.
-      - name: Phase 4 acceptance
-        run: pnpm run acceptance:phase4
+      # The import Edge Functions are stubbed at the network seam, so these need
+      # no Anthropic key — they prove everything the client owns.
+      - name: Photo import acceptance
+        run: pnpm run acceptance:photo-import
 
       - name: Roster acceptance
         run: pnpm run acceptance:roster
 
       - name: Generator acceptance
         run: pnpm run acceptance:generator
+
+      - name: URL import acceptance
+        run: pnpm run acceptance:url-import
+
+      # Runs at 1920x1200, because the board's whole contract is that it fits one
+      # fixed frame without scrolling.
+      - name: Wall board acceptance
+        run: pnpm run acceptance:board

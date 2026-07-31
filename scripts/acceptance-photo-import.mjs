@@ -1,4 +1,4 @@
-// The Phase 4 chain, driven end to end in a real browser:
+// Photo import, driven end to end in a real browser:
 //
 //   a photo of a recipe -> a recipe in the library, canonicalised like a typed one
 //
@@ -14,7 +14,7 @@
 // then curl it with a base64 photo — see the header of the function itself.
 //
 // Runs against the production bundle in .output/public:
-//   pnpm supabase start && pnpm generate && pnpm acceptance:phase4
+//   pnpm supabase start && pnpm generate && pnpm acceptance:photo-import
 // Needs SUPABASE_SECRET_KEY in .env — see .env.example.
 
 import { createServer } from 'node:http'
@@ -102,7 +102,7 @@ const SOUP = {
   base_servings: 4,
   prep_minutes: 10,
   cook_minutes: 30,
-  method: 'Soften the onion.\n\nAdd everything else and simmer.',
+  steps: ['Soften the onion.', 'Add everything else and simmer.'],
   ingredients: [
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'red lentils', quantity: '200g' },
@@ -115,7 +115,7 @@ const BOLOGNESE = {
   base_servings: 4,
   prep_minutes: null,
   cook_minutes: 45,
-  method: 'Brown the mince, add the tomatoes, simmer.',
+  steps: ['Brown the mince, add the tomatoes, simmer.'],
   ingredients: [
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'beef mince', quantity: '500g' }
@@ -210,10 +210,21 @@ try {
   log('the payload held both photos, compressed and base64-encoded')
 
   const soupText = await mainText()
-  assert(soupText.includes('Lentil soup'), 'the recipe page shows the extracted name')
+  // The name is an editable field, so it is read as a value rather than as text:
+  // what is on the screen is what can be corrected. The steps are rows.
+  assert(
+    (await page.getByLabel('Recipe name').inputValue()) === 'Lentil soup',
+    'the recipe page shows the extracted name'
+  )
   assert(soupText.includes('chopped tomatoes'), 'the ingredient lines are shown')
-  assert(soupText.includes('Soften the onion'), 'the method is shown')
-  log('name, ingredients and method all visible on the recipe page')
+  assert(soupText.includes('Soften the onion.'), 'the first step is shown')
+  assert(soupText.includes('Add everything else and simmer.'), 'and so is the second')
+  // The method must not have landed back in the notes box it was moved out of.
+  assert(
+    (await page.getByLabel('Notes').inputValue()).trim() === '',
+    'the notes are left empty for notes'
+  )
+  log('name, ingredients and separate steps all visible on the recipe page')
 
   const recipes = (await readTable('recipes')).filter(r => !r.deleted_at)
   const soup = recipes.find(r => r.name === 'Lentil soup')

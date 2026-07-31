@@ -407,6 +407,10 @@ describe('the synced table registry', () => {
     await db.cacheFor('ingredient_purchase_units').put(purchaseUnit({ id: 'u-1' }))
     await db.cacheFor('recipes').put(recipe({ id: 'r-1' }))
     await db.cacheFor('recipe_ingredients').put(line({ id: 'l-1' }))
+    await db.cacheFor('recipe_steps').put({
+      id: 's-1', household_id: HOUSEHOLD, recipe_id: 'r-1', body: 'Brown the mince.',
+      sort_order: 1, deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
     await db.cacheFor('meal_plan_entries').put(planEntry({ id: 'p-1' }))
     await db.cacheFor('shopping_list_items').put(item({ id: 'i-1' }))
     await db.cacheFor('people').put({
@@ -420,6 +424,23 @@ describe('the synced table registry', () => {
     await db.cacheFor('attendance').put({
       id: 'att-1', household_id: HOUSEHOLD, person_id: 'per-1', date: '2026-08-04',
       meal: 'dinner', present: false, deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
+    await db.cacheFor('pantry_items').put({
+      id: 'pan-1', household_id: HOUSEHOLD, ingredient_id: 'n-1', on_hand: 2,
+      deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
+    await db.cacheFor('pantry_reservations').put({
+      id: 'res-1', household_id: HOUSEHOLD, plan_entry_id: 'p-1', ingredient_id: 'n-1',
+      amount: 1, date: '2026-08-04', settled_at: null,
+      deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
+    await db.cacheFor('calendar_events').put({
+      id: 'cal-1', household_id: HOUSEHOLD, person_id: 'per-1',
+      calendar_id: 'family@group.calendar.google.com', google_event_id: 'g-1',
+      title: 'Choir', all_day: false,
+      starts_at: '2026-07-30T17:30:00.000Z', ends_at: '2026-07-30T19:00:00.000Z',
+      start_date: '2026-07-30', end_date: '2026-07-30', google_updated_at: null,
+      deleted_at: null, created_at: STAMP, updated_at: STAMP
     })
 
     // Each row lands in exactly one store, and nothing collides.

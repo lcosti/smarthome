@@ -1,4 +1,5 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
+import { usePantryStore } from '../stores/pantry'
 import { useSyncStore } from '../stores/sync'
 import { SYNC_TABLE_NAMES, type SyncedRow } from '../utils/db'
 import { clearIdentity, readIdentity, writeIdentity } from '../utils/identity'
@@ -17,6 +18,9 @@ type HouseholdLookup = { ok: true, householdId: string | null } | { ok: false }
  */
 export function useSync() {
   const store = useSyncStore()
+  // Resolved here rather than inside boot: by the time boot has awaited a pull
+  // there is no active Pinia to ask, and settling would throw on every start.
+  const pantry = usePantryStore()
   const supabase = useSupabaseClient()
   const session = useSupabaseSession()
   const user = useSupabaseUser()
@@ -76,6 +80,9 @@ export function useSync() {
       for (const row of results[i]!.data ?? []) store.applyServerRow(table, row as SyncedRow as never)
     })
     store.reachable = true
+    // Everything on screen was true as of now. This is the only place that can
+    // say so, which is why the wall board's "last synced" comes from here.
+    store.markSynced()
   }
 
   /**
@@ -161,6 +168,12 @@ export function useSync() {
     const cached = readIdentity()
     if (cached) store.householdId = cached.householdId
     await connect()
+    // Nights that have been and gone come off the shelf, once the freshest view
+    // of them is in hand. After connect rather than before, so a device catching
+    // up does not settle against reservations it has not pulled yet — and still
+    // correct with no network, because settling is idempotent and the next device
+    // to open the app computes the same answer.
+    await pantry.settleDue()
   }
 
   if (import.meta.client) {

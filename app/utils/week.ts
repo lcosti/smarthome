@@ -46,6 +46,26 @@ export function dayLabel(iso: string): string {
   return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
+/**
+ * The ISO-8601 week number, 1–53.
+ *
+ * ISO rather than "how many Mondays into the year", because those disagree
+ * around New Year and the board prints the number next to a date: the week
+ * containing the year's first Thursday is week 1, so 1 January can belong to
+ * week 52 or 53 of the year before, and 31 December to week 1 of the next.
+ *
+ * The trick is to move to the Thursday of this week first — that day is by
+ * definition in the right year — and then count weeks from the 4th of January,
+ * which is by definition in week 1.
+ */
+export function isoWeekNumber(date: Date): number {
+  const thursday = addDays(mondayOf(date), 3)
+  const jan4 = new Date(thursday.getFullYear(), 0, 4)
+  const firstThursday = addDays(mondayOf(jan4), 3)
+  const days = Math.round((thursday.getTime() - firstThursday.getTime()) / 86_400_000)
+  return Math.round(days / 7) + 1
+}
+
 /** "4 – 10 Aug", or "28 Jul – 3 Aug" when the week straddles two months. */
 export function weekLabel(monday: Date): string {
   const sunday = addDays(monday, 6)

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { useIngredientsStore } from '../../stores/ingredients'
-import { useListStore } from '../../stores/list'
-import { useRecipesStore } from '../../stores/recipes'
-import { useSyncStore } from '../../stores/sync'
-import type { IngredientRow } from '../../utils/db'
+import { useIngredientsStore } from '../../../stores/ingredients'
+import { useListStore } from '../../../stores/list'
+import { useRecipesStore } from '../../../stores/recipes'
+import { useSyncStore } from '../../../stores/sync'
+import type { IngredientRow } from '../../../utils/db'
 
 const route = useRoute()
 const store = useRecipesStore()
@@ -14,11 +14,15 @@ const ingredients = useIngredientsStore()
 const id = computed(() => String(route.params.id))
 const recipe = computed(() => store.recipeById(id.value))
 const lines = computed(() => store.ingredientsFor(id.value))
+const steps = computed(() => store.stepsFor(id.value))
 
 const draftName = ref('')
 const draftIngredient = ref('')
+const draftStep = ref('')
 const editingLineId = ref<string | null>(null)
 const editorOpen = ref(false)
+const editingStepId = ref<string | null>(null)
+const stepEditorOpen = ref(false)
 const ingredientInput = useTemplateRef<{ focus: () => void }>('ingredientInput')
 
 watch(recipe, (value) => {
@@ -54,6 +58,20 @@ function editLine(lineId: string) {
   editorOpen.value = true
 }
 
+function editStep(stepId: string) {
+  editingStepId.value = stepId
+  stepEditorOpen.value = true
+}
+
+async function addStep() {
+  const body = draftStep.value.trim()
+  if (!body) return
+  // Cleared first, like the ingredient box above: a method is typed one step
+  // after another and waiting on a write between them is the whole friction.
+  draftStep.value = ''
+  await store.addStep(id.value, body)
+}
+
 async function setServings(delta: number) {
   if (!recipe.value) return
   const next = Math.max(1, recipe.value.base_servings + delta)
@@ -74,29 +92,50 @@ async function removeRecipe() {
 
 <template>
   <div class="flex h-full flex-col">
-    <header class="shrink-0 border-b border-default bg-default">
-      <div class="mx-auto flex max-w-xl items-center gap-1 px-3 py-2">
-        <UButton
-          to="/recipes"
-          icon="i-lucide-arrow-left"
-          color="neutral"
-          variant="ghost"
-          aria-label="Back to recipes"
-        />
+    <AppPageHeader
+      back="/recipes"
+      back-label="Back to recipes"
+    >
+      <template #title>
         <UInput
           v-if="recipe"
           v-model="draftName"
           variant="ghost"
           size="xl"
-          class="flex-1 font-semibold"
+          class="min-w-0 flex-1 font-semibold"
           aria-label="Recipe name"
           @blur="renameOnBlur"
           @keydown.enter="renameOnBlur"
         />
-      </div>
-    </header>
+      </template>
 
-    <main class="mx-auto w-full max-w-xl min-h-0 flex-1 space-y-8 overflow-y-auto px-3 py-5">
+      <template #actions>
+        <!-- This page is for editing a recipe; cook mode is for standing at the
+             hob with it. One press between them, from either direction. -->
+        <UButton
+          v-if="recipe"
+          :to="`/recipes/${recipe.id}/cook`"
+          icon="i-lucide-chef-hat"
+          color="neutral"
+          variant="ghost"
+          aria-label="Cook this recipe"
+        />
+        <!-- Imported recipes keep their address: the page has the photographs,
+             the comments and whatever the method left out. -->
+        <UButton
+          v-if="recipe?.source_url"
+          :to="recipe.source_url"
+          target="_blank"
+          rel="noopener"
+          icon="i-lucide-external-link"
+          color="neutral"
+          variant="ghost"
+          aria-label="View the original page"
+        />
+      </template>
+    </AppPageHeader>
+
+    <main class="mx-auto min-h-0 w-full max-w-xl flex-1 space-y-8 overflow-y-auto px-3 py-5 lg:max-w-3xl lg:px-6 lg:pb-12">
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"
@@ -125,6 +164,21 @@ async function removeRecipe() {
       </div>
 
       <template v-else>
+        <!--
+          No placeholder when there is no picture: the page simply starts at the
+          ingredients, which is what a hand-typed recipe has always looked like.
+          The wrapper collapses with the image, so nothing reserves the space.
+        -->
+        <div
+          v-if="recipe.image_url"
+          class="-mt-1 aspect-video overflow-hidden rounded-lg bg-elevated/30"
+        >
+          <RecipeImage
+            :src="recipe.image_url"
+            :alt="recipe.name"
+          />
+        </div>
+
         <section>
           <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
             Ingredients
@@ -204,6 +258,69 @@ async function removeRecipe() {
           </div>
         </section>
 
+        <!--
+          The method, as the ordered thing it is. It used to live in the Notes
+          box below, which meant an imported recipe buried its own notes under a
+          wall of instructions and the board had to guess where one step ended.
+        -->
+        <section>
+          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
+            Steps
+          </h2>
+
+          <ol
+            v-if="steps.length"
+            class="rounded-lg border border-default bg-elevated/30"
+          >
+            <RecipeStepRow
+              v-for="(step, index) in steps"
+              :key="step.id"
+              :body="step.body"
+              :position="index + 1"
+              :can-move-up="index > 0"
+              :can-move-down="index < steps.length - 1"
+              @edit="editStep(step.id)"
+              @move-up="store.moveStep(step.id, -1)"
+              @move-down="store.moveStep(step.id, 1)"
+            />
+          </ol>
+
+          <p
+            v-else
+            class="rounded-lg border border-default bg-elevated/30 px-3 py-6 text-center text-sm text-dimmed"
+          >
+            No method yet. Add the first step below.
+          </p>
+
+          <form
+            class="mt-2 flex items-end gap-2"
+            @submit.prevent="addStep"
+          >
+            <!--
+              A textarea, so enter means a new line the way it does everywhere
+              else you write a paragraph. That costs enter-to-submit, which is
+              why the button is beside it rather than implied.
+            -->
+            <UTextarea
+              v-model="draftStep"
+              :rows="2"
+              autoresize
+              size="xl"
+              class="flex-1"
+              placeholder="Add a step"
+              aria-label="Add a step"
+            />
+            <UButton
+              type="submit"
+              size="xl"
+              icon="i-lucide-plus"
+              :disabled="!draftStep.trim()"
+              aria-label="Add step"
+            />
+          </form>
+        </section>
+
+        <!-- Notes is notes again: what the method left out, not the method. -->
         <section>
           <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
             Notes
@@ -235,6 +352,11 @@ async function removeRecipe() {
     <IngredientLineEditor
       v-model:open="editorOpen"
       :line-id="editingLineId"
+    />
+
+    <RecipeStepEditor
+      v-model:open="stepEditorOpen"
+      :step-id="editingStepId"
     />
   </div>
 </template>

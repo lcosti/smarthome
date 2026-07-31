@@ -10,6 +10,12 @@ const recipes = useRecipesStore()
 const sync = useSyncStore()
 const toast = useToast()
 
+// The two shapes are seven rows and seven columns. Everything else — which week
+// is on screen, filling it, deriving the list, the night editor — is the same
+// either way and stays here, so neither shape can grow an opinion the other
+// does not have.
+const isWide = useWide()
+
 // Week offset rather than a route param: deep-linking a week is not a real use
 // case, and back should leave the page rather than walk backwards through weeks.
 const weekOffset = ref(0)
@@ -83,43 +89,66 @@ async function derive() {
 
 <template>
   <div class="flex h-full flex-col">
-    <header class="shrink-0 border-b border-default bg-default">
-      <div class="mx-auto max-w-xl px-3 pt-3 pb-2">
-        <h1 class="mb-2 text-lg font-semibold">
-          Plan
-        </h1>
-
-        <div class="flex items-center gap-1">
-          <UButton
-            icon="i-lucide-chevron-left"
-            color="neutral"
-            variant="ghost"
-            aria-label="Previous week"
-            @click="weekOffset--"
-          />
-          <button
-            type="button"
-            class="flex-1 py-2 text-center text-sm font-medium active:bg-elevated/60"
-            @click="weekOffset = 0"
-          >
-            {{ weekLabel(monday) }}
-            <span
-              v-if="weekOffset !== 0"
-              class="ml-1 text-dimmed"
-            >· this week</span>
-          </button>
-          <UButton
-            icon="i-lucide-chevron-right"
-            color="neutral"
-            variant="ghost"
-            aria-label="Next week"
-            @click="weekOffset++"
-          />
-        </div>
+    <!--
+      Phone only. On a wide screen the app header above already carries the tab
+      you are on, and the week strip lives inside the grid with the buttons that
+      act on it — two stacked bars saying "Plan" was a header arguing with a nav.
+    -->
+    <AppPageHeader
+      v-if="!isWide"
+      title="Plan"
+      content-class="max-w-xl"
+    >
+      <div class="flex items-center gap-1 lg:max-w-md">
+        <UButton
+          icon="i-lucide-chevron-left"
+          color="neutral"
+          variant="ghost"
+          aria-label="Previous week"
+          @click="weekOffset--"
+        />
+        <button
+          type="button"
+          class="flex-1 py-2 text-center text-sm font-medium active:bg-elevated/60"
+          @click="weekOffset = 0"
+        >
+          {{ weekLabel(monday) }}
+          <span
+            v-if="weekOffset !== 0"
+            class="ml-1 text-dimmed"
+          >· this week</span>
+        </button>
+        <UButton
+          icon="i-lucide-chevron-right"
+          color="neutral"
+          variant="ghost"
+          aria-label="Next week"
+          @click="weekOffset++"
+        />
       </div>
-    </header>
+    </AppPageHeader>
 
-    <main class="mx-auto w-full max-w-xl min-h-0 flex-1 overflow-y-auto px-3 pb-6">
+    <!-- The wide shape is a screenful of its own and owns its margins. -->
+    <PlanWeekWide
+      v-if="isWide && sync.hydrated"
+      :nights="nights"
+      :today="today"
+      :week-start="weekStart"
+      :can-fill="canFill"
+      :can-derive="canDerive"
+      :filling="filling"
+      :deriving="deriving"
+      @open="openNight"
+      @fill="fill"
+      @derive="derive"
+      @step="weekOffset += $event"
+      @reset="weekOffset = 0"
+    />
+
+    <main
+      v-else
+      class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 pb-6"
+    >
       <div
         v-if="!sync.hydrated"
         class="py-16 text-center text-sm text-muted"
@@ -140,34 +169,37 @@ async function derive() {
         </ul>
 
         <!--
-          Above the derive button because it comes first in the week: suggest,
-          adjust what you don't fancy, then shop.
+          Fill is above derive because it comes first in the week: suggest,
+          adjust what you don't fancy, then shop. Stacked full-width, because
+          they are the bottom of a column and a thumb is the pointer.
         -->
-        <UButton
-          v-if="canFill"
-          class="mt-4 justify-center"
-          size="xl"
-          color="neutral"
-          variant="subtle"
-          block
-          icon="i-lucide-wand-sparkles"
-          :loading="filling"
-          @click="fill"
-        >
-          Fill the empty nights
-        </UButton>
+        <div class="mt-4 flex flex-col gap-3">
+          <UButton
+            v-if="canFill"
+            class="justify-center"
+            size="xl"
+            color="neutral"
+            variant="subtle"
+            block
+            icon="i-lucide-wand-sparkles"
+            :loading="filling"
+            @click="fill"
+          >
+            Fill the empty nights
+          </UButton>
 
-        <UButton
-          class="mt-3 justify-center"
-          size="xl"
-          block
-          icon="i-lucide-shopping-cart"
-          :disabled="!canDerive"
-          :loading="deriving"
-          @click="derive"
-        >
-          Add to shopping list
-        </UButton>
+          <UButton
+            class="justify-center"
+            size="xl"
+            block
+            icon="i-lucide-shopping-cart"
+            :disabled="!canDerive"
+            :loading="deriving"
+            @click="derive"
+          >
+            Add to shopping list
+          </UButton>
+        </div>
 
         <p
           v-if="!canDerive"

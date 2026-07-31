@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildContext,
   defaultEffortBudget,
   eaters,
   generateWeek,
+  rankCandidates,
+  suggestionReason,
+  topCandidates,
   type GenerateInput,
   type GeneratorLine,
-  type GeneratorRecipe
+  type GeneratorRecipe,
+  type RankReason,
+  type RankedCandidate
 } from '../app/utils/generator'
 
 /** Deterministic randomness, so an assertion about a pick means something. */
@@ -27,7 +33,9 @@ const BABY = { id: 'p-baby', stage: 'baby' as const }
 function recipe(over: Partial<GeneratorRecipe> & { id: string }): GeneratorRecipe {
   return {
     name: over.id,
-    base_servings: 4,
+    // Deliberately smaller than twice the default week's table, so nothing here
+    // chains a leftovers night by accident. The tests that want one say so.
+    base_servings: 3,
     prep_minutes: 10,
     cook_minutes: 15,
     deleted_at: null,
@@ -40,7 +48,7 @@ function line(recipeId: string, name: string, ingredientId: string | null = null
 }
 
 /** A week of Mondays-onward dates, everybody home. */
-function week(people = [ADULT]) {
+function week(people = [ADULT, TODDLER]) {
   return ['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-08', '2026-08-09']
     .map(date => ({ date, people }))
 }
@@ -335,6 +343,114 @@ describe('servings', () => {
   })
 })
 
+describe('leftovers', () => {
+  /** Two nights, two eaters, and a recipe big enough to cover both. */
+  function twoNights(over: Partial<GenerateInput> = {}) {
+    return generateWeek({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER] },
+        { date: '2026-08-04', people: [ADULT, TODDLER] }
+      ],
+      recipes: [recipe({ id: 'batch', base_servings: 6 })],
+      lines: [], constraints: [], history: [], random: seeded(1),
+      ...over
+    })
+  }
+
+  it('feeds the next night from a batch big enough for it', () => {
+    expect(twoNights()).toEqual([
+      { date: '2026-08-03', recipeId: 'batch', servings: 2 },
+      { date: '2026-08-04', recipeId: 'batch', servings: 2, leftoverOfDate: '2026-08-03' }
+    ])
+  })
+
+  it('caters the leftovers night for whoever is actually there', () => {
+    const picks = twoNights({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER] },
+        { date: '2026-08-04', people: [ADULT] }
+      ]
+    })
+    expect(picks[1]?.servings).toBe(1)
+  })
+
+  it('leaves the pot alone when it is not a batch', () => {
+    // Four servings, three at the table: enough for a lunchbox, not a dinner.
+    const picks = twoNights({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER, { id: 'p-2', stage: 'child' as const }] },
+        { date: '2026-08-04', people: [ADULT, TODDLER] }
+      ],
+      recipes: [recipe({ id: 'batch', base_servings: 4 })]
+    })
+    expect(picks.every(p => !p.leftoverOfDate)).toBe(true)
+  })
+
+  it('does not stretch what is left to a bigger table', () => {
+    // Six servings, two eaten tonight, four people tomorrow — that is four
+    // portions for four people only if nobody had seconds. Cook something.
+    const picks = twoNights({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER] },
+        {
+          date: '2026-08-04',
+          people: [ADULT, TODDLER, { id: 'p-2', stage: 'child' as const }, { id: 'p-3', stage: 'adult' as const },
+            { id: 'p-4', stage: 'adult' as const }]
+        }
+      ]
+    })
+    expect(picks[1]?.leftoverOfDate).toBeUndefined()
+  })
+
+  it('never overwrites a night somebody planned themselves', () => {
+    const picks = twoNights({
+      recipes: [recipe({ id: 'batch', base_servings: 6 }), recipe({ id: 'other' })],
+      alreadyPlanned: [{ date: '2026-08-04', recipe_id: 'other' }]
+    })
+    expect(picks.map(p => p.date)).toEqual(['2026-08-03'])
+  })
+
+  it('skips a leftovers night when nobody is home for it', () => {
+    const picks = twoNights({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER] },
+        { date: '2026-08-04', people: [] }
+      ]
+    })
+    expect(picks).toHaveLength(1)
+  })
+
+  it('does not treat the second night as a second cooking of the recipe', () => {
+    // The no-repeat rule counts pots, not plates: the batch is cooked once, so
+    // the rest of the week is still free to be different.
+    const picks = generateWeek({
+      nights: [
+        { date: '2026-08-03', people: [ADULT, TODDLER] },
+        { date: '2026-08-04', people: [ADULT, TODDLER] },
+        { date: '2026-08-05', people: [ADULT, TODDLER] }
+      ],
+      recipes: [recipe({ id: 'batch', base_servings: 6 }), recipe({ id: 'other' })],
+      lines: [], constraints: [], history: [], random: seeded(1)
+    })
+    const cooked = picks.filter(p => !p.leftoverOfDate).map(p => p.recipeId)
+    expect(new Set(cooked).size).toBe(cooked.length)
+    expect(picks).toHaveLength(3)
+  })
+
+  it('chains at most one night off a single batch', () => {
+    const picks = generateWeek({
+      nights: ['2026-08-03', '2026-08-04', '2026-08-05'].map(date => ({ date, people: [ADULT] })),
+      recipes: [recipe({ id: 'huge', base_servings: 20 }), recipe({ id: 'other', base_servings: 1 })],
+      lines: [], constraints: [], history: [], random: seeded(1)
+    })
+    expect(picks.filter(p => p.leftoverOfDate)).toHaveLength(1)
+  })
+
+  it('is still deterministic given the same randomness', () => {
+    expect(twoNights({ random: seeded(9) })).toEqual(twoNights({ random: seeded(9) }))
+  })
+})
+
 describe('nights a person already chose', () => {
   it('leaves them alone', () => {
     const picks = generateWeek({
@@ -357,6 +473,125 @@ describe('nights a person already chose', () => {
     })
     expect(picks.every(p => p.recipeId === 'r2')).toBe(true)
     expect(picks).toHaveLength(1)
+  })
+})
+
+describe('rankCandidates', () => {
+  /** A context over a fixed library, so a ranking assertion is about scoring alone. */
+  function context(over: Partial<GenerateInput> = {}) {
+    return buildContext({
+      nights: week(),
+      recipes: [recipe({ id: 'r1' }), recipe({ id: 'r2' }), recipe({ id: 'r3' })],
+      lines: [],
+      constraints: [],
+      history: [],
+      ...over
+    })
+  }
+
+  const monday = { date: '2026-08-03', people: [ADULT, TODDLER] }
+
+  it('scores every live recipe the night could have', () => {
+    expect(rankCandidates(context(), monday).map(c => c.recipe.id)).toEqual(['r1', 'r2', 'r3'])
+  })
+
+  it('leaves out anything an allergy rules out, rather than scoring it low', () => {
+    const ranked = rankCandidates(
+      context({
+        lines: [line('r2', 'peanut butter')],
+        constraints: [{ person_id: ADULT.id, kind: 'allergy', tag: 'peanut', deleted_at: null }]
+      }),
+      monday
+    )
+    expect(ranked.map(c => c.recipe.id)).toEqual(['r1', 'r3'])
+  })
+
+  it('leaves out what the week has already chosen', () => {
+    const ranked = rankCandidates(
+      context({ alreadyPlanned: [{ date: '2026-08-04', recipe_id: 'r1' }] }),
+      monday
+    )
+    expect(ranked.map(c => c.recipe.id)).toEqual(['r2', 'r3'])
+  })
+
+  it('keeps library order, because the weighted pick draws against it', () => {
+    // Sorting here would remap every seeded outcome onto a different recipe.
+    const ranked = rankCandidates(
+      context({ history: [{ date: '2026-08-02', recipe_id: 'r1' }] }),
+      monday
+    )
+    expect(ranked.map(c => c.recipe.id)).toEqual(['r1', 'r2', 'r3'])
+    expect(ranked[0]!.score).toBeLessThan(ranked[1]!.score)
+  })
+
+  it('ranks something cooked yesterday below something never cooked', () => {
+    const [best] = topCandidates(
+      context({ history: [{ date: '2026-08-02', recipe_id: 'r1' }] }),
+      monday,
+      3
+    )
+    expect(best!.recipe.id).not.toBe('r1')
+  })
+
+  it('rewards sharing an ingredient with a night already planned', () => {
+    const ranked = topCandidates(
+      context({
+        lines: [line('r1', 'coriander', 'i-cor'), line('r2', 'coriander', 'i-cor')],
+        alreadyPlanned: [{ date: '2026-08-04', recipe_id: 'r1' }],
+        // Everything equally rested, so overlap is the only thing left to
+        // separate them — otherwise r3's never-cooked bonus is the louder fact.
+        history: [
+          { date: '2026-06-01', recipe_id: 'r2' },
+          { date: '2026-06-01', recipe_id: 'r3' }
+        ]
+      }),
+      monday,
+      3
+    )
+    expect(ranked[0]!.recipe.id).toBe('r2')
+    expect(ranked[0]!.reason).toEqual({ kind: 'overlap', shared: 1 })
+  })
+
+  it('is empty when every recipe is already spoken for', () => {
+    expect(rankCandidates(
+      context({
+        alreadyPlanned: [
+          { date: '2026-08-04', recipe_id: 'r1' },
+          { date: '2026-08-05', recipe_id: 'r2' },
+          { date: '2026-08-06', recipe_id: 'r3' }
+        ]
+      }),
+      monday
+    )).toEqual([])
+  })
+})
+
+describe('suggestionReason', () => {
+  const candidate = (reason: RankReason): RankedCandidate => ({
+    recipe: recipe({ id: 'r1' }),
+    score: 0,
+    weight: 1,
+    reason
+  })
+
+  it('leads with the cupboard when the cupboard covers it', () => {
+    expect(suggestionReason(candidate({ kind: 'never' }), { allPantry: true }))
+      .toBe('All pantry — nothing to buy')
+  })
+
+  it('names the night the time fits', () => {
+    expect(suggestionReason(candidate({ kind: 'quick', minutes: 25, budget: 30 })))
+      .toBe('25 min — fits a 30 min night')
+  })
+
+  it('counts weeks rather than days since it was last cooked', () => {
+    expect(suggestionReason(candidate({ kind: 'rested', days: 15 })))
+      .toBe('Nothing like it for 2 weeks')
+  })
+
+  it('prefers a track record when there is one', () => {
+    expect(suggestionReason(candidate({ kind: 'rested', days: 15 }), { cookedTimes: 11 }))
+      .toBe('Cooked 11× — nobody complains')
   })
 })
 
