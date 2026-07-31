@@ -25,11 +25,12 @@ export default defineAppConfig({
 
     empty: {
       slots: {
-        // Empty states in this app are the whole pane, not a footnote inside
-        // one — they get a page-sized title and a muted, unfilled icon.
-        avatar: 'size-10 bg-transparent text-dimmed',
-        title: 'text-2xl font-semibold text-muted',
-        description: 'text-base text-muted'
+        // Sized for a phone, which is where most of these are read. The two
+        // wide panes on the board scale their own title up; everywhere else an
+        // empty list is a quiet note, not an announcement.
+        avatar: 'bg-transparent text-dimmed',
+        title: 'font-medium text-muted',
+        description: 'text-sm text-dimmed'
       }
     },
 

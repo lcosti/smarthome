@@ -100,27 +100,15 @@ const unlinkedCount = computed(() =>
     <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 py-4 lg:max-w-3xl">
       <LoadingState v-if="!sync.hydrated" />
 
-      <div
+      <UEmpty
         v-else-if="!store.ingredients.length"
-        class="py-16 text-center"
-      >
-        <p class="text-muted">
-          No ingredients yet.
-        </p>
-        <p class="mt-1 text-sm text-dimmed">
-          They appear as you add them to recipes. If you already have a library,
-          this reads through it.
-        </p>
-        <UButton
-          v-if="unlinkedCount"
-          class="mt-4"
-          size="lg"
-          :loading="scanning"
-          @click="scanRecipes()"
-        >
-          Read my recipes
-        </UButton>
-      </div>
+        icon="i-lucide-carrot"
+        title="No ingredients yet."
+        description="They appear as you add them to recipes. If you already have a library, this reads through it."
+        :actions="unlinkedCount
+          ? [{ label: 'Read my recipes', size: 'lg', loading: scanning, onClick: () => scanRecipes() }]
+          : []"
+      />
 
       <template v-else>
         <ul class="divide-y divide-default rounded-lg border border-default">
@@ -156,12 +144,11 @@ const unlinkedCount = computed(() =>
           </li>
         </ul>
 
-        <p
+        <UEmpty
           v-if="!shown.length"
-          class="rounded-lg border border-default bg-elevated/30 px-3 py-6 text-center text-sm text-dimmed"
-        >
-          Nothing matches “{{ query }}”.
-        </p>
+          icon="i-lucide-search-x"
+          :title="`Nothing matches “${query}”.`"
+        />
 
         <UButton
           v-if="unlinkedCount"

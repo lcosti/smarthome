@@ -83,11 +83,14 @@ defineEmits<{ select: [] }>()
         v-if="card.chips.length"
         class="flex flex-wrap gap-1.5"
       >
-        <span
+        <UBadge
           v-for="chip in card.chips"
           :key="chip"
-          class="rounded bg-default px-2 py-0.5 text-[12px] text-muted ring ring-default"
-        >{{ chip }}</span>
+          color="neutral"
+          variant="outline"
+          :label="chip"
+          class="rounded bg-default px-2 py-0.5 text-[12px] font-normal text-muted"
+        />
       </div>
     </div>
   </button>

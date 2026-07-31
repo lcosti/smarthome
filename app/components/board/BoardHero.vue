@@ -140,21 +140,25 @@ const NuxtLink = resolveComponent('NuxtLink')
             Still to buy
           </p>
           <div class="flex flex-wrap gap-1.5">
-            <span
+            <UBadge
               v-for="line in hero.toBuy"
               :key="line.name"
-              class="flex items-baseline gap-1.5 rounded-md bg-primary/10 px-2.5 py-1
-                   text-[13px] font-medium text-primary ring ring-primary/25"
+              color="primary"
+              variant="subtle"
+              class="items-baseline gap-1.5 px-2.5 text-[13px]"
             >
               {{ line.name }}
               <span
                 v-if="line.qty"
                 class="font-mono text-[11px] opacity-70"
               >{{ line.qty }}</span>
-            </span>
-            <span class="rounded-md bg-default/60 px-2.5 py-1 text-[13px] text-dimmed ring ring-default">
-              everything else in the pantry
-            </span>
+            </UBadge>
+            <UBadge
+              color="neutral"
+              variant="outline"
+              label="everything else in the pantry"
+              class="bg-default/60 px-2.5 text-[13px] font-normal text-dimmed"
+            />
           </div>
         </div>
       </div>

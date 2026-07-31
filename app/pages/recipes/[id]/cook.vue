@@ -479,6 +479,6 @@ onUnmounted(() => {
     description="It was deleted on another device while this was open."
     :actions="[{ label: 'All recipes', to: '/recipes', color: 'neutral', variant: 'subtle', size: 'xl' }]"
     class="h-full p-6"
-    :ui="{ avatar: 'size-11', title: 'lg:text-3xl' }"
+    :ui="{ avatar: 'size-11', title: 'text-2xl font-semibold lg:text-3xl', description: 'text-base text-muted' }"
   />
 </template>

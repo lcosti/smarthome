@@ -137,25 +137,13 @@ async function removeRecipe() {
     <main class="mx-auto min-h-0 w-full max-w-xl flex-1 space-y-8 overflow-y-auto px-3 py-5 lg:max-w-3xl lg:px-6 lg:pb-12">
       <LoadingState v-if="!sync.hydrated" />
 
-      <div
+      <UEmpty
         v-else-if="!recipe"
-        class="py-16 text-center"
-      >
-        <p class="text-muted">
-          That recipe is gone.
-        </p>
-        <p class="mt-1 text-sm text-dimmed">
-          It may have been deleted on another device.
-        </p>
-        <UButton
-          to="/recipes"
-          class="mt-4"
-          color="neutral"
-          variant="subtle"
-        >
-          Back to recipes
-        </UButton>
-      </div>
+        icon="i-lucide-book-open"
+        title="That recipe is gone."
+        description="It may have been deleted on another device."
+        :actions="[{ label: 'Back to recipes', to: '/recipes', color: 'neutral', variant: 'subtle' }]"
+      />
 
       <template v-else>
         <!--
@@ -196,12 +184,12 @@ async function removeRecipe() {
             />
           </ul>
 
-          <p
+          <UEmpty
             v-else
-            class="rounded-lg border border-default bg-elevated/30 px-3 py-6 text-center text-sm text-dimmed"
-          >
-            Nothing yet. Add the first ingredient below.
-          </p>
+            icon="i-lucide-carrot"
+            title="Nothing yet."
+            description="Add the first ingredient below."
+          />
 
           <UForm
             :state="{ draftIngredient }"
@@ -270,12 +258,12 @@ async function removeRecipe() {
             />
           </ol>
 
-          <p
+          <UEmpty
             v-else
-            class="rounded-lg border border-default bg-elevated/30 px-3 py-6 text-center text-sm text-dimmed"
-          >
-            No method yet. Add the first step below.
-          </p>
+            icon="i-lucide-list-ordered"
+            title="No method yet."
+            description="Add the first step below."
+          />
 
           <UForm
             :state="{ draftStep }"

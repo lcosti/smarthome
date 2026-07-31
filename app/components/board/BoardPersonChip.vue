@@ -55,11 +55,12 @@ const nameInk = computed(() => personColors(person.hue, { absent: person.absent 
       {{ person.note }}
     </span>
 
-    <span
+    <UBadge
       v-if="person.warn"
-      class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary ring ring-primary/25"
-    >
-      {{ person.warn }}
-    </span>
+      color="primary"
+      variant="subtle"
+      :label="person.warn"
+      class="rounded-full px-2 py-0.5"
+    />
   </button>
 </template>

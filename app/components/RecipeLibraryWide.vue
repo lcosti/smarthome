@@ -271,6 +271,7 @@ async function add() {
         v-else
         icon="i-lucide-search-x"
         title="Nothing matches"
+        :ui="{ avatar: 'size-10', title: 'text-2xl font-semibold', description: 'text-base text-muted' }"
         :description="`No recipe here answers to “${query.trim()}”.`"
         :actions="[{
           label: 'Clear',
@@ -374,17 +375,20 @@ async function add() {
               Not on the list yet
             </h3>
             <div class="mt-3 flex flex-wrap gap-2">
-              <span
+              <UBadge
                 v-for="line in detail.missing"
                 :key="line.id"
-                class="flex items-baseline gap-1.5 rounded-md bg-primary/10 px-2.5 py-1 text-sm text-primary ring ring-primary/25"
+                color="primary"
+                variant="subtle"
+                size="lg"
+                class="items-baseline gap-1.5"
               >
                 {{ line.name }}
                 <span
                   v-if="line.quantity"
                   class="font-mono text-xs opacity-70"
                 >{{ line.quantity }}</span>
-              </span>
+              </UBadge>
             </div>
           </div>
 
@@ -462,6 +466,7 @@ async function add() {
       v-else
       icon="i-lucide-book-open"
       title="No recipes yet"
+      :ui="{ avatar: 'size-10', title: 'text-2xl font-semibold', description: 'text-base text-muted' }"
       description="Paste a recipe’s address above, or add one from a photo on your phone — the generator builds the week out of them."
       class="flex-1"
     />

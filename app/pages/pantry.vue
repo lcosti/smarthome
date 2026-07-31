@@ -112,13 +112,12 @@ async function setTo(entry: PantryEntry, text: string) {
       <LoadingState v-if="!sync.hydrated" />
 
       <template v-else>
-        <p
+        <UEmpty
           v-if="!pantry.stocked.length"
-          class="rounded-lg border border-default bg-elevated/30 px-3 py-8 text-center text-sm text-dimmed"
-        >
-          Nothing recorded yet. Add what is left over from a shop and the list
-          will stop asking for it.
-        </p>
+          icon="i-lucide-refrigerator"
+          title="Nothing recorded yet."
+          description="Add what is left over from a shop and the list will stop asking for it."
+        />
 
         <ul
           v-else

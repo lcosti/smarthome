@@ -119,12 +119,11 @@ function amountLabel(amount: number, ingredientId: string | null) {
     </template>
 
     <template v-else>
-      <p
+      <UEmpty
         v-if="!matches.length"
-        class="rounded-lg border border-default bg-elevated/30 px-3 py-6 text-center text-sm text-dimmed"
-      >
-        Nothing in that looked like shopping.
-      </p>
+        icon="i-lucide-search-x"
+        title="Nothing in that looked like shopping."
+      />
 
       <ul
         v-else

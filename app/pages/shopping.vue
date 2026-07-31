@@ -97,36 +97,20 @@ const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.l
         when it cannot — no signal, or mid-load — so nobody is ever left staring at
         an input that quietly does nothing.
       -->
-      <div
+      <UEmpty
         v-else-if="!sync.householdId"
-        class="py-16 text-center"
-      >
-        <p class="text-muted">
-          This device isn't set up yet.
-        </p>
-        <p class="mt-1 text-sm text-dimmed">
-          Create a household, or join the one you already have.
-        </p>
-        <UButton
-          to="/welcome"
-          class="mt-4"
-          size="lg"
-        >
-          Set up
-        </UButton>
-      </div>
+        icon="i-lucide-home"
+        title="This device isn't set up yet."
+        description="Create a household, or join the one you already have."
+        :actions="[{ label: 'Set up', to: '/welcome', size: 'lg' }]"
+      />
 
-      <div
+      <UEmpty
         v-else-if="isEmpty"
-        class="py-16 text-center"
-      >
-        <p class="text-muted">
-          Nothing on the list.
-        </p>
-        <p class="mt-1 text-sm text-dimmed">
-          Type above to add the first thing.
-        </p>
-      </div>
+        icon="i-lucide-shopping-cart"
+        title="Nothing on the list."
+        description="Type above to add the first thing."
+      />
 
       <template v-else>
         <!--

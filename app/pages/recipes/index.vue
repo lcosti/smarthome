@@ -157,29 +157,19 @@ async function land(recipeId: string | null) {
     <main class="mx-auto w-full max-w-xl min-h-0 flex-1 overflow-y-auto px-3 pb-6">
       <LoadingState v-if="!sync.hydrated" />
 
-      <div
+      <UEmpty
         v-else-if="!store.recipes.length"
-        class="py-16 text-center"
-      >
-        <p class="text-muted">
-          No recipes yet.
-        </p>
-        <p class="mt-1 text-sm text-dimmed">
-          Type above to add the first one.
-        </p>
-      </div>
+        icon="i-lucide-chef-hat"
+        title="No recipes yet."
+        description="Type above to add the first one."
+      />
 
-      <div
+      <UEmpty
         v-else-if="!matches.length"
-        class="py-16 text-center"
-      >
-        <p class="text-muted">
-          Nothing matches “{{ draft.trim() }}”.
-        </p>
-        <p class="mt-1 text-sm text-dimmed">
-          Press add to make it a new recipe.
-        </p>
-      </div>
+        icon="i-lucide-search-x"
+        :title="`Nothing matches “${draft.trim()}”.`"
+        description="Press add to make it a new recipe."
+      />
 
       <ul
         v-else

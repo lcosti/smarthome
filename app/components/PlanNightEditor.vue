@@ -191,26 +191,19 @@ async function clear() {
           />
         </div>
 
-        <div
+        <UEmpty
           v-if="!recipes.recipes.length"
-          class="py-8 text-center"
-        >
-          <p class="text-muted">
-            No recipes yet.
-          </p>
-          <p class="mt-1 text-sm text-dimmed">
-            The plan is built from your recipe library.
-          </p>
-          <UButton
-            to="/recipes"
-            class="mt-4"
-            color="neutral"
-            variant="subtle"
-            @click="open = false"
-          >
-            Go to recipes
-          </UButton>
-        </div>
+          icon="i-lucide-chef-hat"
+          title="No recipes yet."
+          description="The plan is built from your recipe library."
+          :actions="[{
+            label: 'Go to recipes',
+            to: '/recipes',
+            color: 'neutral',
+            variant: 'subtle',
+            onClick: () => { open = false }
+          }]"
+        />
 
         <template v-else>
           <UInput
@@ -231,12 +224,12 @@ async function clear() {
               :servings="item.base_servings"
               @select="choose(item.id)"
             />
-            <li
+            <UEmpty
               v-if="!matches.length"
-              class="px-3 py-6 text-center text-sm text-dimmed"
-            >
-              Nothing matches that.
-            </li>
+              as="li"
+              icon="i-lucide-search-x"
+              title="Nothing matches that."
+            />
           </ul>
         </template>
       </div>
