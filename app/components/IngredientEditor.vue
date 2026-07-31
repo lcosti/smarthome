@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { asBaseUnit, useIngredientsStore } from '../stores/ingredients'
-import { useListStore } from '../stores/list'
 import type { BaseUnit } from '../utils/quantity'
 
 const open = defineModel<boolean>('open', { required: true })
 const { ingredientId } = defineProps<{ ingredientId: string | null }>()
 
 const store = useIngredientsStore()
-const list = useListStore()
 const toast = useToast()
 
 const name = ref('')
@@ -127,44 +125,20 @@ async function remove() {
           label="Measured in"
           help="What quantities are added up in. Change it if the guess was wrong."
         >
-          <div class="flex gap-2">
-            <UButton
-              v-for="unit in UNITS"
-              :key="unit.value"
-              :color="baseUnit === unit.value ? 'primary' : 'neutral'"
-              :variant="baseUnit === unit.value ? 'solid' : 'subtle'"
-              size="lg"
-              @click="baseUnit = unit.value"
-            >
-              {{ unit.label }}
-            </UButton>
-          </div>
+          <URadioGroup
+            v-model="baseUnit"
+            :items="UNITS"
+            variant="card"
+            orientation="horizontal"
+            :ui="{ fieldset: 'flex-wrap gap-2', item: 'flex-1 basis-32' }"
+          />
         </UFormField>
 
         <UFormField
           label="Aisle"
           help="Where this lives in the shop, for every recipe that uses it."
         >
-          <div class="flex flex-wrap gap-2">
-            <UButton
-              :color="aisleId === null ? 'primary' : 'neutral'"
-              :variant="aisleId === null ? 'solid' : 'subtle'"
-              size="lg"
-              @click="aisleId = null"
-            >
-              None
-            </UButton>
-            <UButton
-              v-for="aisle in list.sortedAisles"
-              :key="aisle.id"
-              :color="aisleId === aisle.id ? 'primary' : 'neutral'"
-              :variant="aisleId === aisle.id ? 'solid' : 'subtle'"
-              size="lg"
-              @click="aisleId = aisle.id"
-            >
-              {{ aisle.name }}
-            </UButton>
-          </div>
+          <AislePicker v-model="aisleId" />
         </UFormField>
 
         <UFormField

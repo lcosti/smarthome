@@ -67,9 +67,24 @@ function isHome(personId: string) {
   return date ? attendance.isPresent(personId, date) : true
 }
 
-async function toggleHome(personId: string) {
+const peopleItems = computed(() =>
+  people.people.map(person => ({ label: person.name, value: person.id }))
+)
+
+const whoIsHome = computed(() =>
+  people.people.filter(person => isHome(person.id)).map(person => person.id)
+)
+
+/**
+ * The group hands back the whole set, but attendance is stored a person at a
+ * time, so only the one that actually changed is written. One tap stays one
+ * mutation on the queue rather than one per person in the household.
+ */
+async function applyHome(next: (string | number)[]) {
   if (!date) return
-  await attendance.togglePresence(personId, date)
+  const selected = new Set(next.map(String))
+  const changed = people.people.find(person => selected.has(person.id) !== isHome(person.id))
+  if (changed) await attendance.togglePresence(changed.id, date)
 }
 
 async function clear() {
@@ -161,18 +176,19 @@ async function clear() {
           <p class="text-xs font-medium uppercase tracking-wide text-dimmed">
             Who's home
           </p>
-          <div class="mt-2 flex flex-wrap gap-2">
-            <UButton
-              v-for="person in people.people"
-              :key="person.id"
-              :color="isHome(person.id) ? 'primary' : 'neutral'"
-              :variant="isHome(person.id) ? 'solid' : 'subtle'"
-              size="lg"
-              @click="toggleHome(person.id)"
-            >
-              {{ person.name }}
-            </UButton>
-          </div>
+          <!--
+            Checkboxes, because this is several independent yes/nos rather than
+            one choice: any number of people can be home, including none.
+          -->
+          <UCheckboxGroup
+            :model-value="whoIsHome"
+            :items="peopleItems"
+            variant="card"
+            orientation="horizontal"
+            class="mt-2"
+            :ui="{ fieldset: 'flex-wrap gap-2', item: 'flex-1 basis-36' }"
+            @update:model-value="applyHome"
+          />
         </div>
 
         <div
