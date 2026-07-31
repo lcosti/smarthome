@@ -23,15 +23,28 @@ const items = computed<NavigationMenuItem[]>(() => [
 </script>
 
 <template>
+  <!--
+    A segmented control rather than a row of links: the four views are one
+    choice, and the recessed pill around them says so before anything is read.
+
+    The active state is styled off `data-active`, which reka-ui puts on the
+    anchor. `before:hidden` removes the theme's own hover pill, which would
+    otherwise sit under this one at a different radius, and `py-0` on the item
+    removes the theme's `py-2`, which reserves room for a highlight underline
+    this nav does not use and otherwise leaves the pill three times looser
+    above and below the tabs than it is beside them.
+  -->
   <UNavigationMenu
     :items="items"
-    highlight
-    highlight-color="warning"
     color="neutral"
     :ui="{
       root: 'w-auto',
-      list: 'gap-2',
-      link: 'px-7 py-3 font-mono text-[21px] uppercase tracking-[0.14em] rounded-full transition-opacity duration-[80ms] active:opacity-85',
+      list: 'gap-1 rounded-lg bg-elevated/50 p-1 ring ring-default',
+      item: 'py-0',
+      link: `rounded-md px-3 py-1.5 text-sm font-medium text-muted transition-colors
+             before:hidden hover:bg-elevated/60 hover:text-default
+             data-[active]:bg-default data-[active]:text-highlighted
+             data-[active]:ring data-[active]:ring-accented`,
       linkLabel: 'truncate'
     }"
   />

@@ -20,7 +20,7 @@
 
 import Anthropic from 'npm:@anthropic-ai/sdk'
 import { guardMethod, json } from '../_shared/http.ts'
-import { extractRecipeJsonLd } from '../_shared/jsonld.ts'
+import { extractRecipeJsonLd, openGraphImage } from '../_shared/jsonld.ts'
 import { rejectNonMember } from '../_shared/member.ts'
 import { RECIPE_SCHEMA } from '../_shared/recipe-schema.ts'
 
@@ -33,9 +33,11 @@ const MAX_TEXT_LENGTH = 40_000
 
 const EXTRACTION_PROMPT = `The text above is a web page containing a single recipe, surrounded by
 navigation, comments and other clutter. Extract the recipe exactly as written: its name, servings,
-prep and cook times in minutes, the method as plain paragraphs in cooking order, and one ingredient
-per line with its quantity exactly as written (e.g. "400g", "2 tbsp", "1 tin"). Use null for anything
-the page does not state. Do not invent, convert, or normalise anything.
+prep and cook times in minutes, the method as one array entry per step in cooking order, and one
+ingredient per line with its quantity exactly as written (e.g. "400g", "2 tbsp", "1 tin"). Keep each
+step whole — split where the page starts a new numbered step or paragraph, never mid-instruction, and
+do not merge two steps into one entry. Use an empty array if the page states no method, and null for
+anything else it does not state. Do not invent, convert, or normalise anything.
 If the page does not contain a recipe, set is_recipe to false and recipe to null.`
 
 /**
@@ -118,7 +120,10 @@ Deno.serve(async (req) => {
   // The free path: the page already says what the recipe is.
   const published = extractRecipeJsonLd(html)
   if (published && published.ingredients.length) {
-    return json(200, { recipe: published, source: 'json-ld' })
+    return json(200, {
+      recipe: { ...published, image_url: published.image_url ?? openGraphImage(html) },
+      source: 'json-ld'
+    })
   }
 
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
@@ -162,5 +167,10 @@ Deno.serve(async (req) => {
     return json(422, { error: "That page didn't have a recipe on it" })
   }
 
-  return json(200, { recipe: extracted.recipe, source: 'llm' })
+  // The model read the page as text with every tag stripped, so it never saw an
+  // image address and was not asked for one. The markup still has it.
+  return json(200, {
+    recipe: { ...extracted.recipe, image_url: openGraphImage(html) },
+    source: 'llm'
+  })
 })

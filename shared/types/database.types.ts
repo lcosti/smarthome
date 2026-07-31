@@ -591,6 +591,54 @@ export type Database = {
           },
         ]
       }
+      recipe_steps: {
+        Row: {
+          body: string
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          recipe_id: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          recipe_id: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          recipe_id?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_steps_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_steps_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recipes: {
         Row: {
           base_servings: number
@@ -599,6 +647,7 @@ export type Database = {
           deleted_at: string | null
           household_id: string
           id: string
+          image_url: string | null
           method: string | null
           name: string
           prep_minutes: number | null
@@ -612,6 +661,7 @@ export type Database = {
           deleted_at?: string | null
           household_id: string
           id: string
+          image_url?: string | null
           method?: string | null
           name: string
           prep_minutes?: number | null
@@ -625,6 +675,7 @@ export type Database = {
           deleted_at?: string | null
           household_id?: string
           id?: string
+          image_url?: string | null
           method?: string | null
           name?: string
           prep_minutes?: number | null

@@ -66,24 +66,24 @@ const everUsed = computed(() => sync.rowsOf('shopping_list_items').size > 0)
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-[18px]">
-    <div class="flex shrink-0 items-baseline gap-[18px]">
-      <h2 class="text-[58px] font-semibold leading-none tracking-[-0.03em] text-highlighted">
+  <div class="flex h-full min-h-0 flex-col gap-[12px]">
+    <div class="flex shrink-0 items-baseline gap-[12px]">
+      <h2 class="text-[39px] font-semibold leading-none tracking-[-0.03em] text-highlighted">
         {{ remaining }}
       </h2>
-      <p class="text-[28px] text-muted">
+      <p class="text-[19px] text-muted">
         {{ remaining === 1 ? 'thing' : 'things' }} to buy
       </p>
       <p
         v-if="checked"
-        class="ml-auto font-mono text-[20px] text-dimmed"
+        class="ml-auto font-mono text-[13px] text-dimmed"
       >
         {{ checked }} in the trolley
       </p>
       <p
         v-if="sync.pendingCount"
-        class="font-mono text-[20px] text-dimmed"
-        :class="checked ? 'ml-4' : 'ml-auto'"
+        class="font-mono text-[13px] text-dimmed"
+        :class="checked ? 'ml-2.5' : 'ml-auto'"
       >
         {{ sync.pendingCount }} waiting to sync
       </p>
@@ -97,35 +97,35 @@ const everUsed = computed(() => sync.rowsOf('shopping_list_items').size > 0)
       description="Add something from your phone and it shows up here."
       class="flex-1"
       :ui="{
-        avatar: everUsed ? 'size-16 bg-transparent text-primary' : 'size-16 bg-transparent text-dimmed',
+        avatar: everUsed ? 'size-11 bg-transparent text-primary' : 'size-11 bg-transparent text-dimmed',
         title: everUsed
-          ? 'text-[64px] font-semibold tracking-[-0.02em] text-primary'
-          : 'text-[64px] font-semibold tracking-[-0.02em] text-muted',
-        description: 'text-[26px] text-muted'
+          ? 'text-[43px] font-semibold tracking-[-0.02em] text-primary'
+          : 'text-[43px] font-semibold tracking-[-0.02em] text-muted',
+        description: 'text-[17px] text-muted'
       }"
     />
 
     <div
       v-else
-      class="grid min-h-0 flex-1 grid-cols-3 gap-[22px] overflow-hidden"
+      class="grid min-h-0 flex-1 grid-cols-3 gap-[15px] overflow-hidden"
     >
       <div
         v-for="(column, index) in columns"
         :key="index"
-        class="flex min-h-0 flex-col gap-[18px] overflow-hidden"
+        class="flex min-h-0 flex-col gap-[12px] overflow-hidden"
       >
         <UCard
           v-for="group in column"
           :key="group.id"
           variant="outline"
           :ui="{
-            root: 'rounded-2xl bg-elevated',
-            header: 'px-6 pt-4 pb-2 sm:px-6',
-            body: 'px-4 pb-3 pt-0 sm:p-0 sm:px-4 sm:pb-3'
+            root: 'rounded-lg bg-elevated',
+            header: 'px-4 pt-2.5 pb-1.5 sm:px-4',
+            body: 'px-2.5 pb-2 pt-0 sm:p-0 sm:px-2.5 sm:pb-2'
           }"
         >
           <template #header>
-            <h3 class="font-mono text-[20px] uppercase tracking-[0.14em] text-dimmed">
+            <h3 class="font-mono text-[13px] uppercase tracking-[0.14em] text-dimmed">
               {{ group.name }}
             </h3>
           </template>
@@ -144,19 +144,19 @@ const everUsed = computed(() => sync.rowsOf('shopping_list_items').size > 0)
             color="primary"
             size="xl"
             :ui="{
-              root: 'items-center gap-4 rounded-[12px] px-2 py-2.5 transition-opacity duration-[80ms] active:opacity-85',
-              base: 'size-7 shrink-0',
+              root: 'items-center gap-2.5 rounded-lg px-1.5 py-1.5 transition-opacity duration-[80ms] active:opacity-85',
+              base: 'size-5 shrink-0',
               wrapper: 'min-w-0 flex-1',
-              label: 'w-full text-[27px] leading-tight text-default'
+              label: 'w-full text-[18px] leading-tight text-default'
             }"
             @update:model-value="list.toggleEntry(entry)"
           >
             <template #label>
-              <span class="flex w-full min-w-0 items-baseline gap-3">
+              <span class="flex w-full min-w-0 items-baseline gap-2">
                 <span class="min-w-0 flex-1 truncate">{{ entry.name }}</span>
                 <span
                   v-if="entry.quantityLabel"
-                  class="shrink-0 whitespace-nowrap text-[23px] text-muted"
+                  class="shrink-0 whitespace-nowrap text-[15px] text-muted"
                 >{{ entry.quantityLabel }}</span>
               </span>
             </template>

@@ -19,6 +19,7 @@
     "acceptance:generator": "node scripts/acceptance-generator.mjs",
     "acceptance:url-import": "node scripts/acceptance-url-import.mjs",
     "acceptance:board": "node scripts/acceptance-board.mjs",
+    "shoot:board": "node scripts/shoot-board.mjs",
     "icons": "node scripts/generate-icons.mjs",
     "db:types": "supabase gen types typescript --local > shared/types/database.types.ts"
   },

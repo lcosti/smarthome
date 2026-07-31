@@ -86,7 +86,11 @@ export default defineNuxtConfig({
         'lucide:cloud-lightning',
         'lucide:snowflake',
         'lucide:circle-check-big',
-        'lucide:circle-dashed'
+        'lucide:circle-dashed',
+        'lucide:check',
+        'lucide:arrow-right',
+        'lucide:arrow-left',
+        'lucide:book-open'
       ]
     }
   },
@@ -129,7 +133,33 @@ export default defineNuxtConfig({
       // Supabase requests must never be served from the service worker cache —
       // offline behaviour is owned by the Dexie/mutation-queue layer.
       navigateFallbackDenylist: [/^\/api/],
-      cleanupOutdatedCaches: true
+      cleanupOutdatedCaches: true,
+      // Recipe photographs, which live on whichever site the recipe came from.
+      //
+      // The one thing in the app allowed to come from the network cache, and it
+      // earns the exception: the address is stored, the bytes are not, so
+      // without this the kitchen tablet loses every picture the moment the wifi
+      // does. CacheFirst because a recipe photograph does not change — if the
+      // site replaces it the address changes with it.
+      //
+      // Scoped to cross-origin images so it can never shadow a Supabase call,
+      // whose offline behaviour belongs to the Dexie and mutation-queue layer.
+      runtimeCaching: [
+        {
+          urlPattern: ({ request, sameOrigin }) => !sameOrigin && request.destination === 'image',
+          handler: 'CacheFirst',
+          options: {
+            cacheName: 'recipe-images',
+            // A household's library, not a catalogue. Well past what four people
+            // cook from, and small enough that the cache is never the reason a
+            // phone runs out of room.
+            expiration: { maxEntries: 120, maxAgeSeconds: 60 * 60 * 24 * 60 },
+            // Opaque responses have no readable status; without this a CDN that
+            // does not send CORS headers would never be cached at all.
+            cacheableResponse: { statuses: [0, 200] }
+          }
+        }
+      ]
     },
     // A dev service worker serves stale bundles; test with `pnpm generate`.
     devOptions: {

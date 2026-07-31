@@ -3,7 +3,16 @@
 
 @theme static {
   --font-sans: 'Public Sans', sans-serif;
+  /*
+    Times, dates and quantities only, never prose.
+    @nuxt/fonts (bundled with @nuxt/ui) self-hosts this, and workbox precaches
+    every woff2 — which matters, because the wall board has to paint its clock
+    with no network at all.
+  */
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
+  /* Nuxt's brand green. No longer the primary colour, but still what `success`
+     resolves to — the shopping list's one reward colour. */
   --color-green-50: #EFFDF5;
   --color-green-100: #D9FBE8;
   --color-green-200: #B3F5D1;
@@ -15,4 +24,40 @@
   --color-green-800: #016538;
   --color-green-900: #0A5331;
   --color-green-950: #052E16;
+}
+
+/*
+  Scrollbars, on the wall board only.
+
+  A native scrollbar is browser chrome, and the board spends a good deal of
+  effort not having any: no address bar, no tab strip, no cursor. A pale grey
+  9px trough down the side of a card is the one piece that gets in anyway, and
+  on a display seen from across a room it reads as a rendering fault rather
+  than as an affordance.
+
+  It is quietened rather than removed. The board is a touchscreen and does not
+  need the handle to drag, but the ingredients list is the one thing here
+  allowed to scroll, and a list that continues past the fold with nothing at
+  all to say so is a list you stop at the bottom of.
+
+  Deliberately not applied to the phone: iOS overlays its own scrollbar and
+  takes it away again on its own, which is already the right behaviour.
+*/
+[data-board-frame] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-border-accented) transparent;
+}
+
+[data-board-frame] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+[data-board-frame] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-board-frame] ::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--ui-border-accented);
 }

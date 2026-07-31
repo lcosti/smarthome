@@ -37,6 +37,12 @@ async function commitName(aisle: AisleRow) {
   if (draft && draft !== aisle.name) await store.renameAisle(aisle.id, draft)
 }
 
+/** Whether anything has ever arrived from the calendar sync, and how much. */
+const calendar = computed(() => {
+  const rows = [...sync.rowsOf('calendar_events').values()].filter(row => !row.deleted_at)
+  return { connected: rows.length > 0, count: rows.length }
+})
+
 async function copyInviteCode() {
   if (!household.value) return
   await navigator.clipboard.writeText(household.value.invite_code)
@@ -168,6 +174,29 @@ async function copyInviteCode() {
         >
           Manage ingredients
         </UButton>
+      </section>
+
+      <!--
+        Read-only, and it says so. There is no per-user OAuth here — the
+        sync-calendar Edge Function holds a service account and a list of
+        calendar ids — so the honest thing this screen can do is report what
+        arrived rather than offer a button that connects nothing. It exists
+        because the board's "Connect a calendar" has to land somewhere true.
+      -->
+      <section class="space-y-2">
+        <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
+          Calendar
+        </h2>
+        <div class="space-y-1 rounded-lg border border-default p-3">
+          <p class="text-sm">
+            {{ calendar.connected ? `${calendar.count} events cached` : 'No calendar connected' }}
+          </p>
+          <p class="text-sm text-muted">
+            {{ calendar.connected
+              ? 'Google Calendar, synced every few minutes and cached on this device so the board still shows today with the wifi down.'
+              : 'Set up on the server, not here: the sync function holds the account and the list of calendars. Nothing has arrived yet.' }}
+          </p>
+        </div>
       </section>
 
       <section class="space-y-2">

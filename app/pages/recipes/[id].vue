@@ -14,11 +14,15 @@ const ingredients = useIngredientsStore()
 const id = computed(() => String(route.params.id))
 const recipe = computed(() => store.recipeById(id.value))
 const lines = computed(() => store.ingredientsFor(id.value))
+const steps = computed(() => store.stepsFor(id.value))
 
 const draftName = ref('')
 const draftIngredient = ref('')
+const draftStep = ref('')
 const editingLineId = ref<string | null>(null)
 const editorOpen = ref(false)
+const editingStepId = ref<string | null>(null)
+const stepEditorOpen = ref(false)
 const ingredientInput = useTemplateRef<{ focus: () => void }>('ingredientInput')
 
 watch(recipe, (value) => {
@@ -52,6 +56,20 @@ async function addIngredient(name: string, chosen: IngredientRow | null) {
 function editLine(lineId: string) {
   editingLineId.value = lineId
   editorOpen.value = true
+}
+
+function editStep(stepId: string) {
+  editingStepId.value = stepId
+  stepEditorOpen.value = true
+}
+
+async function addStep() {
+  const body = draftStep.value.trim()
+  if (!body) return
+  // Cleared first, like the ingredient box above: a method is typed one step
+  // after another and waiting on a write between them is the whole friction.
+  draftStep.value = ''
+  await store.addStep(id.value, body)
 }
 
 async function setServings(delta: number) {
@@ -137,6 +155,21 @@ async function removeRecipe() {
       </div>
 
       <template v-else>
+        <!--
+          No placeholder when there is no picture: the page simply starts at the
+          ingredients, which is what a hand-typed recipe has always looked like.
+          The wrapper collapses with the image, so nothing reserves the space.
+        -->
+        <div
+          v-if="recipe.image_url"
+          class="-mt-1 aspect-video overflow-hidden rounded-lg bg-elevated/30"
+        >
+          <RecipeImage
+            :src="recipe.image_url"
+            :alt="recipe.name"
+          />
+        </div>
+
         <section>
           <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
             Ingredients
@@ -216,6 +249,69 @@ async function removeRecipe() {
           </div>
         </section>
 
+        <!--
+          The method, as the ordered thing it is. It used to live in the Notes
+          box below, which meant an imported recipe buried its own notes under a
+          wall of instructions and the board had to guess where one step ended.
+        -->
+        <section>
+          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
+            Steps
+          </h2>
+
+          <ol
+            v-if="steps.length"
+            class="rounded-lg border border-default bg-elevated/30"
+          >
+            <RecipeStepRow
+              v-for="(step, index) in steps"
+              :key="step.id"
+              :body="step.body"
+              :position="index + 1"
+              :can-move-up="index > 0"
+              :can-move-down="index < steps.length - 1"
+              @edit="editStep(step.id)"
+              @move-up="store.moveStep(step.id, -1)"
+              @move-down="store.moveStep(step.id, 1)"
+            />
+          </ol>
+
+          <p
+            v-else
+            class="rounded-lg border border-default bg-elevated/30 px-3 py-6 text-center text-sm text-dimmed"
+          >
+            No method yet. Add the first step below.
+          </p>
+
+          <form
+            class="mt-2 flex items-end gap-2"
+            @submit.prevent="addStep"
+          >
+            <!--
+              A textarea, so enter means a new line the way it does everywhere
+              else you write a paragraph. That costs enter-to-submit, which is
+              why the button is beside it rather than implied.
+            -->
+            <UTextarea
+              v-model="draftStep"
+              :rows="2"
+              autoresize
+              size="xl"
+              class="flex-1"
+              placeholder="Add a step"
+              aria-label="Add a step"
+            />
+            <UButton
+              type="submit"
+              size="xl"
+              icon="i-lucide-plus"
+              :disabled="!draftStep.trim()"
+              aria-label="Add step"
+            />
+          </form>
+        </section>
+
+        <!-- Notes is notes again: what the method left out, not the method. -->
         <section>
           <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
             Notes
@@ -247,6 +343,11 @@ async function removeRecipe() {
     <IngredientLineEditor
       v-model:open="editorOpen"
       :line-id="editingLineId"
+    />
+
+    <RecipeStepEditor
+      v-model:open="stepEditorOpen"
+      :step-id="editingStepId"
     />
   </div>
 </template>

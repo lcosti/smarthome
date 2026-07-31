@@ -407,6 +407,10 @@ describe('the synced table registry', () => {
     await db.cacheFor('ingredient_purchase_units').put(purchaseUnit({ id: 'u-1' }))
     await db.cacheFor('recipes').put(recipe({ id: 'r-1' }))
     await db.cacheFor('recipe_ingredients').put(line({ id: 'l-1' }))
+    await db.cacheFor('recipe_steps').put({
+      id: 's-1', household_id: HOUSEHOLD, recipe_id: 'r-1', body: 'Brown the mince.',
+      sort_order: 1, deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
     await db.cacheFor('meal_plan_entries').put(planEntry({ id: 'p-1' }))
     await db.cacheFor('shopping_list_items').put(item({ id: 'i-1' }))
     await db.cacheFor('people').put({

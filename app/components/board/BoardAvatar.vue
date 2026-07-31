@@ -5,9 +5,9 @@ import { personColors } from '../../utils/person-colors'
  * A person's initial in their own colour.
  *
  * Sized in pixels rather than by Nuxt UI's size tokens: the board is one fixed
- * 1920×1200 frame with four avatar sizes drawn into it, and the token scale does
- * not have a 68px step. Everything else — the ring, the fill, the ink — comes
- * from the hue, so a fifth household member needs no work here at all.
+ * 1280×800 frame with a handful of avatar sizes drawn into it, and the token
+ * scale does not have a 45px step. Everything else — the ring, the fill, the ink
+ * — comes from the hue, so a fifth household member needs no work here at all.
  */
 const { initial, hue, size, absent = false, chip = false } = defineProps<{
   initial: string
@@ -26,7 +26,9 @@ const style = computed(() => ({
   fontSize: `${Math.round(size * 0.44)}px`,
   background: colors.value.tint,
   color: colors.value.ink,
-  border: `2px solid ${chip && !absent ? `oklch(0.76 0.13 ${hue})` : colors.value.ring}`,
+  // A 2px ring around a 24px circle is a doughnut. Below the roster sizes the
+  // ring thins to a hairline and the fill does the identifying.
+  border: `${size >= 32 ? 2 : 1}px solid ${chip && !absent ? `oklch(0.76 0.13 ${hue})` : colors.value.ring}`,
   opacity: absent ? '0.45' : '1'
 }))
 </script>

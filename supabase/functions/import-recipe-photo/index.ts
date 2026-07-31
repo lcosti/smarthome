@@ -30,9 +30,11 @@ type MediaType = (typeof ALLOWED_MEDIA_TYPES)[number]
 
 const EXTRACTION_PROMPT = `These photos show a single recipe, possibly spread across pages.
 Extract it exactly as printed: the recipe's name, servings, prep and cook times in minutes,
-the method as plain paragraphs in cooking order, and one ingredient per line with its
-quantity exactly as written (e.g. "400g", "2 tbsp", "1 tin"). Use null for anything not
-visible in the photos. Do not invent, convert, or normalise anything.
+the method as one array entry per step in cooking order, and one ingredient per line with
+its quantity exactly as written (e.g. "400g", "2 tbsp", "1 tin"). Keep each step whole —
+split where the page starts a new numbered step or paragraph, never mid-instruction, and do
+not merge two steps into one entry. Use an empty array if the photos show no method, and null
+for anything else not visible in them. Do not invent, convert, or normalise anything.
 If the photos do not show a recipe, set is_recipe to false and recipe to null.`
 
 Deno.serve(async (req) => {

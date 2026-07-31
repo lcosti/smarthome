@@ -13,6 +13,16 @@ export interface AisleGroup {
   entries: ListEntry<ItemRow>[]
 }
 
+/**
+ * The parts of a shopping list item a person can actually decide. Everything
+ * else on the row is provenance the app fills in — where it came from, who
+ * added it, which ingredient it resolved to — and is not a field to offer.
+ */
+export interface NewItemFields {
+  quantity?: string | null
+  aisleId?: string | null
+}
+
 function normaliseName(name: string) {
   return name.trim().toLowerCase()
 }
@@ -102,6 +112,19 @@ export const useListStore = defineStore('list', () => {
   }
 
   /**
+   * The aisle a new item would be filed under if nobody said otherwise: what the
+   * household's canonical ingredient says, else wherever this name went last
+   * time.
+   *
+   * Exposed rather than kept private to {@link addItem} so a form can show the
+   * guess as an already-selected chip. Filing something invisibly and filing it
+   * in front of somebody are different acts — the second one is correctable.
+   */
+  function suggestedAisle(name: string): string | null {
+    return ingredients.resolve(name)?.aisle_id ?? rememberedAisle(name)
+  }
+
+  /**
    * Why a derived item is on the list, resolved through the plan entry back to the
    * recipe. Read from local state rather than stored on the item, so it stays
    * right when a recipe is renamed — and it still works offline, because
@@ -131,8 +154,13 @@ export const useListStore = defineStore('list', () => {
    * Null means the item was not added. Without a household there is nothing to
    * attach the row to, and callers have to be able to tell — a dropped write that
    * looks like a successful one is the worst thing this app can do.
+   *
+   * Everything past the name is optional, because the fast path has to stay one
+   * field and one press. `aisleId` is deliberately three-valued: omitted takes
+   * {@link suggestedAisle}, whereas an explicit `null` is somebody choosing
+   * "Other" and must survive a guess that disagrees.
    */
-  async function addItem(rawName: string): Promise<ItemRow | null> {
+  async function addItem(rawName: string, fields: NewItemFields = {}): Promise<ItemRow | null> {
     const name = rawName.trim()
     if (!name || !sync.householdId) return null
     // Resolved if the household already knows this name, but never created: the
@@ -145,8 +173,8 @@ export const useListStore = defineStore('list', () => {
       id: crypto.randomUUID(),
       household_id: sync.householdId,
       name,
-      quantity: null,
-      aisle_id: ingredient?.aisle_id ?? rememberedAisle(name),
+      quantity: fields.quantity?.trim() || null,
+      aisle_id: 'aisleId' in fields ? fields.aisleId ?? null : suggestedAisle(name),
       checked: false,
       checked_at: null,
       source: 'adhoc',
@@ -259,6 +287,7 @@ export const useListStore = defineStore('list', () => {
     checkedItems,
     groups,
     rememberedAisle,
+    suggestedAisle,
     sourceLabelFor,
     sourceLabelForEntry,
     addItem,

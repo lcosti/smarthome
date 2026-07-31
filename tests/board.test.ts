@@ -43,6 +43,7 @@ function night(date: string, dish: string | null, present = EVERYONE): BoardNigh
           recipeId: `recipe-${dish}`,
           dish,
           minutes: 35,
+          servings: 4,
           note: 'tray + one pan',
           eatTime: '18:00',
           cookPersonId: 'luke',
@@ -97,10 +98,14 @@ function input(overrides: Partial<BoardInput> = {}): BoardInput {
     constraints: [{ person_id: 'sophia', kind: 'dislike', tag: 'chilli' }],
     events: EVENTS,
     hasCalendar: true,
+    toBuy: [
+      { entryId: `entry-${THURSDAY}`, name: 'Chicken thighs', qty: '1 kg' },
+      { entryId: `entry-${THURSDAY}`, name: 'Feta', qty: null },
+      // Another night's, so the hero has to filter rather than take the lot.
+      { entryId: 'entry-2026-07-31', name: 'Red lentils', qty: '500 g' }
+    ],
     shopping: {
       count: 14,
-      next: ['Squash — 1 medium', 'Natural yoghurt × 2', 'Chicken thighs — 8'],
-      recentAdd: { personId: 'luke', label: 'Nappies', at: at('17:08').toISOString() },
       everUsed: true
     },
     recipeCount: 6,
@@ -123,8 +128,18 @@ describe('nominal', () => {
   })
 
   it('works out when to start cooking from the recipe', () => {
-    expect(board.hero.timing).toBe('Eat 18:00 · start 17:25')
-    expect(board.hero.dishMeta).toBe('35 min · tray + one pan')
+    // Two facts in two places: the badge says when to eat, the footer says when
+    // to get up. A single pill carrying both was read as neither.
+    expect(board.hero.timing).toBe('18:00')
+    expect(board.hero.startBy).toBe('start by 17:25')
+    expect(board.hero.dishMeta).toBe('35 min · 4 servings · tray + one pan')
+  })
+
+  it('shows only what tonight still needs, and only tonight\'s', () => {
+    expect(board.hero.toBuy).toEqual([
+      { name: 'Chicken thighs', qty: '1 kg' },
+      { name: 'Feta', qty: null }
+    ])
   })
 
   it('names the cook', () => {
@@ -134,7 +149,9 @@ describe('nominal', () => {
 
   it('gives each person the portion their age calls for', () => {
     const notes = Object.fromEntries(board.hero.roster.map(p => [p.id, p.note]))
-    expect(notes.naomi).toBe('Adult portion')
+    // An adult portion is the default and goes unsaid; everything else is the
+    // whole reason the roster exists.
+    expect(notes.naomi).toBe('')
     expect(notes.sophia).toBe('Toddler portion · no chilli')
     expect(notes.arabella).toBe('Purée')
   })
@@ -151,30 +168,39 @@ describe('nominal', () => {
     expect(board.hero.roster.find(p => p.id === 'luke')?.warn).toBeNull()
   })
 
-  it('puts dinner in the schedule and badges the clash', () => {
-    const badges = Object.fromEntries(board.schedule.rows.map(r => [r.title, r.badge]))
-    expect(badges['Chicken traybake']).toBe('Meal')
-    expect(badges['Naomi — choir']).toBe('Clash')
+  it('puts dinner in the schedule and flags the clash', () => {
+    const meal = board.schedule.rows.find(r => r.meal)
+    expect(meal?.title).toBe('Dinner — Chicken traybake')
+    const choir = board.schedule.rows.find(r => r.title === 'Naomi — choir')
+    expect(choir?.meta).toBe('Naomi · clashes with dinner')
+  })
+
+  it('counts the day\'s events in the card badge, dinner aside', () => {
+    expect(board.schedule.empty).toBe(false)
+    expect(board.schedule.badge).toBe('4 events')
   })
 
   it('shows the now marker in the right place', () => {
     expect(board.schedule.nowAt).toBe('17:12')
     // Between the 15:15 pickup and the 18:00 meal.
-    expect(board.schedule.rows[board.schedule.nowIndex]?.title).toBe('Chicken traybake')
+    expect(board.schedule.rows[board.schedule.nowIndex]?.title).toBe('Dinner — Chicken traybake')
   })
 
-  it('says when the plan was generated', () => {
-    expect(board.header.generatedAt).toMatch(/^Plan updated Sunday /)
+  it('says how long ago the plan was made', () => {
+    expect(board.header.plan.generated).toBe(true)
+    expect(board.header.plan.label).toMatch(/^Plan generated · \d+ days ago$/)
   })
 
-  it('credits the last person to add something', () => {
-    expect(board.shopping.recentAdd?.label).toBe('Luke added Nappies · 4 min ago')
+  it('numbers the week the way everyone else numbers it', () => {
+    expect(board.header.weekLabel).toBe('Week 31')
   })
 
   it('lists the six days after today, none highlighted', () => {
     expect(board.week.map(w => w.dish)).toEqual([
       'Lentil ragù', 'Fish pie', 'Roast chicken', 'Leftover soup', 'Pasta al forno', 'Sausage & mash'
     ])
+    expect(board.week.map(w => w.dateLabel)).toEqual(['31', '01', '02', '03', '04', '05'])
+    expect(board.week.every(w => w.meta === '35 min')).toBe(true)
     expect(board.week.some(w => w.highlighted)).toBe(false)
   })
 })
@@ -192,11 +218,12 @@ describe('noplan', () => {
   })
 
   it('says the plan was never generated', () => {
-    expect(board.header.generatedAt).toBe('Plan not generated')
+    expect(board.header.plan.generated).toBe(false)
+    expect(board.header.plan.label).toBe('Plan not generated')
   })
 
-  it('em-dashes the week', () => {
-    expect(board.week.every(w => w.empty && w.dish === '—')).toBe(true)
+  it('says "No meal" rather than leaving a gap', () => {
+    expect(board.week.every(w => w.empty && w.dish === 'No meal' && w.meta === '')).toBe(true)
   })
 
   it('has no meal row in the schedule', () => {
@@ -235,7 +262,7 @@ describe('setup', () => {
     events: [],
     hasCalendar: false,
     recipeCount: 0,
-    shopping: { count: 0, next: [], recentAdd: null, everUsed: false },
+    shopping: { count: 0, everUsed: false },
     lastSyncedAt: null,
     offline: true
   }))
@@ -267,6 +294,8 @@ describe('setup', () => {
 
   it('shows what is done and what is left', () => {
     expect(fresh.hero.noMeal?.steps.map(s => s.done)).toEqual([false, false, false])
+    // Each step says where it gets done; only the generator is done on the board.
+    expect(fresh.hero.noMeal?.steps.map(s => s.to)).toEqual(['/people', '/recipes', null])
     const withPeople = buildBoard(input({
       nights: EMPTY_WEEK.map(n => ({ ...n, presentIds: EVERYONE })),
       recipeCount: 0
@@ -296,40 +325,27 @@ describe('setup', () => {
   })
 
   it('says the calendar is absent rather than stale', () => {
-    expect(fresh.schedule.meta).toBe('No calendar connected')
+    expect(fresh.schedule.empty).toBe(true)
+    expect(fresh.schedule.badge).toBe('No calendar')
     expect(fresh.schedule.overflow).toBe('')
   })
 
   it('does not congratulate an untouched shopping list', () => {
     expect(fresh.shopping.resolved).toBe(false)
-    expect(fresh.shopping.foot).toBe('Tap to add')
   })
 })
 
 describe('emptylist', () => {
   const board = buildBoard(input({
-    shopping: { count: 0, next: [], recentAdd: null, everUsed: true }
+    shopping: { count: 0, everUsed: true }
   }))
 
   it('changes only the shopping card', () => {
     expect(board.state).toBe('emptylist')
     expect(board.shopping.empty).toBe(true)
-    expect(board.shopping.foot).toBe('Tap to add')
-    expect(board.shopping.recentAdd).toBeNull()
+    expect(board.shopping.count).toBe(0)
     // The rest of the board is untouched.
     expect(board.hero.dish).toBe('Chicken traybake')
-  })
-
-  it('suppresses the toast even when something was just added', () => {
-    const board = buildBoard(input({
-      shopping: {
-        count: 0,
-        next: [],
-        recentAdd: { personId: 'luke', label: 'Nappies', at: at('17:08').toISOString() },
-        everUsed: true
-      }
-    }))
-    expect(board.shopping.recentAdd).toBeNull()
   })
 
   it('celebrates a list that was cleared', () => {
@@ -341,7 +357,7 @@ describe('emptylist', () => {
     // Green is the reward for clearing the list before a shop. Spending it on a
     // household that has never added anything makes it mean less.
     const fresh = buildBoard(input({
-      shopping: { count: 0, next: [], recentAdd: null, everUsed: false }
+      shopping: { count: 0, everUsed: false }
     }))
     expect(fresh.shopping.resolved).toBe(false)
     expect(fresh.shopping.emptyTitle).toBe('Nothing on the list yet')
@@ -355,8 +371,7 @@ describe('offline', () => {
     expect(board.state).toBe('offline')
     expect(board.header.stale).toBe(true)
     expect(board.header.staleLabel).toBe('Offline · last synced 15:58')
-    expect(board.schedule.meta).toBe('Last known · 15:58')
-    expect(board.shopping.foot).toBe('Last synced 15:58')
+    expect(board.schedule.badge).toBe('Last known · 15:58')
   })
 
   it('removes the now marker, because it cannot verify now', () => {
@@ -380,7 +395,7 @@ describe('offline', () => {
     const fresh = buildBoard(input({ offline: true, lastSyncedAt: null }))
     expect(fresh.header.stale).toBe(false)
     expect(fresh.header.staleLabel).toBeNull()
-    expect(fresh.shopping.foot).toBe('Tap for full list')
+    expect(fresh.shopping.empty).toBe(false)
   })
 })
 
@@ -397,7 +412,7 @@ describe('lateevening', () => {
   })
 
   it('says tonight is done', () => {
-    expect(board.hero.foot).toBe('Tonight\'s chicken traybake is done')
+    expect(board.hero.foot).toBe('tonight\'s chicken traybake is done')
   })
 
   it('highlights tomorrow in the week strip', () => {
@@ -406,13 +421,13 @@ describe('lateevening', () => {
   })
 
   it('shows tomorrow morning once today is spent', () => {
-    const tomorrowRow = board.schedule.rows.find(r => r.badge === 'Tomorrow')
+    const tomorrowRow = board.schedule.rows.find(r => r.meta.includes('tomorrow'))
     expect(tomorrowRow).toBeDefined()
     expect(board.schedule.rows.filter(r => r.past).length).toBeGreaterThan(0)
   })
 
   it('marks tonight\'s meal as cooked', () => {
-    expect(board.schedule.rows.some(r => r.title === 'Chicken traybake · cooked')).toBe(true)
+    expect(board.schedule.rows.some(r => r.title === 'Dinner — Chicken traybake · cooked')).toBe(true)
   })
 
   it('waits until the meal is actually over', () => {
@@ -460,7 +475,7 @@ describe('the schedule card', () => {
 
   it('says so when the day is spent', () => {
     const board = buildBoard(input({ now: at('23:50'), events: EVENTS, nights: WEEK.map(n => ({ ...n, meal: null })) }))
-    expect(board.schedule.meta).toBe('Nothing left today')
+    expect(board.schedule.badge).toBe('4 events')
   })
 
   it('handles an all-day event without inventing a time for it', () => {
@@ -497,6 +512,6 @@ describe('the schedule card', () => {
 describe('the hero when offline', () => {
   it('says the plan is local rather than pretending it is live', () => {
     const board = buildBoard(input({ offline: true }))
-    expect(board.hero.foot).toBe('Plan is stored locally · tap for the recipe')
+    expect(board.hero.foot).toBe('stored locally')
   })
 })

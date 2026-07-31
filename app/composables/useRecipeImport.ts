@@ -1,7 +1,7 @@
 import { useIngredientsStore } from '../stores/ingredients'
 import { useRecipesStore } from '../stores/recipes'
 import { compressToJpeg } from '../utils/photo'
-import { coerceExtractedRecipe, type ExtractedRecipe } from '../utils/recipe-import'
+import { coerceExtractedRecipe, importFailureMessage, type ExtractedRecipe } from '../utils/recipe-import'
 
 /** More photos than a recipe spans; matches the Edge Function's cap. */
 const MAX_PHOTOS = 4
@@ -59,11 +59,10 @@ export function useRecipeImport() {
     if (controller.signal.aborted) throw new Error(fallbackMessage)
 
     if (invokeError) {
-      // FunctionsHttpError carries the function's JSON body with the human message.
-      const errorBody = 'context' in invokeError
-        ? await (invokeError.context as Response).json().catch(() => null)
-        : null
-      throw new Error(errorBody?.error ?? fallbackMessage)
+      // The message a person reads is deliberately short; the whole error is
+      // what tells you which of the many ways this can fail actually happened.
+      console.error('edge function invoke failed', name, invokeError)
+      throw new Error(await importFailureMessage(invokeError, fallbackMessage))
     }
 
     return data
@@ -75,15 +74,22 @@ export function useRecipeImport() {
     const created = await recipes.addRecipe({
       name: recipe.name,
       base_servings: recipe.base_servings,
-      source_url: sourceUrl
+      source_url: sourceUrl,
+      image_url: recipe.image_url
     })
     if (!created) throw new Error('Could not save the recipe.')
 
     await recipes.updateRecipe(created.id, {
       prep_minutes: recipe.prep_minutes,
-      cook_minutes: recipe.cook_minutes,
-      method: recipe.method
+      cook_minutes: recipe.cook_minutes
     })
+
+    // Sequential for the same reason as the lines below: addStep reads back the
+    // highest sort_order it has already written, so a parallel loop would give
+    // every step the same number and lose the order the method was read in.
+    for (const step of recipe.steps) {
+      await recipes.addStep(created.id, step)
+    }
 
     // Sequential, not Promise.all: linkFor resolves against ingredients created
     // by earlier lines, so "tomatoes" twice must mint one row, not two.

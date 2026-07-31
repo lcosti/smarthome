@@ -1,224 +1,339 @@
 <script setup lang="ts">
 import type { BoardModel } from '../../utils/board'
-import { chipColors } from '../../utils/person-colors'
 
 /**
  * The card that answers the question the board exists for.
  *
- * Two treatments of the same facts. Dish-led leads with what is being cooked and
- * lets the roster explain who it is for; roster-led leads with who is eating and
- * closes on the dish. The headline sizes differ on purpose — 42px when it shares
- * the top of the card with its meta and the whole roster, 68px when it is the
- * closing statement with air around it. They are not the same thing at two sizes.
+ * One frame, several bodies. The header, the footer and the card itself are the
+ * same in every state — only the body and the badges swap — which is what lets
+ * seven derived content states share one component instead of becoming seven
+ * templates that drift apart.
  *
- * When there is no meal the card stops being about food and becomes about why,
- * with at most one action: generating a plan. That is the only filled button on
- * the entire board, because "no plan" is the only state with one obvious next move.
+ * When there is no meal the card stops being about food and becomes about why.
+ * On a household that has not been set up that means a checklist, because the
+ * honest answer is an order of operations rather than a single button; on one
+ * that simply has not generated yet, it is the single button.
  */
-const { hero, rosterLed, generating = false } = defineProps<{
+const { hero, generating = false, sending = false } = defineProps<{
   hero: BoardModel['hero']
-  rosterLed: boolean
   generating?: boolean
+  sending?: boolean
 }>()
 
-defineEmits<{ open: [], generate: [], toggle: [personId: string] }>()
+defineEmits<{
+  open: []
+  generate: []
+  toggle: [personId: string]
+  skip: []
+  swap: []
+  send: []
+}>()
 
-const cookStyle = computed(() => {
-  if (!hero.cook) return {}
-  const colors = chipColors(hero.cook.hue)
-  return { background: colors.bg, borderColor: colors.border, color: colors.text }
-})
+/**
+ * The first thing still to do, which is the only one worth pointing at.
+ *
+ * -1 when everything is done, which cannot happen while this body is on screen —
+ * the last step is "generate the week", and generating it replaces this body
+ * with a meal.
+ */
+const nextStep = computed(() => hero.noMeal?.steps.findIndex(step => !step.done) ?? -1)
+
+/**
+ * Resolved rather than named as a string in `:is`.
+ *
+ * A checklist row is a link when the work happens elsewhere and a button when it
+ * happens here, and one `<component>` renders both rather than two near-identical
+ * copies of the row drifting apart.
+ */
+const NuxtLink = resolveComponent('NuxtLink')
 </script>
 
 <template>
   <UCard
-    variant="outline"
+    variant="soft"
     :ui="{
-      root: 'flex min-h-0 flex-col rounded-2xl bg-elevated',
-      body: 'flex min-h-0 flex-1 flex-col p-0 sm:p-0'
+      root: 'flex min-h-0 flex-col overflow-hidden rounded-lg bg-elevated/50 divide-y divide-default ring ring-default',
+      header: 'flex flex-none items-center justify-between gap-3 px-6 py-4 sm:px-6',
+      body: 'flex min-h-0 flex-1 flex-col overflow-y-auto p-6 sm:p-6',
+      footer: 'flex flex-none flex-wrap items-center gap-3 px-6 py-4 sm:px-6'
     }"
-    class="px-11 py-10 transition-opacity duration-[80ms]"
   >
-    <div class="flex items-center justify-between">
-      <p class="font-mono text-[21px] uppercase tracking-[0.14em] text-muted">
-        {{ hero.eyebrow }}
-      </p>
-
-      <div
-        v-if="hero.hasMeal"
-        class="flex items-center gap-3"
-      >
-        <div
-          v-if="hero.cook"
-          class="flex items-center gap-3 rounded-full border py-[7px] pl-2 pr-[22px]"
-          :style="cookStyle"
-        >
-          <BoardAvatar
-            :initial="hero.cook.initial"
-            :hue="hero.cook.hue"
-            :size="38"
-            chip
-          />
-          <span class="text-[22px]">{{ hero.cook.label }}</span>
-        </div>
-
+    <template #header>
+      <div class="flex items-center gap-2.5">
+        <h2 class="text-base font-semibold text-highlighted">
+          {{ hero.eyebrow }}
+        </h2>
         <UBadge
-          v-if="hero.timing"
-          color="neutral"
-          variant="soft"
-          :ui="{ base: 'rounded-full px-[22px] py-[10px] text-[22px] ring-1 ring-default' }"
-        >
-          {{ hero.timing }}
-        </UBadge>
+          :color="hero.hasMeal ? 'primary' : 'neutral'"
+          variant="subtle"
+          :label="hero.timing ?? 'Empty'"
+          :ui="{ base: 'rounded-md px-2 py-1 font-mono text-xs font-medium leading-none' }"
+        />
       </div>
-    </div>
+
+      <UButton
+        v-if="hero.hasMeal"
+        color="neutral"
+        variant="ghost"
+        label="Skip"
+        :ui="{ base: 'px-2.5 py-1.5 text-sm font-medium' }"
+        @click="$emit('skip')"
+      />
+    </template>
 
     <!-- With a meal -->
     <div
       v-if="hero.hasMeal"
-      class="mt-[26px] flex min-h-0 flex-1 flex-col"
+      class="flex min-w-0 flex-1 gap-6"
     >
-      <p
-        v-if="rosterLed"
-        class="mb-[22px] text-[40px] font-medium text-muted"
+      <!--
+        The picture sits beside the text rather than above it. This card lives in
+        a frame that is one fixed screen and may never scroll, so a photograph has
+        to spend width — of which the hero column has plenty — and not height.
+      -->
+      <div class="flex min-w-0 flex-1 flex-col gap-5">
+        <div class="flex flex-col gap-2">
+          <h3 class="text-pretty text-[30px] font-semibold leading-[1.2] tracking-[-0.025em] text-highlighted">
+            {{ hero.dish }}
+          </h3>
+          <div class="flex items-center gap-2 font-mono text-xs text-dimmed">
+            <span>{{ hero.dishMeta }}</span>
+            <span
+              v-if="hero.cook"
+              class="flex items-center gap-1.5"
+            >
+              <span>·</span>
+              <BoardAvatar
+                :initial="hero.cook.initial"
+                :hue="hero.cook.hue"
+                :size="16"
+                chip
+              />
+              {{ hero.cook.label }}
+            </span>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <p class="text-xs font-medium uppercase tracking-[0.04em] text-dimmed">
+            Eating tonight
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <BoardPersonChip
+              v-for="person in hero.roster"
+              :key="person.id"
+              :person="person"
+              @toggle="$emit('toggle', person.id)"
+            />
+          </div>
+        </div>
+
+        <!--
+          The gap, not the inventory. An earlier version listed what the
+          household already had; on a board whose job is to prompt action that
+          read as counter-intuitive. Absent entirely when there is nothing
+          outstanding, because an empty "still to buy" is not news.
+        -->
+        <div
+          v-if="hero.toBuy.length"
+          class="flex flex-col gap-2"
+        >
+          <p class="text-xs font-medium uppercase tracking-[0.04em] text-dimmed">
+            Still to buy
+          </p>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              v-for="line in hero.toBuy"
+              :key="line.name"
+              class="flex items-baseline gap-1.5 rounded-md bg-primary/10 px-2.5 py-1
+                   text-[13px] font-medium text-primary ring ring-primary/25"
+            >
+              {{ line.name }}
+              <span
+                v-if="line.qty"
+                class="font-mono text-[11px] opacity-70"
+              >{{ line.qty }}</span>
+            </span>
+            <span class="rounded-md bg-default/60 px-2.5 py-1 text-[13px] text-dimmed ring ring-default">
+              everything else in the pantry
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!--
+        Only on a screen the size of the wall board itself. The same component
+        renders on a phone at /board, where 200px of photograph beside the dish
+        name would leave the name a column two words wide — and at the 1280px the
+        acceptance run uses, where the hero column is narrow enough that spending
+        200px of it on a picture is what would start the frame scrolling.
+      -->
+      <div
+        v-if="hero.image"
+        class="hidden w-[200px] shrink-0 self-stretch overflow-hidden rounded-lg bg-elevated/50 2xl:block"
       >
-        {{ hero.eatingCount }}
-      </p>
-
-      <template v-else>
-        <h2 class="mb-[14px] text-balance text-[42px] font-semibold leading-[1.02] tracking-[-0.025em] text-highlighted">
-          {{ hero.dish }}
-        </h2>
-        <p class="mb-[38px] text-[28px] text-muted">
-          {{ hero.dishMeta }}
-        </p>
-      </template>
-
-      <div class="flex flex-col gap-[10px]">
-        <BoardRosterRow
-          v-for="person in hero.roster"
-          :key="person.id"
-          :person="person"
-          @toggle="$emit('toggle', person.id)"
+        <RecipeImage
+          :src="hero.image"
+          :alt="hero.dish"
         />
       </div>
-
-      <div
-        v-if="rosterLed"
-        class="mt-auto pt-6"
-      >
-        <h2 class="text-balance text-[68px] font-semibold leading-[1.05] tracking-[-0.025em] text-highlighted">
-          {{ hero.dish }}
-        </h2>
-        <p class="mt-3 text-[26px] text-muted">
-          {{ hero.dishMeta }}
-        </p>
-      </div>
-
-      <button
-        v-else
-        type="button"
-        class="mt-auto flex items-center gap-[14px] pt-6 font-mono text-[20px]
-               text-dimmed transition-opacity duration-[80ms] active:opacity-85"
-        @click="$emit('open')"
-      >
-        <span class="size-[9px] rounded-full bg-accented" />
-        {{ hero.foot }}
-      </button>
     </div>
 
     <!-- Without one -->
     <div
       v-else-if="hero.noMeal"
-      class="flex min-h-0 flex-1 flex-col justify-center"
+      class="flex min-w-0 flex-1 flex-col gap-5"
     >
-      <h2 class="max-w-[15ch] text-balance text-[82px] font-semibold leading-[1.02] tracking-[-0.03em] text-highlighted">
-        {{ hero.noMeal.title }}
-      </h2>
-      <p class="mt-[22px] max-w-[32ch] text-pretty text-[28px] leading-[1.4] text-muted">
-        {{ hero.noMeal.body }}
-      </p>
+      <div class="flex flex-col gap-2">
+        <h3 class="text-pretty text-[30px] font-semibold leading-[1.2] tracking-[-0.025em] text-highlighted">
+          {{ hero.noMeal.title }}
+        </h3>
+        <p class="max-w-[520px] text-pretty text-sm leading-[1.6] text-muted">
+          {{ hero.noMeal.body }}
+        </p>
+      </div>
 
       <!--
         Nothing set up yet: the checklist turns a dead end into an order of
         operations, and gives the household something to watch tick over as they
         work through it on their phones.
       -->
-      <ul
+      <div
         v-if="hero.noMeal.steps.length"
-        class="mt-[38px] flex flex-col gap-3"
+        class="flex flex-col gap-2"
       >
-        <li
-          v-for="step in hero.noMeal.steps"
+        <!--
+          The whole row is the target, not the badge on the end of it. On a wall
+          the difference between a 700px hit area and a 50px one is the
+          difference between pressing it and prodding at it, and the badge is
+          there to say which step is next rather than to be aimed at.
+        -->
+        <component
+          :is="step.to ? NuxtLink : 'button'"
+          v-for="(step, index) in hero.noMeal.steps"
           :key="step.label"
-          class="flex items-center gap-4 text-[26px]"
-          :class="step.done ? 'text-muted' : 'text-highlighted'"
+          :to="step.to ?? undefined"
+          :type="step.to ? undefined : 'button'"
+          :disabled="step.to ? undefined : index !== nextStep"
+          class="flex items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors
+                 disabled:cursor-default"
+          :class="index === nextStep
+            ? 'bg-primary/10 ring ring-primary/25 hover:bg-primary/15'
+            : 'ring ring-default hover:bg-elevated/50'"
+          @click="step.to || $emit('generate')"
         >
           <!--
-            Two elements with literal names rather than one with a bound name:
-            Nuxt Icon builds its client bundle from the names it can see in the
-            source, so a dynamic one is simply absent at runtime and renders as
-            a silent gap.
+            pointer-events-none so the disabled input cannot swallow a press
+            aimed at the row it sits in.
           -->
-          <UIcon
-            v-if="step.done"
-            name="i-lucide-circle-check-big"
-            class="size-7 shrink-0 text-primary"
+          <UCheckbox
+            :model-value="step.done"
+            disabled
+            :ui="{ base: 'pointer-events-none size-4 rounded ring-accented disabled:opacity-100' }"
           />
-          <UIcon
-            v-else
-            name="i-lucide-circle-dashed"
-            class="size-7 shrink-0 text-dimmed"
+          <span
+            class="text-sm"
+            :class="index === nextStep ? 'font-medium text-highlighted' : 'text-muted'"
+          >{{ step.label }}</span>
+          <UBadge
+            v-if="index === nextStep"
+            color="primary"
+            variant="solid"
+            :label="!step.to && generating ? 'Generating…' : 'Next'"
+            :ui="{ base: 'ml-auto rounded-md px-2 py-1 text-xs font-medium leading-none' }"
           />
-          <span :class="step.done ? 'line-through' : ''">{{ step.label }}</span>
-        </li>
-      </ul>
-
-      <!--
-        Everybody out: the compact roster is the evidence for the headline, so it
-        is shown rather than asserted.
-      -->
-      <div
-        v-else-if="hero.roster.length && hero.roster.every(person => person.absent)"
-        class="mt-[38px] flex gap-4"
-      >
-        <div
-          v-for="person in hero.roster"
-          :key="person.id"
-          class="flex items-center gap-4 rounded-[14px] border border-default bg-default py-4 pl-4 pr-[22px]"
-        >
-          <BoardAvatar
-            :initial="person.initial"
-            :hue="person.hue"
-            :size="60"
-            absent
-          />
-          <div>
-            <p class="text-[24px] font-medium text-dimmed line-through">
-              {{ person.name }}
-            </p>
-            <p class="mt-1 text-[20px] text-dimmed">
-              {{ person.note }}
-            </p>
-          </div>
-        </div>
+        </component>
       </div>
 
       <!--
+        Everybody out: the roster is the evidence for the headline, so it is
+        shown rather than asserted.
+      -->
+      <div
+        v-else-if="hero.roster.length && hero.roster.every(person => person.absent)"
+        class="flex flex-wrap gap-2"
+      >
+        <BoardPersonChip
+          v-for="person in hero.roster"
+          :key="person.id"
+          :person="person"
+          @toggle="$emit('toggle', person.id)"
+        />
+      </div>
+    </div>
+
+    <template #footer>
+      <!--
         `to` set means the next step is somewhere else — a roster or a library
         that has to exist before the generator can do anything. Only the
-        generator's own button shows the pending label, because it is the only
-        one that does work here rather than navigating away.
+        generator's own button shows a pending label, because it is the only one
+        that does work here rather than navigating away.
       -->
-      <UButton
-        v-if="hero.noMeal.action"
-        color="warning"
-        variant="solid"
-        :to="hero.noMeal.action.to ?? undefined"
-        :label="!hero.noMeal.action.to && generating ? 'Generating…' : hero.noMeal.action.label"
-        class="mt-11 h-[84px] self-start rounded-[14px] px-11 text-[30px] font-semibold"
-        @click="hero.noMeal.action.to || $emit('generate')"
-      />
-    </div>
+      <template v-if="hero.hasMeal">
+        <UButton
+          color="primary"
+          variant="solid"
+          label="Start cooking"
+          trailing-icon="i-lucide-arrow-right"
+          :ui="{ base: 'rounded-md px-3 py-2 text-sm font-medium' }"
+          @click="$emit('open')"
+        />
+        <UButton
+          color="neutral"
+          variant="subtle"
+          label="Swap meal"
+          :ui="{ base: 'rounded-md px-3 py-2 text-sm font-medium' }"
+          @click="$emit('swap')"
+        />
+        <UButton
+          color="neutral"
+          variant="ghost"
+          :label="sending ? 'Sending…' : 'Send to list'"
+          :ui="{ base: 'rounded-md px-3 py-2 text-sm font-medium' }"
+          @click="$emit('send')"
+        />
+        <p
+          v-if="hero.startBy || hero.foot"
+          class="ml-auto font-mono text-xs text-dimmed"
+        >
+          {{ hero.startBy ?? hero.foot }}
+        </p>
+      </template>
+
+      <template v-else-if="hero.noMeal?.action">
+        <UButton
+          color="primary"
+          variant="solid"
+          :to="hero.noMeal.action.to ?? undefined"
+          :label="!hero.noMeal.action.to && generating ? 'Generating…' : hero.noMeal.action.label"
+          trailing-icon="i-lucide-arrow-right"
+          :ui="{ base: 'rounded-md px-3 py-2 text-sm font-medium' }"
+          @click="hero.noMeal.action.to || $emit('generate')"
+        />
+        <UButton
+          v-if="hero.noMeal.action.to !== '/recipes'"
+          color="neutral"
+          variant="subtle"
+          to="/recipes"
+          label="Browse recipes"
+          :ui="{ base: 'rounded-md px-3 py-2 text-sm font-medium' }"
+        />
+        <p class="ml-auto font-mono text-xs text-dimmed">
+          {{ hero.noMeal.hint }}
+        </p>
+      </template>
+
+      <!--
+        Nobody home has no action, but the card still gets its footer: the frame
+        is the same in every state, and a card that lost its bottom edge on one
+        of them would look like a rendering fault.
+      -->
+      <p
+        v-else
+        class="ml-auto font-mono text-xs text-dimmed"
+      >
+        {{ hero.noMeal?.hint }}
+      </p>
+    </template>
   </UCard>
 </template>

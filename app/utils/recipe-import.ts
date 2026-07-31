@@ -19,8 +19,11 @@ export interface ExtractedRecipe {
   base_servings: number
   prep_minutes: number | null
   cook_minutes: number | null
-  method: string | null
+  /** In cooking order. Empty when the source had no method to read. */
+  steps: string[]
   ingredients: ExtractedIngredient[]
+  /** The picture the source page published, or null. Always an absolute address. */
+  image_url: string | null
 }
 
 /** A cookbook serves a family, not a canteen; anything outside this is a misread. */
@@ -37,6 +40,37 @@ function asText(value: unknown): string | null {
 }
 
 /**
+ * One block of method text as the steps it was always meant to be, split on
+ * blank lines.
+ *
+ * This is the rule the wall board used to apply at render time, kept because a
+ * deployed function can still answer with a single `method` string — the bundle
+ * and the functions ship separately, so the client has to be able to make steps
+ * out of whichever shape arrives. It is also how the migration backfilled the
+ * library, which is what keeps old and new imports numbered the same way.
+ */
+export function splitMethodIntoSteps(method: string): string[] {
+  return method
+    .split(/\n\s*\n/)
+    .map(step => step.trim())
+    .filter(Boolean)
+}
+
+/**
+ * An absolute http(s) address, or null.
+ *
+ * This value ends up in an `<img src>`, so the check is a filter and not a
+ * formality: `javascript:` and `data:` are refused here rather than trusted to
+ * whatever answered. The function validates the same way — both ends, because
+ * the bundle and the functions deploy separately.
+ */
+export function asImageUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return /^https?:\/\/[^\s"'<>]+$/i.test(trimmed) ? trimmed : null
+}
+
+/**
  * Whether what was typed is a link rather than a recipe name.
  *
  * Deliberately blunt: the one box on the recipes page both searches and adds, so
@@ -45,6 +79,38 @@ function asText(value: unknown): string | null {
  */
 export function looksLikeUrl(text: string): boolean {
   return /^https?:\/\/\S+$/i.test(text.trim())
+}
+
+/**
+ * What to tell someone whose import call came back an error.
+ *
+ * The distinction that matters is whether a reply arrived at all. A function of
+ * ours answers with `{ error }` and its own words are always the best ones. But
+ * a function that is missing, cold, or over its limits never runs: Supabase's
+ * gateway answers `{ code, message }` and a local Kong answers `{ message }`,
+ * neither of which has an `error` key. Reading those as "no signal" sends you to
+ * check the wifi when the fault is a function that was never deployed, so say
+ * the status out loud instead.
+ *
+ * The type check on `context` is not defensive noise: `FunctionsHttpError` puts
+ * the Response there, but `FunctionsFetchError` — the genuine network failure
+ * this fallback exists for — puts the fetch error there instead.
+ */
+export async function importFailureMessage(
+  invokeError: unknown,
+  fallback: string
+): Promise<string> {
+  const context = typeof invokeError === 'object' && invokeError !== null && 'context' in invokeError
+    ? (invokeError as { context: unknown }).context
+    : null
+
+  if (!(context instanceof Response)) return fallback
+
+  const body = await context.json().catch(() => null) as { error?: unknown } | null
+  const stated = asText(body?.error)
+  if (stated) return stated
+
+  return `Recipe import is down (${context.status}) — that's the app, not your signal.`
 }
 
 export function coerceExtractedRecipe(input: unknown): ExtractedRecipe | null {
@@ -71,12 +137,28 @@ export function coerceExtractedRecipe(input: unknown): ExtractedRecipe | null {
     ? Math.min(servings, MAX_SERVINGS)
     : 2
 
+  // Either shape is accepted on purpose. A current function answers with `steps`;
+  // one that has not been redeployed yet answers with `method`, and a recipe
+  // imported through the old shape should still arrive as steps rather than as a
+  // paragraph in the notes.
+  const steps: string[] = []
+  if (Array.isArray(raw.steps)) {
+    for (const entry of raw.steps) {
+      const step = asText(entry)
+      if (step) steps.push(step)
+    }
+  } else {
+    const method = asText(raw.method)
+    if (method) steps.push(...splitMethodIntoSteps(method))
+  }
+
   return {
     name,
     base_servings,
     prep_minutes: asMinutes(raw.prep_minutes),
     cook_minutes: asMinutes(raw.cook_minutes),
-    method: asText(raw.method),
-    ingredients
+    steps,
+    ingredients,
+    image_url: asImageUrl(raw.image_url)
   }
 }

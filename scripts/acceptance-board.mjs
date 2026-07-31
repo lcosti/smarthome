@@ -4,7 +4,7 @@
 //   a planned night -> no plan and the one button -> an empty list -> the wifi drops
 //
 // The parts worth checking here are the ones a unit test cannot reach: that the
-// board paints inside 1920x1200 without scrolling, that its states change because
+// board paints inside 1280x800 without scrolling, that its states change because
 // the underlying data changed rather than because a prop was set, and — the
 // load-bearing one — that pulling the network out leaves every fact on screen
 // and adds an honest caption, instead of producing the spinner or error screen
@@ -37,7 +37,7 @@ const SECRET = process.env.SUPABASE_SECRET_KEY
 
 // The board is designed for exactly one display in exactly one orientation, so
 // this is not an arbitrary viewport — it is the product.
-const FRAME = { width: 1920, height: 1200 }
+const FRAME = { width: 1280, height: 800 }
 
 if (!SECRET) {
   console.error('SUPABASE_SECRET_KEY is not set. Add it to .env — run `pnpm supabase status` for the local stack\'s keys.')
@@ -130,6 +130,17 @@ async function assertFits(view) {
   assert(!fit.x && !fit.y && !fit.doc, `${view} fits the frame without scrolling: ${JSON.stringify(fit)}`)
 }
 
+/**
+ * Press something inside the board frame.
+ *
+ * Forced, because the frame is a transformed and clipped subtree: Chromium's
+ * scrollIntoViewIfNeeded is a no-op inside it, so Playwright's actionability
+ * check retries forever on elements that are plainly visible. The board is one
+ * fixed screen that never scrolls, so there is nothing for that check to
+ * protect against here — every assertion around these presses still has to hold.
+ */
+const press = locator => locator.click({ force: true })
+
 async function shoot(name) {
   await page.screenshot({ path: join(SHOTS, `${name}.png`) })
 }
@@ -152,22 +163,35 @@ try {
   // was two untrue statements about a household that had simply just started.
   await openBoard()
   assert(await boardState() === 'setup', `a new household is in setup, got ${await boardState()}`)
+  // Settle before reading: the board paints from local state immediately and the
+  // first pull lands the person that creating a household created, so the copy
+  // moves from "add the people" to "the roster is ready" a beat later. Asserting
+  // on the first paint would be asserting on a frame nobody looks at.
+  await board().getByText('The roster is ready').waitFor({ timeout: 20_000 })
   let text = await boardText()
   assert(text.includes('Nothing set up yet'), `the hero says so, saw: ${text.slice(0, 300)}`)
   assert(!text.includes('Nobody home'), 'and does not claim nobody is home when there is nobody at all')
   assert(!/calendar has everyone out/.test(text), 'nor blames a calendar it has never read')
-  assert(text.includes('No calendar connected'), 'the schedule says why it is empty')
+  assert(text.includes('No calendar'), 'the schedule says why it is empty')
+  assert(text.includes('Connect a calendar'), 'and offers the one thing that would fill it')
   assert(text.includes('Nothing on the list yet'), 'and an untouched list is not celebrated')
   assert(!text.includes('Offline'), 'a device that has never synced is new, not stale')
   await shoot('setup')
   log('a brand-new household gets a truthful board with a checklist')
 
-  // The action must go to the step that is genuinely next — the generator can do
-  // nothing without a roster and a library.
-  await board().getByRole('link', { name: /Add people/ }).click()
-  await page.waitForURL('**/people', { timeout: 20_000 })
-  log('and its one button leads to the roster rather than a dead generator')
+  // The checklist must point at the step that is genuinely next, and creating a
+  // household already creates the person who created it — so a brand-new board
+  // wants recipes, not people, and its first row is already ticked. Pointing at
+  // the generator instead would be a button that silently does nothing, which is
+  // the failure this whole state exists to avoid.
+  assert(text.includes('The roster is ready'), `the hero knows step one is done, saw: ${text.slice(0, 300)}`)
+  const nextRow = board().locator('a,button').filter({ hasText: 'Put a few recipes in the library' })
+  assert(await nextRow.count() === 1, 'the next step is a row you can press, not a label')
+  await nextRow.first().click()
+  await page.waitForURL('**/recipes', { timeout: 20_000 })
+  log('and the checklist row for the next step opens it')
 
+  await page.goto(`${ORIGIN}/people`)
   await page.locator('main').getByText('Luke').first().waitFor({ timeout: 15_000 })
   await page.getByPlaceholder('Add somebody').fill('Tom')
   await page.locator('main input[type="date"]').fill(yearsAgo(2))
@@ -175,13 +199,39 @@ try {
   await page.locator('main').getByText('Tom').first().waitFor({ timeout: 10_000 })
   log('added a toddler, so the roster has two life stages in it')
 
+  // One box does three jobs on this page — narrow, add, or import a pasted link.
+  // Typing a plain name and pressing add creates the recipe and opens it.
   await page.goto(`${ORIGIN}/recipes`)
-  await page.getByRole('button', { name: 'New recipe' }).click()
-  const editor = page.locator('[role="dialog"]')
-  await editor.getByPlaceholder('Chilli').fill('Chicken traybake')
-  await editor.getByRole('button', { name: 'Save' }).click()
-  await page.locator('main').getByText('Chicken traybake').first().waitFor({ timeout: 15_000 })
+  await page.getByTestId('recipe-draft').fill('Chicken traybake')
+  // Exact: the photo importer beside it is also an "Add recipe from a photo".
+  await page.getByRole('button', { name: 'Add recipe', exact: true }).click()
+  await page.waitForURL('**/recipes/**', { timeout: 20_000 })
   log('put one recipe in the library')
+
+  // Filled in from the phone, because that is where recipes get written and
+  // because cook mode on the wall has nothing to show without it. The first step
+  // carries a duration for the timer to find and an aside in its own paragraph
+  // for the tip callout; the last carries a range, which resolves to its top.
+  const ingredientBox = page.getByPlaceholder('Add an ingredient')
+  for (const [line, quantity] of [['chicken thighs', '8'], ['squash', '1'], ['olive oil', '2 tbsp']]) {
+    await ingredientBox.fill(line)
+    await ingredientBox.press('Enter')
+    await page.locator('main li', { hasText: line }).first().waitFor({ timeout: 10_000 })
+    await page.locator('main li button', { hasText: line }).first().click()
+    await page.getByLabel('Quantity').fill(quantity)
+    await page.getByRole('button', { name: 'Save' }).click()
+    await page.waitForTimeout(500)
+  }
+  for (const body of [
+    'Brown the chicken for 8 mins.\n\nDo not crowd the tray or it steams.',
+    'Add the squash and toss it in the fat.',
+    'Roast for 25-30 mins.'
+  ]) {
+    await page.getByPlaceholder('Add a step').fill(body)
+    await page.getByRole('button', { name: 'Add step' }).click()
+    await page.locator('main').getByText(body.split('\n')[0]).first().waitFor({ timeout: 10_000 })
+  }
+  log('gave it three ingredients and three steps, from the phone')
 
   await page.goto(`${ORIGIN}/`)
   for (const item of ['Nappies', 'Bin bags']) {
@@ -198,7 +248,7 @@ try {
   assert(text.includes('No plan for tonight'), `the hero says so, saw: ${text.slice(0, 300)}`)
   assert(text.includes('Plan not generated'), 'the header says the plan was never generated')
   assert(text.includes('Generate this week'), 'the one filled button is offered')
-  assert((await board().getByText('—').count()) >= 6, 'the week strip is six em-dashes')
+  assert((await board().getByText('No meal').count()) >= 6, 'the week strip is six quiet no-meals')
   await shoot('noplan')
   log('with nothing planned the board offers exactly one action')
 
@@ -211,7 +261,7 @@ try {
   }))
   assert(overflow.scrollW <= overflow.clientW, `nothing overflows sideways: ${JSON.stringify(overflow)}`)
   assert(overflow.scrollH <= overflow.clientH, `nothing overflows downwards: ${JSON.stringify(overflow)}`)
-  log('the frame fits 1920x1200 exactly, with no scrolling in either direction')
+  log('the frame fits 1280x800 exactly, with no scrolling in either direction')
 
   // --- Pressing it generates a real plan ------------------------------------
   await board().getByRole('button', { name: /Generate this week/ }).click()
@@ -225,31 +275,26 @@ try {
   // --- nominal: the things only the board derives ---------------------------
   text = await boardText()
   assert(text.includes('Tonight'), 'the eyebrow is about tonight')
-  assert(/Eat \d\d:\d\d/.test(text), `the timing pill states when to eat, saw: ${text.slice(0, 300)}`)
+  // The eat time, not the start time: a recipe typed in as a bare name has no
+  // prep or cook minutes, so there is nothing to count back from. The
+  // arithmetic itself is covered in tests/board.test.ts.
+  assert(/Tonight \d\d:\d\d/.test(text), `the card badges when to eat, saw: ${text.slice(0, 300)}`)
   assert(text.includes('Luke') && text.includes('Tom'), 'both people are on the roster')
-  assert(text.includes('Adult portion'), 'the adult gets an adult portion')
+  assert(!text.includes('Adult portion'), 'an adult portion is the default and goes unsaid')
   assert(text.includes('Toddler portion'), 'the toddler gets a toddler portion, derived from a birth date')
-  assert(text.includes('Plan updated'), 'the header now says when the plan was generated')
+  assert(text.includes('Plan generated'), 'the header now says how long ago the plan was made')
+  assert(/Week \d+/.test(text), 'and which week of the year this is')
   await shoot('nominal')
   log('the roster adapts one meal per person, by age, with nobody asked')
 
-  // --- The roster-led treatment is the same facts, arranged differently -----
-  await page.goto(`${ORIGIN}/board?hero=roster`)
-  await board().waitFor({ timeout: 20_000 })
-  const rosterLed = await boardText()
-  assert(rosterLed.includes('for dinner'), `the roster-led hero leads with the count, saw: ${rosterLed.slice(0, 200)}`)
-  assert(rosterLed.includes('Chicken traybake'), 'and still closes on the dish')
-  await shoot('roster-led')
-  log('?hero=roster rearranges the same facts without changing them')
-
-  // --- Tapping a roster row takes somebody off tonight ----------------------
+  // --- Tapping a person chip takes somebody off tonight ---------------------
   await openBoard()
   await board().locator('button', { hasText: 'Tom' }).first().click()
   await page.waitForTimeout(1000)
   const attendance = (await readTable('attendance')).filter(a => !a.deleted_at)
   assert(attendance.length === 1, `one row for the one absence, got ${attendance.length}`)
   assert(attendance[0].present === false, 'and it records the absence')
-  log('tapping a roster row wrote exactly one attendance row')
+  log('tapping a person chip wrote exactly one attendance row')
 
   // Put them back, so the later states are not about a half-empty table.
   await board().locator('button', { hasText: 'Tom' }).first().click()
@@ -271,10 +316,10 @@ try {
   await assertFits('the list view')
 
   // Ticking is the reason this view exists.
-  const beforeTick = await frame().locator('section button').count()
-  await frame().locator('section button').first().click()
+  const beforeTick = await frame().locator('[role="checkbox"]').count()
+  await frame().locator('[role="checkbox"]').first().click()
   await page.waitForTimeout(1500)
-  const afterTick = await frame().locator('section button').count()
+  const afterTick = await frame().locator('[role="checkbox"]').count()
   assert(afterTick === beforeTick - 1, `ticking removed one line, got ${beforeTick} then ${afterTick}`)
   await shoot('view-list')
   log('the list view ticks items off at wall size, and the header never moved')
@@ -292,7 +337,7 @@ try {
     await empties.first().click()
     await page.waitForTimeout(800)
     assert((await boardText()).includes('What are we having?'), 'tapping an empty night opens the library')
-    await frame().locator('button').filter({ hasText: 'Chicken traybake' }).first().click()
+    await press(frame().getByText('Chicken traybake', { exact: true }).first())
     await page.waitForTimeout(1500)
     assert((await boardText()).includes('Chicken traybake'), 'and choosing a recipe plans that night')
     log('the week view plans a night from the wall')
@@ -303,37 +348,137 @@ try {
   await page.waitForURL('**/board/recipes', { timeout: 20_000 })
   await assertFits('the recipe library')
   assert((await boardText()).includes('Chicken traybake'), 'the library lists the recipes')
-  await frame().getByRole('link', { name: /Chicken traybake/ }).first().click()
+  // The card's own anchor is a zero-size focus proxy with an ::after overlay,
+  // so click what a person would click — the title.
+  await press(frame().getByText('Chicken traybake', { exact: true }).first())
   await page.waitForURL('**/board/recipes/**', { timeout: 20_000 })
-  await assertFits('a recipe')
+  await assertFits('cook mode')
+
+  // --- cook mode: one step at a time, and the header gets out of the way -----
+  const cook = () => frame().locator('[data-cook-mode]')
+  const atStep = () => cook().getAttribute('data-cook-step')
+
+  assert(await cook().count() === 1, 'opening a recipe opens cook mode')
+  assert(!(await frame().getByRole('link', { name: 'Today', exact: true }).count()),
+    'and the board header is gone — at the hob you are doing one thing')
+
   text = await boardText()
-  assert(text.includes('Ingredients') && text.includes('Method'), `a recipe reads from the hob, saw: ${text.slice(0, 300)}`)
+  // Case-insensitive: the headings are uppercased in CSS, and innerText
+  // reports what is painted rather than what is in the markup.
+  assert(/ingredients/i.test(text), `the ingredients stay beside the step, saw: ${text.slice(0, 300)}`)
+  assert(text.includes('Brown the chicken'), 'the first step is the one on screen')
+  assert(!text.includes('Add the squash'), 'and the second one is not, because it is not next yet')
+  assert(text.includes('Do not crowd the tray'), 'the second paragraph became the tip')
+  assert(await atStep() === '1/3', `it starts at the first step, got ${await atStep()}`)
   await shoot('view-recipe')
-  log('the recipe view opens a recipe at hob-readable size')
+
+  // The timer is read out of the prose. Nothing about the step says "8 minutes"
+  // in a column anywhere — "for 8 mins" is the whole source.
+  // Named after the verb, not the noun in front of the number: "brown the
+  // chicken for 8 mins" is a Brown, and naming it Chicken is the obvious wrong
+  // answer that tests/cook.test.ts pins down.
+  const timer = cook().locator('button', { hasText: 'Start brown 8 min' })
+  assert(await timer.count() === 1, 'the duration in the prose became a timer, named after what it times')
+  await timer.click()
+  await page.waitForTimeout(1500)
+  const running = await boardText()
+  assert(!running.includes('Start brown 8 min'), 'tapping it starts it')
+  assert(/7:5\d/.test(running), `and it counts down in seconds, saw: ${running.slice(0, 300)}`)
+  log('cook mode found a timer in the prose, named it and started it')
+
+  // Ticking ingredients off is session state — nothing about tonight's cooking
+  // belongs to the recipe, so none of this is written anywhere.
+  const rows = cook().locator('ul button')
+  await rows.nth(0).click()
+  await rows.nth(1).click()
+  await page.waitForTimeout(400)
+  assert((await boardText()).includes('2 / 3'), 'the checklist counts what is out of the fridge')
+
+  await frame().getByRole('button', { name: 'Next step' }).click()
+  await page.waitForTimeout(300)
+  assert(await atStep() === '2/3', `Next moves one step, got ${await atStep()}`)
+  assert((await boardText()).includes('Add the squash'), 'and shows that step')
+
+  // The pan is still on the heat two steps later, which is the entire reason
+  // the timer detaches instead of scrolling away with the step that set it.
+  const pin = frame().locator('[data-cook-pinned]')
+  assert(await pin.count() === 1, 'the running timer followed us to the top bar')
+  const pinText = await pin.innerText()
+  assert(/Brown/.test(pinText) && /\d:\d\d/.test(pinText),
+    `named and still counting, saw: ${pinText}`)
+
+  await pin.click()
+  await page.waitForTimeout(300)
+  assert(await atStep() === '1/3', `and pressing it goes back to the pan, got ${await atStep()}`)
+  assert(!(await frame().locator('[data-cook-pinned]').count()),
+    'where it stops being pinned, because it is on screen at full size again')
+  log('a running timer follows you off the step and leads you back to it')
+
+  await frame().getByRole('button', { name: 'Next step' }).click()
+  await page.waitForTimeout(300)
+  await frame().getByRole('button', { name: 'Next step' }).click()
+  await page.waitForTimeout(300)
+  assert(await atStep() === '3/3', `to the last one, got ${await atStep()}`)
+  assert(await frame().getByRole('link', { name: 'Finish' }).count() === 1,
+    'where Next becomes Finish, because there is nothing after the last step')
+  await shoot('view-recipe-last')
+
+  await frame().getByRole('button', { name: 'Previous' }).click()
+  await page.waitForTimeout(300)
+  assert(await atStep() === '2/3', `and Previous goes back, got ${await atStep()}`)
+  log('the method walks one step at a time, forwards and back')
+
+  await frame().getByRole('link', { name: 'Exit cook mode' }).click()
+  await page.waitForURL(`${ORIGIN}/board`, { timeout: 20_000 })
+  await board().waitFor({ timeout: 20_000 })
+  log('and leaving it puts the whole board back')
+
+  await frame().getByRole('link', { name: 'Recipes', exact: true }).click()
+  await page.waitForURL('**/board/recipes', { timeout: 20_000 })
 
   await frame().getByRole('link', { name: 'Today', exact: true }).click()
   await page.waitForURL(`${ORIGIN}/board`, { timeout: 20_000 })
   await board().waitFor({ timeout: 20_000 })
   log('and every view is one press from every other')
 
-  // --- emptylist: only the shopping card changes ----------------------------
+  // --- the shopping card is the list, not a summary of it -------------------
   //
-  // Cleared from the board rather than from a phone, which is how it will
-  // actually happen: the tablet is what you are standing in front of.
+  // Ticked from the Today card rather than from a phone or the list view, which
+  // is how it will actually happen: the tablet is what you are standing in
+  // front of while you unpack a bag.
+  await openBoard()
+  const shoppingCard = board().locator('[data-board-card="shopping"]')
+  assert(/\d+ done · \d+ to buy/.test(await boardText()),
+    'the card counts what is done against what is left')
+
+  const rowsBefore = await shoppingCard.locator('button').count()
+  await shoppingCard.locator('button').first().click()
+  await page.waitForTimeout(1200)
+  const ticked = (await readTable('items')).filter(i => i.checked && !i.deleted_at)
+  assert(ticked.length === 1, `ticking a row from Today wrote it through, got ${ticked.length}`)
+  assert(await shoppingCard.locator('button').count() === rowsBefore,
+    'and the row stayed on screen, struck through rather than vanishing')
+
+  await press(board().getByRole('button', { name: 'Clear done' }))
+  await page.waitForTimeout(1200)
+  assert((await readTable('items')).some(i => i.checked && i.deleted_at),
+    'and Clear done removed it')
+  log('the Today card ticks items off and clears them without leaving the board')
+
+  // --- emptylist: only the shopping card changes ----------------------------
   await page.goto(`${ORIGIN}/board/list`)
   await frame().waitFor({ timeout: 20_000 })
   for (let guard = 0; guard < 20; guard++) {
-    const left = await frame().locator('section button').count()
+    const left = await frame().locator('[role="checkbox"]').count()
     if (!left) break
-    await frame().locator('section button').first().click()
+    await frame().locator('[role="checkbox"]').first().click()
     await page.waitForTimeout(700)
   }
-  assert(!(await frame().locator('section button').count()), 'the list is empty now')
+  assert(!(await frame().locator('[role="checkbox"]').count()), 'the list is empty now')
 
   await openBoard()
   text = await boardText()
   assert(text.includes('Nothing to buy'), `the empty list is a result, not a blank card, saw: ${text.slice(0, 300)}`)
-  assert(text.includes('Tap to add'), 'and the foot invites adding something')
   assert(text.includes('Chicken traybake'), 'while the rest of the board is untouched')
   await shoot('emptylist')
   log('ticking the list off turns the shopping card green and leaves everything else alone')
@@ -351,7 +496,7 @@ try {
   assert(!(await page.locator('[role="progressbar"], .animate-spin').count()), 'and no spinner either')
 
   // The now-marker asserts a time the board can no longer verify, so it goes.
-  const markerGone = !(await board().locator('.bg-warning.size-\\[18px\\]').count())
+  const markerGone = !(await board().locator('.bg-primary\\/70').count())
   assert(markerGone, 'the now-marker is removed when offline')
   await shoot('offline')
   log('losing the network dimmed the schedule and captioned it, losing nothing')

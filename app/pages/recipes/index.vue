@@ -164,6 +164,7 @@ async function land(recipeId: string | null) {
           :name="item.name"
           :ingredient-count="store.ingredientsFor(item.id).length"
           :servings="item.base_servings"
+          :image-url="item.image_url"
           @select="navigateTo(`/recipes/${item.id}`)"
         />
       </ul>

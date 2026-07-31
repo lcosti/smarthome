@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractRecipeJsonLd } from '../supabase/functions/_shared/jsonld'
+import { extractRecipeJsonLd, openGraphImage } from '../supabase/functions/_shared/jsonld'
 
 /** A page with the given JSON-LD payload embedded, plus enough noise to be real. */
 function page(payload: unknown, extra = ''): string {
@@ -28,7 +28,7 @@ describe('extractRecipeJsonLd', () => {
     expect(recipe?.base_servings).toBe(4)
     expect(recipe?.prep_minutes).toBe(10)
     expect(recipe?.cook_minutes).toBe(90)
-    expect(recipe?.method).toBe('Soften the onion. Add everything else and simmer.')
+    expect(recipe?.steps).toEqual(['Soften the onion. Add everything else and simmer.'])
   })
 
   it('splits each ingredient line into a quantity and a thing', () => {
@@ -58,7 +58,7 @@ describe('extractRecipeJsonLd', () => {
     expect(extractRecipeJsonLd(page(qualified))?.name).toBe('Lentil soup')
   })
 
-  it('flattens HowToStep instructions into paragraphs', () => {
+  it('keeps HowToStep instructions as separate steps', () => {
     const steps = {
       ...RECIPE,
       recipeInstructions: [
@@ -66,8 +66,8 @@ describe('extractRecipeJsonLd', () => {
         { '@type': 'HowToStep', 'text': 'Simmer for an hour.' }
       ]
     }
-    expect(extractRecipeJsonLd(page(steps))?.method)
-      .toBe('Soften the onion.\n\nSimmer for an hour.')
+    expect(extractRecipeJsonLd(page(steps))?.steps)
+      .toEqual(['Soften the onion.', 'Simmer for an hour.'])
   })
 
   it('reaches into the steps of a HowToSection', () => {
@@ -79,7 +79,7 @@ describe('extractRecipeJsonLd', () => {
         'itemListElement': [{ '@type': 'HowToStep', 'text': 'Fry the garlic.' }]
       }]
     }
-    expect(extractRecipeJsonLd(page(sectioned))?.method).toBe('Fry the garlic.')
+    expect(extractRecipeJsonLd(page(sectioned))?.steps).toEqual(['Fry the garlic.'])
   })
 
   it('strips the markup and entities publishers leave in the text', () => {
@@ -90,7 +90,7 @@ describe('extractRecipeJsonLd', () => {
     }
     const recipe = extractRecipeJsonLd(page(marked))
     expect(recipe?.name).toBe('Salt & pepper squid')
-    expect(recipe?.method).toBe('Heat the oil… Fry in batches')
+    expect(recipe?.steps).toEqual(['Heat the oil… Fry in batches'])
   })
 
   it.each([
@@ -140,6 +140,67 @@ describe('extractRecipeJsonLd', () => {
     const recipe = extractRecipeJsonLd(page(bare))
     expect(recipe?.name).toBe('Toast')
     expect(recipe?.ingredients).toEqual([])
-    expect(recipe?.method).toBeNull()
+    expect(recipe?.steps).toEqual([])
+  })
+})
+
+describe('the recipe photograph', () => {
+  it('reads a bare address', () => {
+    const withImage = { ...RECIPE, image: 'https://img.example.com/soup.jpg' }
+    expect(extractRecipeJsonLd(page(withImage))?.image_url).toBe('https://img.example.com/soup.jpg')
+  })
+
+  it('reads an ImageObject, by url or by contentUrl', () => {
+    const asObject = { ...RECIPE, image: { '@type': 'ImageObject', 'url': 'https://img.example.com/o.jpg' } }
+    expect(extractRecipeJsonLd(page(asObject))?.image_url).toBe('https://img.example.com/o.jpg')
+
+    const asContent = { ...RECIPE, image: { '@type': 'ImageObject', 'contentUrl': 'https://img.example.com/c.jpg' } }
+    expect(extractRecipeJsonLd(page(asContent))?.image_url).toBe('https://img.example.com/c.jpg')
+  })
+
+  it('takes the first of a list, which sites publish largest first', () => {
+    const several = { ...RECIPE, image: ['https://img.example.com/big.jpg', 'https://img.example.com/small.jpg'] }
+    expect(extractRecipeJsonLd(page(several))?.image_url).toBe('https://img.example.com/big.jpg')
+  })
+
+  it('drops a relative path, which means nothing once the page is gone', () => {
+    const relative = { ...RECIPE, image: '/assets/soup.jpg' }
+    expect(extractRecipeJsonLd(page(relative))?.image_url).toBeNull()
+  })
+
+  it('is null when the page published no picture', () => {
+    expect(extractRecipeJsonLd(page(RECIPE))?.image_url).toBeNull()
+  })
+})
+
+describe('openGraphImage', () => {
+  it('reads the tag whichever order its attributes are in', () => {
+    expect(openGraphImage('<meta property="og:image" content="https://e.com/a.jpg">'))
+      .toBe('https://e.com/a.jpg')
+    expect(openGraphImage('<meta content="https://e.com/b.jpg" property="og:image"/>'))
+      .toBe('https://e.com/b.jpg')
+  })
+
+  it('accepts the name= and og:image:url spellings sites also use', () => {
+    expect(openGraphImage('<meta name="og:image" content="https://e.com/c.jpg">'))
+      .toBe('https://e.com/c.jpg')
+    expect(openGraphImage('<meta property="og:image:url" content="https://e.com/d.jpg">'))
+      .toBe('https://e.com/d.jpg')
+  })
+
+  it('decodes the entity-encoded ampersands a shared address arrives with', () => {
+    expect(openGraphImage('<meta property="og:image" content="https://e.com/e.jpg?w=1&amp;h=2">'))
+      .toBe('https://e.com/e.jpg?w=1&h=2')
+  })
+
+  it('keeps looking past a tag it cannot use', () => {
+    const both = '<meta property="og:image" content="/relative.jpg">'
+      + '<meta property="og:image" content="https://e.com/good.jpg">'
+    expect(openGraphImage(both)).toBe('https://e.com/good.jpg')
+  })
+
+  it('is null when there is no og:image to read', () => {
+    expect(openGraphImage('<meta property="og:title" content="Dinner">')).toBeNull()
+    expect(openGraphImage('<html><body>Just words</body></html>')).toBeNull()
   })
 })

@@ -77,6 +77,61 @@ function sane(value: number): number | null {
   return Number.isFinite(value) && value > 0 && value < 24 * 60 ? Math.round(value) : null
 }
 
+/**
+ * An absolute http(s) address, or null.
+ *
+ * Anything relative is dropped rather than resolved. The address outlives the
+ * HTML it came from — it is stored and handed to an `<img>` weeks later — so a
+ * path that only means something next to the original document is worse than no
+ * picture at all.
+ */
+export function absoluteUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return /^https?:\/\/[^\s"'<>]+$/i.test(trimmed) ? trimmed : null
+}
+
+/**
+ * The recipe's photograph. schema.org allows a bare URL, an ImageObject, or a
+ * list of either, and recipe sites use all three — BBC Good Food publishes a
+ * one-element array of ImageObject, Serious Eats a bare string.
+ *
+ * The first entry wins. Where sites list several they are the same photograph at
+ * different crops, in descending size, and the largest is the one worth showing
+ * on a wall-mounted screen.
+ */
+function image(value: unknown): string | null {
+  const raw = first(value)
+  if (typeof raw === 'string') return absoluteUrl(raw)
+  if (typeof raw !== 'object' || raw === null) return null
+
+  const node = raw as Record<string, unknown>
+  return absoluteUrl(first(node.url)) ?? absoluteUrl(first(node.contentUrl))
+}
+
+/**
+ * The page's og:image — the picture it wants shown when somebody shares it.
+ *
+ * The backstop for both extraction paths. A page whose JSON-LD omits `image`
+ * nearly always still has this, because it is what every social preview reads;
+ * and a page with no JSON-LD at all went to the model, which is handed the page
+ * as plain text with the tags stripped and so never saw an address to report.
+ *
+ * Attribute order varies between sites, so this finds the tag first and reads
+ * its attributes second rather than trying to spell every order in one pattern.
+ */
+export function openGraphImage(html: string): string | null {
+  for (const tag of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const meta = tag[0]!
+    if (!/\b(?:property|name)\s*=\s*["']og:image(?::url)?["']/i.test(meta)) continue
+    const content = meta.match(/\bcontent\s*=\s*["']([^"']+)["']/i)?.[1]
+    // Entity-encoded query separators are ordinary in a shared address.
+    const found = absoluteUrl(content?.replace(/&amp;/g, '&'))
+    if (found) return found
+  }
+  return null
+}
+
 /** "4", 4, "Serves 4", "4 servings", ["4 servings"] — all four. */
 function servings(value: unknown): number | null {
   const raw = first(value)
@@ -89,9 +144,9 @@ function servings(value: unknown): number | null {
 }
 
 /**
- * The method as paragraphs, flattening the shapes schema.org allows:
- * a block of text, a list of strings, HowToStep objects, or HowToSections whose
- * itemListElement holds the steps.
+ * The method as steps, flattening the shapes schema.org allows: a block of text,
+ * a list of strings, HowToStep objects, or HowToSections whose itemListElement
+ * holds the steps.
  */
 function instructions(value: unknown, depth = 0): string[] {
   if (depth > 3) return []
@@ -165,14 +220,16 @@ export function extractRecipeJsonLd(html: string): ExtractedRecipe | null {
     }
   }
 
-  const method = instructions(recipe.recipeInstructions).join('\n\n')
-
   return {
     name,
     base_servings: servings(recipe.recipeYield),
     prep_minutes: minutes(recipe.prepTime),
     cook_minutes: minutes(recipe.cookTime),
-    method: method || null,
-    ingredients
+    // Passed through as the list schema.org published. This used to be joined
+    // into one string here and split apart again in the client, which threw away
+    // the one thing a HowToStep is for.
+    steps: instructions(recipe.recipeInstructions),
+    ingredients,
+    image_url: image(recipe.image)
   }
 }

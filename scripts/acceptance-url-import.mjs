@@ -104,12 +104,26 @@ const mainText = async () => (await page.locator('main').innerText()).replace(/[
 const SOUP_URL = 'https://example.com/recipes/lentil-soup'
 const CURRY_URL = 'https://example.com/recipes/chickpea-curry'
 
+// A picture this origin already serves, rather than a stubbed CDN address.
+//
+// Not a shortcut: nuxt.config.ts now has the service worker cache cross-origin
+// images, and a request the service worker makes does not pass through
+// page.route — a stubbed https://images.example.com/... reaches the real network,
+// fails DNS, and RecipeImage hides itself exactly as it should for a dead
+// address. So the run would prove the error path rather than the happy one.
+//
+// What is worth asserting here is the app's half of the job: the address
+// survives extraction, is stored, and reaches an <img> that loads. An icon from
+// the build does that without depending on anybody else being up.
+const SOUP_IMAGE = `${ORIGIN}/pwa-192x192.png`
+
 const SOUP = {
   name: 'Lentil soup',
   base_servings: 4,
   prep_minutes: 10,
   cook_minutes: 30,
-  method: 'Soften the onion.\n\nAdd everything else and simmer.',
+  image_url: SOUP_IMAGE,
+  steps: ['Soften the onion.', 'Add everything else and simmer.'],
   ingredients: [
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'red lentils', quantity: '200g' },
@@ -122,7 +136,7 @@ const CURRY = {
   base_servings: 4,
   prep_minutes: null,
   cook_minutes: 25,
-  method: 'Fry the spices, add everything else.',
+  steps: ['Fry the spices, add everything else.'],
   ingredients: [
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'chickpeas', quantity: '2 x 400g tins' }
@@ -181,19 +195,22 @@ try {
   log('the address was sent to the importer, not made the name of an empty recipe')
 
   const soupText = await mainText()
-  // The name and the method are editable fields, so they are read as values
-  // rather than as text: what is on the screen is what can be corrected.
+  // The name is an editable field, so it is read as a value rather than as text:
+  // what is on the screen is what can be corrected. The steps are rows.
   assert(
     (await page.getByLabel('Recipe name').inputValue()) === 'Lentil soup',
     'the recipe page shows the extracted name'
   )
   assert(soupText.includes('chopped tomatoes'), 'the ingredient lines are shown')
   assert(soupText.includes('400g'), 'the quantities came across')
+  assert(soupText.includes('Soften the onion.'), 'the first step is shown')
+  assert(soupText.includes('Add everything else and simmer.'), 'and so is the second')
+  // The method must not have landed back in the notes box it was moved out of.
   assert(
-    (await page.getByLabel('Notes').inputValue()).includes('Soften the onion'),
-    'the method is shown'
+    (await page.getByLabel('Notes').inputValue()).trim() === '',
+    'the notes are left empty for notes'
   )
-  log('name, ingredients, quantities and method all visible on the recipe page')
+  log('name, ingredients, quantities and separate steps all visible on the recipe page')
 
   const recipes = (await readTable('recipes')).filter(r => !r.deleted_at)
   const soup = recipes.find(r => r.id === soupId)
@@ -201,7 +218,16 @@ try {
   assert(soup.source_url === SOUP_URL, `the row remembers where it came from, got ${soup.source_url}`)
   assert(soup.base_servings === 4, `servings extracted, got ${soup.base_servings}`)
   assert(soup.prep_minutes === 10 && soup.cook_minutes === 30, 'prep and cook minutes extracted')
-  log('the recipe row carries the source address, servings and times')
+  assert(soup.image_url === SOUP_IMAGE, `the row keeps the picture, got ${soup.image_url}`)
+  log('the recipe row carries the source address, servings, times and picture')
+
+  const hero = page.getByRole('img', { name: 'Lentil soup' })
+  await hero.waitFor({ state: 'visible', timeout: 10_000 })
+  assert(
+    await hero.evaluate(img => img.complete && img.naturalWidth > 0),
+    'the picture actually loaded rather than leaving a broken frame'
+  )
+  log('the imported picture is on the recipe page')
 
   assert(
     await page.getByRole('link', { name: 'View the original page' }).getAttribute('href') === SOUP_URL,

@@ -10,6 +10,7 @@ export type AttendanceRow = Tables['attendance']['Row']
 export type AisleRow = Tables['aisles']['Row']
 export type RecipeRow = Tables['recipes']['Row']
 export type RecipeIngredientRow = Tables['recipe_ingredients']['Row']
+export type RecipeStepRow = Tables['recipe_steps']['Row']
 export type PlanEntryRow = Tables['meal_plan_entries']['Row']
 export type IngredientRow = Tables['ingredients']['Row']
 export type IngredientAliasRow = Tables['ingredient_aliases']['Row']
@@ -42,6 +43,7 @@ export const SYNC_TABLES = {
   ingredient_purchase_units: { cache: 'ingredient_purchase_units' },
   recipes: { cache: 'recipes' },
   recipe_ingredients: { cache: 'recipe_ingredients' },
+  recipe_steps: { cache: 'recipe_steps' },
   meal_plan_entries: { cache: 'meal_plan_entries' },
   shopping_list_items: { cache: 'items' },
   // Read-only on every device: written by the sync-calendar Edge Function with
@@ -66,6 +68,7 @@ export interface RowOf {
   ingredient_purchase_units: PurchaseUnitRow
   recipes: RecipeRow
   recipe_ingredients: RecipeIngredientRow
+  recipe_steps: RecipeStepRow
   meal_plan_entries: PlanEntryRow
   shopping_list_items: ItemRow
   calendar_events: CalendarEventRow
@@ -92,6 +95,7 @@ export class AppDatabase extends Dexie {
   aisles!: Table<AisleRow, string>
   recipes!: Table<RecipeRow, string>
   recipe_ingredients!: Table<RecipeIngredientRow, string>
+  recipe_steps!: Table<RecipeStepRow, string>
   meal_plan_entries!: Table<PlanEntryRow, string>
   ingredients!: Table<IngredientRow, string>
   ingredient_aliases!: Table<IngredientAliasRow, string>
@@ -138,6 +142,13 @@ export class AppDatabase extends Dexie {
     // store, filled on the next pull, no upgrade handler.
     this.version(5).stores({
       calendar_events: 'id'
+    })
+    // v6 gives the method its own rows. Same terms as every version above — a new
+    // empty store filled on the next pull — and the recipes already cached need no
+    // reshaping: the migration that creates these rows also clears the `method`
+    // they came from, and that arrives as an ordinary updated row.
+    this.version(6).stores({
+      recipe_steps: 'id'
     })
   }
 

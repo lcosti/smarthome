@@ -5,8 +5,8 @@ import { usePeopleStore } from '../../stores/people'
 import { usePlanStore } from '../../stores/plan'
 import { useRecipesStore } from '../../stores/recipes'
 import { useSyncStore } from '../../stores/sync'
-import { buildBoard, type BoardEvent } from '../../utils/board'
-import { addDays, isoDate } from '../../utils/week'
+import { buildBoard, type BoardEvent, type BoardToBuyLine } from '../../utils/board'
+import { addDays, isoDate, mondayOf } from '../../utils/week'
 
 /**
  * Today: what's for dinner, who's eating it, what else is happening, what needs
@@ -23,7 +23,6 @@ const plan = usePlanStore()
 const recipes = useRecipesStore()
 const attendance = useAttendanceStore()
 const list = useListStore()
-const route = useRoute()
 
 const now = useBoardClock()
 const nights = useBoardNights(now)
@@ -46,28 +45,21 @@ const events = computed<BoardEvent[]>(() => {
     }))
 })
 
-/**
- * The three next things to buy, in the order the shop is actually walked —
- * aggregated lines, not raw rows, so "milk" asked for by two recipes is one item
- * with one total rather than two lines saying half the truth each.
- */
-const nextItems = computed(() =>
-  list.groups
-    .flatMap(group => group.entries)
-    .slice(0, 3)
-    .map(entry => entry.quantityLabel ? `${entry.name} — ${entry.quantityLabel}` : entry.name)
-)
-
-const recentAdd = computed(() => {
-  const newest = list.liveItems
-    .filter(item => !item.checked && item.added_by)
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
-  return newest
-    ? { personId: newest.added_by, label: newest.name, at: newest.created_at }
-    : null
-})
-
 const uncheckedCount = computed(() => list.liveItems.filter(item => !item.checked).length)
+
+/**
+ * What each planned night still needs, straight off the list.
+ *
+ * Raw rows rather than the aggregated entries the list view uses: these have to
+ * stay attributable to the plan entry that created them, and aggregation is
+ * precisely the step that throws that away by merging the milk two recipes asked
+ * for into one line.
+ */
+const toBuy = computed<BoardToBuyLine[]>(() =>
+  list.liveItems
+    .filter(item => !item.checked && item.plan_entry_id)
+    .map(item => ({ entryId: item.plan_entry_id!, name: item.name, qty: item.quantity }))
+)
 
 /**
  * Whether the list has ever been used, deleted and ticked rows included — which
@@ -91,10 +83,9 @@ const board = computed(() =>
     })),
     events: events.value,
     hasCalendar: hasCalendar.value,
+    toBuy: toBuy.value,
     shopping: {
       count: uncheckedCount.value,
-      next: nextItems.value,
-      recentAdd: recentAdd.value,
       everUsed: listEverUsed.value
     },
     recipeCount: recipes.recipes.length,
@@ -104,15 +95,12 @@ const board = computed(() =>
   })
 )
 
-/** Dish-led by default; ?hero=roster switches treatment for the same facts. */
-const rosterLed = computed(() => route.query.hero === 'roster')
-
 const generating = ref(false)
 
 async function generate() {
   if (generating.value) return
-  // No spinner and no overlay — the label changes and the board keeps its
-  // content, which is the rule everywhere on this screen.
+  // No spinner and no overlay — the button's own label changes and the board
+  // keeps its content, which is the rule everywhere on this screen.
   generating.value = true
   try {
     // From tonight forward, not from Monday: on a Friday, filling the calendar
@@ -126,39 +114,80 @@ async function generate() {
 
 function openRecipe() {
   // Into the board's own recipe view, not the phone page: this is a kiosk, and
-  // a max-w-xl column under a 1920px header would be a different application.
+  // a max-w-xl column under a 1280px header would be a different application.
   if (board.value.hero.recipeId) navigateTo(`/board/recipes/${board.value.hero.recipeId}`)
 }
 
 function togglePerson(personId: string) {
   void attendance.togglePresence(personId, board.value.hero.date)
 }
+
+/** Take tonight off. The items it put on the list go on the next derive. */
+function skipNight() {
+  void plan.clearNight(board.value.hero.date)
+}
+
+/**
+ * Push the plan's ingredients onto the list.
+ *
+ * The whole week rather than just tonight, because `deriveWeek` is the one thing
+ * that reconciles the list in both directions — running it for a single night
+ * would add what that night wants without taking off what a cancelled Tuesday
+ * left behind.
+ */
+const sending = ref(false)
+
+async function sendToList() {
+  if (sending.value) return
+  sending.value = true
+  try {
+    const [year, month, day] = board.value.hero.date.split('-').map(Number)
+    await plan.deriveWeek(isoDate(mondayOf(new Date(year!, month! - 1, day!))))
+  } finally {
+    sending.value = false
+  }
+}
+
+/** Swapping is a choice from the library, and the library is a whole view. */
+function swapMeal() {
+  navigateTo(`/board/recipes?swap=${board.value.hero.date}`)
+}
 </script>
 
 <template>
   <div
     :data-board-state="board.state"
-    class="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_188px] gap-[18px]"
+    class="flex min-h-0 flex-1 flex-col gap-4"
   >
-    <div class="grid min-h-0 grid-cols-[1.32fr_1fr] gap-[22px]">
+    <!--
+      The main row absorbs all the leftover height, which is what makes Tonight's
+      footer line up with the bottom of the Shopping card and leaves the week
+      strip flush against the bottom of the frame. The floor is for short
+      viewports: below it the body scrolls rather than the cards being crushed.
+    -->
+    <div class="grid min-h-[440px] flex-1 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-stretch gap-4">
       <BoardHero
         :hero="board.hero"
-        :roster-led="rosterLed"
         :generating="generating"
+        :sending="sending"
         @open="openRecipe"
         @generate="generate"
         @toggle="togglePerson"
+        @skip="skipNight"
+        @swap="swapMeal"
+        @send="sendToList"
       />
 
-      <div class="flex min-h-0 flex-col gap-[22px]">
+      <div class="flex min-h-0 flex-col gap-4">
         <BoardSchedule :schedule="board.schedule" />
-        <BoardShopping
-          :shopping="board.shopping"
-          @open="navigateTo('/board/list')"
-        />
+        <BoardShopping :shopping="board.shopping" />
       </div>
     </div>
 
-    <BoardWeek :week="board.week" />
+    <BoardWeek
+      :week="board.week"
+      :generating="generating"
+      @generate="generate"
+    />
   </div>
 </template>

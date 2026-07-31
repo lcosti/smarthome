@@ -5,7 +5,7 @@ import { buildHeader } from '../utils/board'
 /**
  * The household wall board: the shell every view sits in.
  *
- * A display, not a page. One fixed 1920×1200 frame, no browser chrome, no
+ * A display, not a page. One fixed 1280×800 frame, no browser chrome, no
  * scrolling, no spinners and no error screens. Everything it shows comes out of
  * local state already hydrated from IndexedDB, so it paints instantly on a cold
  * boot with no network and simply says so in the header.
@@ -18,6 +18,7 @@ import { buildHeader } from '../utils/board'
  */
 
 const sync = useSyncStore()
+const route = useRoute()
 
 const now = useBoardClock()
 const nights = useBoardNights(now)
@@ -55,10 +56,21 @@ onUnmounted(() => {
   if (weatherTimer) clearInterval(weatherTimer)
 })
 
+/**
+ * Cook mode takes the whole frame.
+ *
+ * Standing at the hob you are doing one thing, and the header — clock, weather,
+ * the four other places you could be — is four things you are not doing. The
+ * view says so in its own page meta rather than the shell matching on a path,
+ * because `/board/recipes` keeps its header and `/board/recipes/<id>` does not,
+ * and that is a distinction a regex gets wrong the first time either route moves.
+ */
+const cookMode = computed(() => route.meta.boardCookMode === true)
+
 // --- the frame -------------------------------------------------------------
 
-const FRAME_WIDTH = 1920
-const FRAME_HEIGHT = 1200
+const FRAME_WIDTH = 1280
+const FRAME_HEIGHT = 800
 
 const scale = ref(1)
 const frameWidth = ref(FRAME_WIDTH)
@@ -67,8 +79,8 @@ const frameHeight = ref(FRAME_HEIGHT)
 /**
  * Fill the screen, whatever shape the screen is.
  *
- * The design is drawn at 1920×1200 and every size in it is a literal pixel
- * value, so the frame is scaled rather than made responsive — 82px means 82px,
+ * The design is drawn at 1280×800 and every size in it is a literal pixel
+ * value, so the frame is scaled rather than made responsive — 14px means 14px,
  * and a breakpoint system would be six ways to get the type wrong.
  *
  * But scaling a fixed rectangle to fit a differently-shaped window leaves bars
@@ -173,23 +185,39 @@ onUnmounted(() => {
       :style="frameStyle"
     >
       <!--
-        The header row is 104px rather than the 132px it was drawn at. Its
-        content is bottom-aligned and 82px tall, so the difference sat above the
-        day name as dead space — and height is the scarce axis on this board.
+        A column, not a grid: the header takes the height its content needs and
+        the body absorbs everything left over. That is what makes the cards below
+        reach the bottom of the frame with no dead space under them, whatever the
+        header wraps to.
       -->
       <div
         data-board-frame
-        class="grid h-full w-full grid-rows-[104px_minmax(0,1fr)] gap-x-[22px] gap-y-[18px]
-               overflow-hidden px-10 py-9 text-default transition-transform duration-[3000ms] ease-linear"
+        class="flex h-full w-full flex-col overflow-hidden text-default
+               transition-transform duration-[3000ms] ease-linear"
         :style="driftStyle"
       >
-        <BoardHeader :header="header">
+        <BoardHeader
+          v-if="!cookMode"
+          :header="header"
+        >
           <template #nav>
             <BoardNav />
           </template>
         </BoardHeader>
 
-        <div class="min-h-0">
+        <!--
+          overflow-y-auto is a safety valve and nothing more. The frame is a
+          fixed 800px and every card inside it scrolls on its own, so reaching
+          this would mean the layout had already failed — `pnpm acceptance:board`
+          asserts it never does.
+
+          Cook mode draws its own bar with a rule under it that has to reach both
+          edges of the frame, so it is handed the well unpadded and pads itself.
+        -->
+        <div
+          class="flex min-h-0 flex-1 flex-col overflow-y-auto"
+          :class="cookMode ? 'p-0' : 'p-6'"
+        >
           <NuxtPage />
         </div>
       </div>

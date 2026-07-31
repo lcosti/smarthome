@@ -77,29 +77,42 @@ function dateLabelOf(date: string) {
   const [year, month, day] = date.split('-').map(Number)
   return new Date(year!, month! - 1, day!).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
+
+/**
+ * A recipe's one-line meta for the picker.
+ *
+ * A recipe imported from a photo or typed in as a bare name has no timings, and
+ * the old string rendered that as "— min · serves 2". Say nothing about the time
+ * rather than saying an em-dash of it.
+ */
+function describe(recipe: { prep_minutes: number | null, cook_minutes: number | null, base_servings: number }) {
+  const minutes = (recipe.prep_minutes ?? 0) + (recipe.cook_minutes ?? 0)
+  const serves = `serves ${recipe.base_servings}`
+  return minutes ? `${minutes} min · ${serves}` : serves
+}
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-[18px]">
+  <div class="flex h-full min-h-0 flex-col gap-[12px]">
     <!-- Choosing a recipe for one night -->
     <template v-if="choosing">
       <div class="flex shrink-0 items-center justify-between">
         <div>
-          <p class="font-mono text-[21px] uppercase tracking-[0.14em] text-muted">
+          <p class="font-mono text-[14px] uppercase tracking-[0.14em] text-muted">
             {{ dayLabelOf(choosing) }} {{ dateLabelOf(choosing) }}
           </p>
-          <h2 class="text-[48px] font-semibold tracking-[-0.025em] text-highlighted">
+          <h2 class="text-[32px] font-semibold tracking-[-0.025em] text-highlighted">
             What are we having?
           </h2>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2">
           <UButton
             v-if="plan.entriesOn(choosing).length"
             color="neutral"
             variant="subtle"
             size="xl"
             label="Clear the night"
-            class="h-[72px] rounded-[14px] px-8 text-[24px]"
+            class="h-[48px] rounded-lg px-5 text-[16px]"
             @click="clearNight(choosing)"
           />
           <UButton
@@ -107,7 +120,7 @@ function dateLabelOf(date: string) {
             variant="subtle"
             size="xl"
             label="Back to the week"
-            class="h-[72px] rounded-[14px] px-8 text-[24px]"
+            class="h-[48px] rounded-lg px-5 text-[16px]"
             @click="choosing = null"
           />
         </div>
@@ -115,18 +128,18 @@ function dateLabelOf(date: string) {
 
       <UPageGrid
         v-if="recipes.recipes.length"
-        class="min-h-0 flex-1 content-start gap-[18px] overflow-hidden lg:grid-cols-4"
+        class="min-h-0 flex-1 content-start gap-[12px] overflow-hidden lg:grid-cols-4"
       >
         <UPageCard
           v-for="recipe in recipes.recipes"
           :key="recipe.id"
           :title="recipe.name"
-          :description="`${(recipe.prep_minutes ?? 0) + (recipe.cook_minutes ?? 0) || '—'} min · serves ${recipe.base_servings}`"
+          :description="describe(recipe)"
           variant="outline"
           :ui="{
-            root: 'rounded-[14px] bg-elevated px-6 py-5 transition-opacity duration-[80ms] active:opacity-85',
-            title: 'line-clamp-2 text-[28px] font-medium text-default',
-            description: 'font-mono text-[19px] text-dimmed'
+            root: 'rounded-lg bg-elevated px-4 py-3.5 transition-opacity duration-[80ms] active:opacity-85',
+            title: 'line-clamp-2 text-[19px] font-medium text-default',
+            description: 'font-mono text-[13px] text-dimmed'
           }"
           @click="choose(recipe.id)"
         />
@@ -139,9 +152,9 @@ function dateLabelOf(date: string) {
         description="Add a few from your phone and they show up here."
         class="flex-1"
         :ui="{
-          avatar: 'size-14 bg-transparent text-dimmed',
-          title: 'text-[48px] font-semibold text-muted',
-          description: 'text-[26px] text-muted'
+          avatar: 'size-9 bg-transparent text-dimmed',
+          title: 'text-[32px] font-semibold text-muted',
+          description: 'text-[17px] text-muted'
         }"
       />
     </template>
@@ -149,20 +162,20 @@ function dateLabelOf(date: string) {
     <!-- The week itself -->
     <template v-else>
       <div class="flex shrink-0 items-center justify-between">
-        <h2 class="text-[40px] font-semibold tracking-[-0.025em] text-highlighted">
+        <h2 class="text-[27px] font-semibold tracking-[-0.025em] text-highlighted">
           The week ahead
         </h2>
         <UButton
           v-if="plan.hasGapsFor(today)"
-          color="warning"
+          color="primary"
           variant="solid"
           :label="generating ? 'Generating…' : 'Fill the empty nights'"
-          class="h-[72px] rounded-[14px] px-8 text-[24px] font-semibold"
+          class="h-[48px] rounded-lg px-5 text-[16px] font-semibold"
           @click="generate"
         />
       </div>
 
-      <div class="grid min-h-0 flex-1 grid-cols-7 gap-[14px] overflow-hidden">
+      <div class="grid min-h-0 flex-1 grid-cols-7 gap-[9px] overflow-hidden">
         <UCard
           v-for="night in nights"
           :key="night.date"
@@ -170,28 +183,28 @@ function dateLabelOf(date: string) {
           variant="outline"
           :ui="{
             root: night.date === today
-              ? 'flex min-h-0 flex-col rounded-[14px] bg-warning/10 ring-warning/50 text-left transition-opacity duration-[80ms] active:opacity-85'
-              : 'flex min-h-0 flex-col rounded-[14px] bg-elevated text-left transition-opacity duration-[80ms] active:opacity-85',
-            body: 'flex min-h-0 flex-1 flex-col gap-3 px-5 py-4 sm:p-0 sm:px-5 sm:py-4'
+              ? 'flex min-h-0 flex-col rounded-lg bg-primary/10 ring-primary/50 text-left transition-opacity duration-[80ms] active:opacity-85'
+              : 'flex min-h-0 flex-col rounded-lg bg-elevated text-left transition-opacity duration-[80ms] active:opacity-85',
+            body: 'flex min-h-0 flex-1 flex-col gap-2 px-3.5 py-2.5 sm:p-0 sm:px-3.5 sm:py-2.5'
           }"
           @click="choosing = night.date"
         >
           <span class="shrink-0">
             <span
-              class="block font-mono text-[20px] uppercase tracking-[0.08em]"
-              :class="night.date === today ? 'text-warning' : 'text-dimmed'"
+              class="block font-mono text-[13px] uppercase tracking-[0.08em]"
+              :class="night.date === today ? 'text-primary' : 'text-dimmed'"
             >{{ dayLabelOf(night.date) }}</span>
-            <span class="block font-mono text-[17px] text-dimmed">{{ dateLabelOf(night.date) }}</span>
+            <span class="block font-mono text-[11px] text-dimmed">{{ dateLabelOf(night.date) }}</span>
           </span>
 
           <span
             v-if="night.entries.length"
             class="min-w-0 flex-1"
           >
-            <span class="line-clamp-3 text-[26px] font-medium text-highlighted">
+            <span class="line-clamp-3 text-[17px] font-medium text-highlighted">
               {{ night.entries[0]!.recipe?.name ?? 'Recipe deleted' }}
             </span>
-            <span class="mt-1 block font-mono text-[18px] text-dimmed">
+            <span class="mt-0.5 block font-mono text-[12px] text-dimmed">
               {{ night.entries[0]!.entry.servings }} servings
             </span>
           </span>
@@ -199,13 +212,13 @@ function dateLabelOf(date: string) {
           <!-- An empty night is an invitation, not a gap. -->
           <span
             v-else
-            class="flex flex-1 items-start gap-2 text-dimmed"
+            class="flex flex-1 items-start gap-1.5 text-dimmed"
           >
             <UIcon
               name="i-lucide-plus"
-              class="size-6 shrink-0"
+              class="size-4 shrink-0"
             />
-            <span class="text-[22px]">Add dinner</span>
+            <span class="text-[15px]">Add dinner</span>
           </span>
 
           <!--

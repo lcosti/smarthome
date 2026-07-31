@@ -18,7 +18,7 @@
 
 import { deriveLifeStage, type LifeStage } from './people'
 import { personHue } from './person-colors'
-import { addDays, isoDate } from './week'
+import { addDays, isoDate, isoWeekNumber } from './week'
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -53,8 +53,12 @@ export interface BoardMeal {
   entryId: string
   recipeId: string | null
   dish: string
+  /** The recipe's photograph, or null. Absolute address on the source's CDN. */
+  image: string | null
   /** Prep plus cook, or null when the recipe does not say. */
   minutes: number | null
+  /** How many the night is planned for, which is the plan's number and not the recipe's. */
+  servings: number
   note: string | null
   /** 'HH:MM', or null to mean the household's usual hour. */
   eatTime: string | null
@@ -72,9 +76,6 @@ export interface BoardNight {
 
 export interface BoardShoppingInput {
   count: number
-  /** Up to three lines, already aggregated and in aisle order. */
-  next: string[]
-  recentAdd: { personId: string | null, label: string, at: string } | null
   /**
    * Whether this household has ever had anything on the list, ticked items and
    * deleted ones included.
@@ -89,6 +90,26 @@ export interface BoardShoppingInput {
 export interface BoardWeather {
   icon: string
   temperature: number
+}
+
+/**
+ * One thing tonight's meal still needs, straight off the shopping list.
+ *
+ * The design calls this section "Still to buy" and it means the gap, not the
+ * inventory: an earlier version listed what the household already had, which
+ * read as counter-intuitive on a board whose job is to prompt action.
+ *
+ * There is no pantry table in this app, so the gap is the honest one it can
+ * actually see — the unchecked items this night's plan entry put on the list.
+ * A plan that has never been derived to the list contributes nothing here,
+ * which is correct: the next press is "Send to list", not the shop.
+ */
+export interface BoardToBuyLine {
+  /** The plan entry that put this on the list. */
+  entryId: string
+  name: string
+  /** '1 kg', or null when nobody said how much. */
+  qty: string | null
 }
 
 export interface BoardInput {
@@ -110,6 +131,8 @@ export interface BoardInput {
    * card should not blame staleness for something it was never told.
    */
   hasCalendar: boolean
+  /** Unchecked plan-derived list items, for every night. Filtered to the hero's. */
+  toBuy: BoardToBuyLine[]
   shopping: BoardShoppingInput
   /**
    * How many recipes the library holds. A count rather than the recipes
@@ -134,6 +157,13 @@ export type BoardState
 export interface SetupStep {
   label: string
   done: boolean
+  /**
+   * Where this step gets done, or null when it gets done right here.
+   *
+   * Only the generator is null: the other two are typing jobs that belong on a
+   * phone, and the board's part is to say which one is next and open it.
+   */
+  to: string | null
 }
 
 export interface RosterPerson {
@@ -142,7 +172,13 @@ export interface RosterPerson {
   initial: string
   hue: number
   absent: boolean
-  /** The portion this person eats, plus anything they cannot have. */
+  /**
+   * What is different about this person's plate.
+   *
+   * An adult portion is the default and goes unsaid — four chips each reading
+   * "Adult portion" is four times nothing. A toddler's, a weaning baby's, and
+   * anything anybody cannot have are the whole point of the roster and stay.
+   */
   note: string
   /** Amber: they are out during the meal, or otherwise need acting on. */
   warn: string | null
@@ -153,18 +189,23 @@ export interface ScheduleRow {
   /** 'HH:MM', or 'All day'. */
   time: string
   title: string
+  /** 'Maya · recurring' — whose it is and anything worth flagging. May be empty. */
+  meta: string
   hue: number | null
   past: boolean
   next: boolean
   meal: boolean
-  badge: string | null
 }
 
 export interface WeekSlot {
   date: string
   /** 'Fri' */
   day: string
+  /** '01' — the day of the month, beside the abbreviation. */
+  dateLabel: string
   dish: string
+  /** '25 min' or '6 servings'. Empty when there is nothing planned. */
+  meta: string
   empty: boolean
   highlighted: boolean
 }
@@ -179,9 +220,16 @@ export interface WeekSlot {
 export interface BoardHeader {
   dayName: string
   dateLine: string
+  /** 'Week 31' — ISO, so it agrees with everyone else's calendar. */
+  weekLabel: string
   weather: BoardWeather | null
-  /** 'Plan updated Sunday 18:04', or 'Plan not generated'. */
-  generatedAt: string
+  /**
+   * Whether the plan exists, and how long ago it was made.
+   *
+   * Relative rather than absolute: on a wall the useful question is "is this
+   * still the plan", and "2 hours ago" answers it without arithmetic.
+   */
+  plan: { label: string, generated: boolean }
   stale: boolean
   /** 'Offline · last synced 15:58'. Null unless stale. */
   staleLabel: string | null
@@ -211,10 +259,19 @@ export interface BoardModel {
     hasMeal: boolean
     recipeId: string | null
     dish: string
-    /** '35 min · one tray'. */
+    /**
+     * Tonight's photograph, or null. The board is read from across a kitchen,
+     * where a picture identifies a meal faster than its name does.
+     */
+    image: string | null
+    /** '35 min · 4 servings · one tray'. */
     dishMeta: string
-    /** 'Eat 18:00 · start 17:25'. Null when there is no meal. */
+    /** '18:30' for the card's badge. Null when there is no meal. */
     timing: string | null
+    /** 'start by 17:55', or null when the recipe never said how long it takes. */
+    startBy: string | null
+    /** What tonight still needs. Empty when nothing does. */
+    toBuy: { name: string, qty: string | null }[]
     cook: { id: string, name: string, initial: string, hue: number, label: string } | null
     /** 'Four for dinner'. */
     eatingCount: string
@@ -228,11 +285,15 @@ export interface BoardModel {
       action: { label: string, to: string | null } | null
       /** Only in `setup`: what the household still needs, in the order to do it. */
       steps: SetupStep[]
+      /** A mono aside for the far end of the footer — '~1 min', 'fridge night'. */
+      hint: string
     } | null
   }
   schedule: {
-    /** 'Family calendar' / 'Last known · 15:58' / 'Nothing left today'. */
-    meta: string
+    /** True when no calendar has ever synced — the ghost-rail body, not a quiet day. */
+    empty: boolean
+    /** '3 events' / 'No calendar' / 'Last known · 15:58'. */
+    badge: string
     rows: ScheduleRow[]
     /** 'HH:MM' of the now marker, or null when offline or off the ends. */
     nowAt: string | null
@@ -248,11 +309,10 @@ export interface BoardModel {
     resolved: boolean
     emptyTitle: string
     emptyBody: string
+    /** Outstanding items. The rows themselves are live state, read by the card. */
     count: number
-    next: string[]
-    recentAdd: { label: string, initial: string, hue: number } | null
-    /** 'Tap for full list' / 'Tap to add' / 'Last synced 15:58'. */
-    foot: string
+    /** '6 items', '1 item' — the header badge. */
+    countLabel: string
   }
   week: WeekSlot[]
 }
@@ -334,6 +394,11 @@ function numberWord(count: number): string {
   return NUMBER_WORDS[count] ?? String(count)
 }
 
+/** '4 servings', '1 serving'. The board says these out where people read them. */
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? '' : 's'}`
+}
+
 function initialOfName(name: string): string {
   return [...name.trim()][0]?.toUpperCase() ?? '?'
 }
@@ -412,10 +477,14 @@ export function buildHeader(input: BoardHeaderInput): BoardHeader {
   return {
     dayName: dayName(today),
     dateLine: dateLine(today),
+    weekLabel: `Week ${isoWeekNumber(input.now)}`,
     weather: input.weather,
-    generatedAt: latest
-      ? `Plan updated ${dayName(isoDate(new Date(latest)))} ${timeOf(new Date(latest))}`
-      : 'Plan not generated',
+    plan: {
+      label: latest
+        ? `Plan generated · ${relativeTime(latest, input.now)}`
+        : 'Plan not generated',
+      generated: Boolean(latest)
+    },
     // Staleness means drift from something that was once known to be true. A
     // device that has never completed a sync is not stale, it is new — and a
     // board warning about staleness before it has ever held data is crying wolf
@@ -513,7 +582,10 @@ export function buildBoard(input: BoardInput): BoardModel {
       initial: initialOfName(person.name),
       hue: hueOf(person.id) ?? 0,
       absent,
-      note: [portionFor(stage), ...tags.map(tag => `no ${tag}`)].join(' · '),
+      note: [
+        stage === 'adult' ? null : portionFor(stage),
+        ...tags.map(tag => `no ${tag}`)
+      ].filter(Boolean).join(' · '),
       warn: clash ? `Out ${clash} — plate up first` : null
     }
   })
@@ -542,7 +614,9 @@ export function buildBoard(input: BoardInput): BoardModel {
       id: `meal-${todayMeal.entryId}`,
       at,
       time: clockOf(at),
-      title: lateEvening ? `${todayMeal.dish} · cooked` : todayMeal.dish,
+      // Named as an appointment, because in this row that is what it is — the
+      // one line that ties the calendar to the card above it.
+      title: `Dinner — ${todayMeal.dish}${lateEvening ? ' · cooked' : ''}`,
       hue: null,
       meal: true,
       personId: null
@@ -579,6 +653,9 @@ export function buildBoard(input: BoardInput): BoardModel {
   // not make the evening unspent.
   const moreToday = dayEvents.some(event => event.at > nowMinutes && event.at < 1440)
 
+  const nameOf = (personId: string | null) =>
+    personId ? people.find(person => person.id === personId)?.name ?? null : null
+
   const allRows: ScheduleRow[] = dayEvents.map((event, index) => {
     const past = event.at <= nowMinutes
     const isNext = index === firstUpcoming
@@ -587,17 +664,20 @@ export function buildBoard(input: BoardInput): BoardModel {
       id: event.id,
       time: event.time,
       title: event.title,
+      // Whose it is first, then why it matters — the second line of a row, so it
+      // can afford both and neither has to fight for the title.
+      meta: [
+        nameOf(event.personId),
+        tomorrowRow
+          ? 'tomorrow'
+          : event.personId && clashIds.has(event.personId)
+            ? 'clashes with dinner'
+            : isNext && !event.meal ? 'next' : null
+      ].filter(Boolean).join(' · '),
       hue: event.hue,
       past: past && !tomorrowRow,
       next: isNext,
-      meal: event.meal,
-      badge: event.meal
-        ? 'Meal'
-        : tomorrowRow
-          ? 'Tomorrow'
-          : event.personId && clashIds.has(event.personId)
-            ? 'Clash'
-            : isNext ? 'Next' : null
+      meal: event.meal
     }
   })
 
@@ -647,26 +727,35 @@ export function buildBoard(input: BoardInput): BoardModel {
 
   const dishMeta = [
     meal?.minutes ? `${meal.minutes} min` : null,
+    meal ? plural(meal.servings, 'serving') : null,
     meal?.note ?? null
   ].filter(Boolean).join(' · ')
 
-  const startAt = meal?.minutes ? clockOf(eatMinutes - meal.minutes) : null
-  const timing = hasMeal
-    ? startAt ? `Eat ${eatTime} · start ${startAt}` : `Eat ${eatTime}`
-    : null
+  // The badge says when to eat; the footer says when to get up. Two facts in two
+  // places, rather than one pill carrying both and being read as neither.
+  const timing = hasMeal ? eatTime : null
+  const startBy = meal?.minutes ? `start by ${clockOf(eatMinutes - meal.minutes)}` : null
 
+  const toBuy = meal
+    ? input.toBuy.filter(line => line.entryId === meal.entryId)
+        .map(({ name, qty }) => ({ name, qty }))
+    : []
+
+  // The mono aside at the far end of the footer. Only ever a remark — the
+  // actions beside it are the buttons, and this is what is worth saying once
+  // they have been read. Empty when `startBy` has something more useful to say.
   const heroFoot = input.offline
-    ? 'Plan is stored locally · tap for the recipe'
+    ? 'stored locally'
     : lateEvening && todayMeal
-      ? `Tonight's ${todayMeal.dish.toLowerCase()} is done`
-      : 'Tap for the recipe'
+      ? `tonight's ${todayMeal.dish.toLowerCase()} is done`
+      : ''
 
   // The board sends you to whichever step is actually next, rather than to a
   // generator that would silently do nothing without a roster or a library.
   const setupSteps: SetupStep[] = [
-    { label: 'Add the people who eat here', done: !needsPeople },
-    { label: 'Put a few recipes in the library', done: !needsRecipes },
-    { label: 'Generate the week', done: false }
+    { label: 'Add the people who eat here', done: !needsPeople, to: '/people' },
+    { label: 'Put a few recipes in the library', done: !needsRecipes, to: '/recipes' },
+    { label: 'Generate the week', done: false, to: null }
   ]
 
   const noMeal = hasMeal
@@ -680,7 +769,8 @@ export function buildBoard(input: BoardInput): BoardModel {
           action: needsPeople
             ? { label: 'Add people', to: '/people' }
             : { label: 'Add recipes', to: '/recipes' },
-          steps: setupSteps
+          steps: setupSteps,
+          hint: '~1 min'
         }
       : nobodyHome
         ? {
@@ -690,13 +780,15 @@ export function buildBoard(input: BoardInput): BoardModel {
             // board had never read.
             body: 'No meal planned, and nobody is down as eating. Fridge night if plans change.',
             action: null,
-            steps: []
+            steps: [],
+            hint: 'fridge night'
           }
         : {
             title: lateEvening ? 'No plan for tomorrow' : 'No plan for tonight',
             body: 'The weekly generator has not run. Attendance and the recipe library are ready.',
             action: { label: 'Generate this week’s plan', to: null },
-            steps: []
+            steps: [],
+            hint: 'one press'
           }
 
   // --- week strip ------------------------------------------------------------
@@ -711,21 +803,21 @@ export function buildBoard(input: BoardInput): BoardModel {
     .map(night => ({
       date: night.date,
       day: shortDay(night.date),
-      dish: night.meal?.dish ?? '—',
+      dateLabel: night.date.slice(-2),
+      dish: night.meal?.dish ?? 'No meal',
+      // Minutes when the recipe says, servings otherwise. One number, because a
+      // sixth of the strip is about as wide as a thumb.
+      meta: night.meal
+        ? night.meal.minutes
+          ? `${night.meal.minutes} min`
+          : plural(night.meal.servings, 'serving')
+        : '',
       empty: !night.meal,
       highlighted: lateEvening && night.date === heroDate
     }))
 
   // --- shopping --------------------------------------------------------------
-  const recent = input.shopping.recentAdd
-  const recentPerson = recent?.personId
-    ? people.find(person => person.id === recent.personId)
-    : undefined
   const listEmpty = input.shopping.count === 0
-
-  const shopFoot = input.offline && lastSyncedClock
-    ? `Last synced ${lastSyncedClock}`
-    : listEmpty ? 'Tap to add' : 'Tap for full list'
 
   /**
    * An empty list is only worth celebrating if it was emptied.
@@ -767,8 +859,11 @@ export function buildBoard(input: BoardInput): BoardModel {
       hasMeal,
       recipeId: meal?.recipeId ?? null,
       dish: meal?.dish ?? '',
+      image: meal?.image ?? null,
       dishMeta,
       timing,
+      startBy,
+      toBuy,
       cook: cookPerson
         ? {
             id: cookPerson.id,
@@ -784,14 +879,15 @@ export function buildBoard(input: BoardInput): BoardModel {
       noMeal
     },
     schedule: {
+      empty: !input.hasCalendar,
       // A card with no calendar behind it says so, rather than blaming the
       // network for an absence that predates it. Offline, it stops claiming to
       // be the calendar and starts saying when it last was one.
-      meta: !input.hasCalendar
-        ? 'No calendar connected'
+      badge: !input.hasCalendar
+        ? 'No calendar'
         : input.offline
           ? lastSyncedClock ? `Last known · ${lastSyncedClock}` : 'Last known'
-          : moreToday ? 'Family calendar' : 'Nothing left today',
+          : `${dayEvents.filter(event => !event.meal && event.at < 1440).length} events`,
       rows,
       nowAt,
       nowIndex,
@@ -804,15 +900,7 @@ export function buildBoard(input: BoardInput): BoardModel {
       emptyTitle,
       emptyBody,
       count: input.shopping.count,
-      next: input.shopping.next.slice(0, 3),
-      recentAdd: recent && recentPerson && !listEmpty
-        ? {
-            label: `${recentPerson.name} added ${recent.label} · ${relativeTime(recent.at, now)}`,
-            initial: initialOfName(recentPerson.name),
-            hue: hueOf(recentPerson.id) ?? 0
-          }
-        : null,
-      foot: shopFoot
+      countLabel: plural(input.shopping.count, 'item')
     },
     week
   }
