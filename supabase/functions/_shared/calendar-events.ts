@@ -189,6 +189,36 @@ export function vanishedIds(
     .map(([id]) => id)
 }
 
+/** What a sync run is reporting back to the household. */
+export interface SyncOutcome {
+  outcome: 'ok' | 'skipped' | 'error'
+  detail: string | null
+  fetched: number
+  written: number
+  removed: number
+  calendars_failed: number
+}
+
+/**
+ * Turn the result of a run into the row the settings page reads.
+ *
+ * Pure, and separate from the function, because this is the part with a decision
+ * in it: a run where one calendar of three threw is not a success. The board is
+ * showing a day with a third of it missing, and the whole point of the status row
+ * is that it says so rather than looking identical to a quiet Tuesday.
+ */
+export function syncOutcome(
+  counts: { fetched: number, written: number, removed: number },
+  problems: string[]
+): SyncOutcome {
+  return {
+    outcome: problems.length ? 'error' : 'ok',
+    detail: problems.length ? problems.join('; ') : null,
+    ...counts,
+    calendars_failed: problems.length
+  }
+}
+
 /** Match a configured calendar to a person by name, forgiving case and spacing. */
 export function resolvePersonId(
   name: string | null | undefined,

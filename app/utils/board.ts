@@ -556,8 +556,14 @@ function initialOfName(name: string): string {
   return [...name.trim()][0]?.toUpperCase() ?? '?'
 }
 
-/** '4 min ago' / '2 hours ago' / 'yesterday'. Coarse on purpose — it is a wall. */
-function relativeTime(from: string, now: Date): string {
+/**
+ * '4 min ago' / '2 hours ago' / 'yesterday'. Coarse on purpose — it is a wall.
+ *
+ * Exported for the settings page, which reports when the calendar last synced and
+ * wants the same coarseness for the same reason: the useful distinction is between
+ * minutes ago and days ago, and a clock time makes the reader do the arithmetic.
+ */
+export function relativeTime(from: string, now: Date): string {
   const minutes = Math.floor((now.getTime() - new Date(from).getTime()) / 60_000)
   if (!Number.isFinite(minutes) || minutes < 1) return 'just now'
   if (minutes < 60) return `${minutes} min ago`

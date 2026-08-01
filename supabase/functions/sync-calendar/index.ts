@@ -19,10 +19,12 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 import {
   changedRows,
   resolvePersonId,
+  syncOutcome,
   toRows,
   vanishedIds,
   type CalendarRow,
-  type GoogleEvent
+  type GoogleEvent,
+  type SyncOutcome
 } from '../_shared/calendar-events.ts'
 import { fetchEvents, getAccessToken, parseServiceAccount } from '../_shared/google-auth.ts'
 import { guardMethod, json } from '../_shared/http.ts'
@@ -56,6 +58,37 @@ function isoDay(date: Date, timeZone: string): string {
   }).format(date)
 }
 
+/** A run that ended before it did any work, with the reason it stopped. */
+function halted(outcome: 'skipped' | 'error', detail: string): SyncOutcome {
+  return { outcome, detail, fetched: 0, written: 0, removed: 0, calendars_failed: 0 }
+}
+
+/**
+ * Record what this run did, then answer.
+ *
+ * Every exit below runs through here, because the failure this whole table exists
+ * to fix was a function that returned a perfectly clear 500 to pg_cron, which threw
+ * it away. The response body is for whoever is holding a curl; the row is for the
+ * household.
+ *
+ * A write failure here is swallowed on purpose: it must not turn a successful sync
+ * into a 500, and there is nowhere left to report it to anyway.
+ */
+async function finish(
+  // deno-lint-ignore no-explicit-any
+  client: any,
+  householdId: string,
+  status: SyncOutcome,
+  ranAt: string
+): Promise<Response> {
+  const { error } = await client
+    .from('calendar_sync_status')
+    .upsert({ household_id: householdId, ran_at: ranAt, updated_at: ranAt, ...status },
+      { onConflict: 'household_id' })
+  if (error) console.error('sync status write failed', error.message)
+  return json(status.outcome === 'error' ? 500 : 200, status)
+}
+
 Deno.serve(async (req) => {
   const guard = guardMethod(req)
   if (guard) return guard
@@ -79,8 +112,15 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   )
 
+  const now = new Date()
+  const nowIso = now.toISOString()
+
   // One household in practice, but resolved rather than assumed — same approach
   // as the keepalive ping, and it keeps a second household from being a rewrite.
+  //
+  // Nothing above this point can leave a status row: there is no household to hang
+  // one off yet. Those two failures stay response-only, which is tolerable because
+  // both are visible the moment anyone calls the function by hand.
   let householdId = Deno.env.get('HOUSEHOLD_ID') ?? null
   if (!householdId) {
     const { data, error } = await client
@@ -99,7 +139,10 @@ Deno.serve(async (req) => {
     .select('id, name')
     .eq('household_id', householdId)
     .is('deleted_at', null)
-  if (peopleError) return json(500, { error: `people lookup failed: ${peopleError.message}` })
+  if (peopleError) {
+    return await finish(client, householdId, halted(
+      'error', `people lookup failed: ${peopleError.message}`), nowIso)
+  }
 
   let calendars: CalendarConfig[]
   try {
@@ -107,14 +150,20 @@ Deno.serve(async (req) => {
       ? [{ calendarId: 'mock', person: people?.[0]?.name ?? null }]
       : JSON.parse(Deno.env.get('GOOGLE_CALENDARS') ?? '[]') as CalendarConfig[]
   } catch {
-    return json(500, { error: 'GOOGLE_CALENDARS is not valid JSON' })
+    return await finish(client, householdId, halted(
+      'error', 'The GOOGLE_CALENDARS function secret is not valid JSON.'), nowIso)
   }
   // A household that has not connected a calendar is not an error. The board
-  // simply has an empty schedule card, which is a designed state.
-  if (!calendars.length) return json(200, { skipped: 'no calendars configured' })
+  // simply has an empty schedule card, which is a designed state — but it is now a
+  // recorded one, so the screen can say "no calendars configured" rather than
+  // leaving the reader to guess between that and four different breakages.
+  if (!calendars.length) {
+    return await finish(client, householdId, halted(
+      'skipped',
+      'No calendars are configured. Set the GOOGLE_CALENDARS function secret to '
+      + 'connect one.'), nowIso)
+  }
 
-  const now = new Date()
-  const nowIso = now.toISOString()
   const timeMin = new Date(now)
   timeMin.setDate(timeMin.getDate() - WINDOW_DAYS_BACK)
   const timeMax = new Date(now)
@@ -125,14 +174,22 @@ Deno.serve(async (req) => {
   let token: string | null = null
   if (!mock) {
     const raw = Deno.env.get('GOOGLE_SERVICE_ACCOUNT')
-    if (!raw) return json(500, { error: 'GOOGLE_SERVICE_ACCOUNT is not set' })
+    if (!raw) {
+      return await finish(client, householdId, halted(
+        'error', 'The GOOGLE_SERVICE_ACCOUNT function secret is not set.'), nowIso)
+    }
     try {
       token = await getAccessToken(parseServiceAccount(raw))
     } catch (error) {
-      return json(500, { error: `google auth failed: ${(error as Error).message}` })
+      return await finish(client, householdId, halted(
+        'error', `Google would not authenticate: ${(error as Error).message}`), nowIso)
     }
   }
 
+  // What went wrong, per calendar, kept rather than only logged. A 403 here is the
+  // single most likely reason a correctly configured household still sees nothing:
+  // the calendar was never shared with the service account's address.
+  const problems: string[] = []
   const rows: CalendarRow[] = []
   for (const calendar of calendars) {
     let events: GoogleEvent[]
@@ -142,8 +199,11 @@ Deno.serve(async (req) => {
         : await fetchEvents(token!, calendar.calendarId, timeMin, timeMax) as GoogleEvent[]
     } catch (error) {
       // One calendar failing must not lose the others. The board keeps whatever
-      // it already had for this one, which is exactly the offline story.
-      console.error('calendar fetch failed', calendar.calendarId, (error as Error).message)
+      // it already had for this one, which is exactly the offline story — but the
+      // run is no longer a success, and the household is told which calendar.
+      const message = (error as Error).message
+      console.error('calendar fetch failed', calendar.calendarId, message)
+      problems.push(`${calendar.calendarId}: ${message}`)
       continue
     }
 
@@ -167,7 +227,10 @@ Deno.serve(async (req) => {
     .eq('household_id', householdId)
     .gte('start_date', windowStart)
     .lte('start_date', windowEnd)
-  if (existingError) return json(500, { error: `read failed: ${existingError.message}` })
+  if (existingError) {
+    return await finish(client, householdId, halted(
+      'error', `read failed: ${existingError.message}`), nowIso)
+  }
 
   const existing = new Map(
     (existingRows ?? []).map(row => [row.id, {
@@ -183,7 +246,10 @@ Deno.serve(async (req) => {
       existing.has(row.id) ? { ...row, created_at: undefined } : row
     )
     const { error } = await client.from('calendar_events').upsert(payload)
-    if (error) return json(500, { error: `upsert failed: ${error.message}` })
+    if (error) {
+      return await finish(client, householdId, halted(
+        'error', `upsert failed: ${error.message}`), nowIso)
+    }
   }
 
   const vanished = vanishedIds(rows, existing)
@@ -192,7 +258,10 @@ Deno.serve(async (req) => {
       .from('calendar_events')
       .update({ deleted_at: nowIso, updated_at: nowIso })
       .in('id', vanished)
-    if (error) return json(500, { error: `soft delete failed: ${error.message}` })
+    if (error) {
+      return await finish(client, householdId, halted(
+        'error', `soft delete failed: ${error.message}`), nowIso)
+    }
   }
 
   // --- retention ------------------------------------------------------------
@@ -206,10 +275,9 @@ Deno.serve(async (req) => {
     .lt('end_date', isoDay(cutoff, timeZone))
   if (pruneError) console.error('retention prune failed', pruneError.message)
 
-  return json(200, {
+  return await finish(client, householdId, syncOutcome({
     fetched: rows.length,
     written: changed.length,
-    removed: vanished.length,
-    mock
-  })
+    removed: vanished.length
+  }, problems), nowIso)
 })
