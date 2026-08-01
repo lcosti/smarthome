@@ -18,6 +18,8 @@ export type PurchaseUnitRow = Tables['ingredient_purchase_units']['Row']
 export type CalendarEventRow = Tables['calendar_events']['Row']
 export type PantryItemRow = Tables['pantry_items']['Row']
 export type PantryReservationRow = Tables['pantry_reservations']['Row']
+export type ChoreRow = Tables['chores']['Row']
+export type ChoreCompletionRow = Tables['chore_completions']['Row']
 
 /**
  * Every table the offline layer syncs.
@@ -55,6 +57,11 @@ export const SYNC_TABLES = {
   // half-applied plan on a device's first pull.
   pantry_reservations: { cache: 'pantry_reservations' },
   shopping_list_items: { cache: 'items' },
+  // After the people they are assigned to, and the completion after the chore it
+  // ticks off — a tick is meaningless until the rule that produced its day is
+  // there to be derived from.
+  chores: { cache: 'chores' },
+  chore_completions: { cache: 'chore_completions' },
   // Read-only on every device: written by the sync-calendar Edge Function with
   // the service role, and pulled here like anything else. It is in this registry
   // for the pull and the realtime subscription, not for the queue — nothing on a
@@ -92,6 +99,8 @@ export interface RowOf {
   meal_plan_entries: PlanEntryRow
   pantry_reservations: PantryReservationRow
   shopping_list_items: ItemRow
+  chores: ChoreRow
+  chore_completions: ChoreCompletionRow
   calendar_events: CalendarEventRow
 }
 
@@ -127,6 +136,8 @@ export class AppDatabase extends Dexie {
   calendar_events!: Table<CalendarEventRow, string>
   pantry_items!: Table<PantryItemRow, string>
   pantry_reservations!: Table<PantryReservationRow, string>
+  chores!: Table<ChoreRow, string>
+  chore_completions!: Table<ChoreCompletionRow, string>
   mutations!: Table<Mutation, number>
 
   constructor(name = 'shoplist') {
@@ -180,6 +191,14 @@ export class AppDatabase extends Dexie {
     this.version(7).stores({
       pantry_items: 'id',
       pantry_reservations: 'id'
+    })
+    // v8 adds chores. Same terms as every version above — new empty stores filled
+    // on the next pull — and a household that never writes one carries two empty
+    // tables, because a day with no chores derives no rows and the schedule card
+    // reads exactly as it did before.
+    this.version(8).stores({
+      chores: 'id',
+      chore_completions: 'id'
     })
   }
 

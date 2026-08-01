@@ -192,6 +192,108 @@ export type Database = {
           },
         ]
       }
+      chore_completions: {
+        Row: {
+          chore_id: string
+          created_at: string
+          date: string
+          deleted_at: string | null
+          done: boolean
+          household_id: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          chore_id: string
+          created_at?: string
+          date: string
+          deleted_at?: string | null
+          done?: boolean
+          household_id: string
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          chore_id?: string
+          created_at?: string
+          date?: string
+          deleted_at?: string | null
+          done?: boolean
+          household_id?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chore_completions_chore_id_fkey"
+            columns: ["chore_id"]
+            isOneToOne: false
+            referencedRelation: "chores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chore_completions_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chores: {
+        Row: {
+          at_time: string | null
+          created_at: string
+          deleted_at: string | null
+          due_date: string | null
+          household_id: string
+          id: string
+          name: string
+          person_id: string | null
+          updated_at: string
+          weekdays: number[] | null
+        }
+        Insert: {
+          at_time?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          due_date?: string | null
+          household_id: string
+          id: string
+          name: string
+          person_id?: string | null
+          updated_at?: string
+          weekdays?: number[] | null
+        }
+        Update: {
+          at_time?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          due_date?: string | null
+          household_id?: string
+          id?: string
+          name?: string
+          person_id?: string | null
+          updated_at?: string
+          weekdays?: number[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chores_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chores_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dietary_constraints: {
         Row: {
           created_at: string
@@ -424,8 +526,9 @@ export type Database = {
           leftover_of_entry_id: string | null
           meal: string
           note: string | null
-          recipe_id: string
+          recipe_id: string | null
           servings: number
+          skip_reason: string | null
           updated_at: string
         }
         Insert: {
@@ -439,8 +542,9 @@ export type Database = {
           leftover_of_entry_id?: string | null
           meal?: string
           note?: string | null
-          recipe_id: string
+          recipe_id?: string | null
           servings: number
+          skip_reason?: string | null
           updated_at?: string
         }
         Update: {
@@ -454,8 +558,9 @@ export type Database = {
           leftover_of_entry_id?: string | null
           meal?: string
           note?: string | null
-          recipe_id?: string
+          recipe_id?: string | null
           servings?: number
+          skip_reason?: string | null
           updated_at?: string
         }
         Relationships: [

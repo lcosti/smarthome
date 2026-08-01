@@ -4,6 +4,8 @@ import { dishLabel, type PlannedNight } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
 import { deriveLifeStage } from '../utils/people'
 import { initialOf } from '../utils/person-colors'
+import { pictureOf } from '../utils/photo'
+import { skipIcon } from '../utils/skip'
 
 /**
  * One night of the week, on a screen with room to say what is actually on it.
@@ -93,6 +95,15 @@ const awayLabel = computed(() => {
 })
 
 /**
+ * The picture of what is being eaten — which on a leftovers night is the picture
+ * of the night it came off, as the wall board already has it. Thursday's plate
+ * looks like Tuesday's because it is Tuesday's.
+ */
+const picture = computed(() =>
+  pictureOf(planned.value?.leftoverSource?.recipe ?? planned.value?.recipe)
+)
+
+/**
  * What the dish costs, in the two units a Tuesday evening is spent in: time at
  * the stove and things to buy. A leftovers night costs neither and says so.
  *
@@ -106,6 +117,13 @@ const dishMeta = computed<{ icon: string, label: string }[]>(() => {
   if (!entry) return []
 
   const out: { icon: string, label: string }[] = []
+  // A skipped night says the same thing a leftovers night says — nobody is at
+  // the stove — and the icon is what tells you which kind of evening it is. The
+  // name above already says "Takeaway", so this line does not repeat it.
+  if (entry.skipped) {
+    out.push({ icon: skipIcon(entry.entry.skip_reason), label: 'no cooking' })
+    return out
+  }
   if (entry.leftover) {
     out.push({ icon: 'i-lucide-refrigerator', label: 'no cooking' })
   } else {
@@ -118,6 +136,44 @@ const dishMeta = computed<{ icon: string, label: string }[]>(() => {
 
   return out
 })
+
+/**
+ * The night as somewhere a dish can be dropped, and as a dish that can be
+ * picked up.
+ *
+ * Every night is a target, including an empty one and a night that has gone —
+ * moving Thursday's dinner onto a Tuesday that has already happened is a
+ * correction of the record, and the plan is a record as much as an intention.
+ * Only a night with something on it is a source.
+ */
+const drag = usePlanDrag()
+const root = useTemplateRef<{ $el?: HTMLElement } | HTMLElement>('root')
+
+const isOver = computed(() => drag.overDate.value === night.date)
+const isSource = computed(() =>
+  drag.payload.value?.kind === 'night' && drag.payload.value.date === night.date
+)
+
+/** `UCard` is a component, so the element to hit-test against is its root node. */
+function elementOf(instance: unknown): HTMLElement | null {
+  if (!instance) return null
+  const el = (instance as { $el?: unknown }).$el ?? instance
+  return el instanceof HTMLElement ? el : null
+}
+
+watchEffect(() => drag.registerTarget(night.date, elementOf(root.value)))
+onBeforeUnmount(() => drag.registerTarget(night.date, null))
+
+function pickUp(event: PointerEvent) {
+  if (!planned.value) return
+  drag.press(event, {
+    kind: 'night',
+    entryId: planned.value.entry.id,
+    date: night.date,
+    label: dishLabel(planned.value),
+    image: picture.value
+  })
+}
 </script>
 
 <template>
@@ -128,6 +184,7 @@ const dishMeta = computed<{ icon: string, label: string }[]>(() => {
     tonight, or a night that has gone — are ours.
   -->
   <UCard
+    ref="root"
     variant="subtle"
     :ui="{
       root: 'flex min-h-0 flex-col transition-colors',
@@ -135,7 +192,15 @@ const dishMeta = computed<{ icon: string, label: string }[]>(() => {
       body: 'flex min-h-0 flex-1 flex-col p-0 sm:p-0',
       footer: 'flex shrink-0 items-center gap-2 px-3 py-2 sm:px-3'
     }"
-    :class="[today ? 'ring-primary/60' : '', past && 'opacity-55']"
+    :class="[
+      today ? 'ring-primary/60' : '',
+      past && 'opacity-55',
+      // Where it would land, and where it came from. The night being dragged
+      // fades rather than disappearing, so the week keeps its shape while one
+      // of it is in the air.
+      isOver && 'ring-2 ring-primary bg-primary/5',
+      isSource && 'opacity-40'
+    ]"
   >
     <template #header>
       <div class="flex items-center gap-2">
@@ -160,10 +225,19 @@ const dishMeta = computed<{ icon: string, label: string }[]>(() => {
         being cooked is the object you act on — open it, or take it off — and the
         night around it is only the frame holding the date and the table.
       -->
+      <!--
+        And the thing you pick up. A dish is what moves between nights — the day
+        and the table around it belong to the night and stay where they are — so
+        the press that starts a drag starts here. A mouse picks it up on the
+        first few pixels of travel; a finger holds it for a moment first, so that
+        scrolling a column of these still scrolls.
+      -->
       <UCard
         v-if="planned"
         variant="soft"
-        :ui="{ root: 'relative min-h-0 flex-1', body: 'h-full p-3 sm:p-3' }"
+        :ui="{ root: 'relative min-h-0 flex-1 touch-manipulation select-none', body: 'h-full p-3 sm:p-3' }"
+        :class="isSource ? 'cursor-grabbing' : 'cursor-grab'"
+        @pointerdown="pickUp"
       >
         <!--
           A raw button, per the card-and-row exception in CLAUDE.md: this is a
@@ -176,36 +250,53 @@ const dishMeta = computed<{ icon: string, label: string }[]>(() => {
         -->
         <button
           type="button"
-          class="flex h-full w-full flex-col items-start pr-7 text-left transition-opacity duration-[80ms] active:opacity-85"
+          class="flex h-full w-full items-start gap-3 pr-7 text-left transition-opacity duration-[80ms] active:opacity-85"
           @click="$emit('open')"
         >
-          <span class="line-clamp-3 text-pretty text-[15px] font-medium leading-tight tracking-[-0.01em] text-highlighted">
-            {{ dishLabel(planned) }}
-          </span>
+          <RecipeThumb
+            :src="picture"
+            :alt="dishLabel(planned)"
+          />
 
-          <span class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-dimmed">
-            <span
-              v-for="fact in dishMeta"
-              :key="fact.label"
-              class="flex items-center gap-1"
-            >
-              <UIcon
-                :name="fact.icon"
-                class="size-3.5 shrink-0"
+          <!--
+            `min-w-0` is what lets the name wrap beside the picture: a flex child
+            defaults to its content's width, and a long dish name would push the
+            card wider than its column rather than running onto a second line.
+          -->
+          <span class="flex min-w-0 flex-1 flex-col items-start">
+            <span class="line-clamp-3 text-pretty text-[15px] font-medium leading-tight tracking-[-0.01em] text-highlighted">
+              {{ dishLabel(planned) }}
+            </span>
+
+            <span class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-dimmed">
+              <span
+                v-for="fact in dishMeta"
+                :key="fact.label"
+                class="flex items-center gap-1"
+              >
+                <UIcon
+                  :name="fact.icon"
+                  class="size-3.5 shrink-0"
+                />
+                {{ fact.label }}
+              </span>
+
+              <!--
+                Shopped-for is the third fact about the night, and sits on the
+                line with the other two rather than under them — a card is a
+                fixed height with a picture in it now, and a block of its own
+                was the line that fell off the bottom.
+              -->
+              <UBadge
+                v-if="planned.derived"
+                color="primary"
+                variant="soft"
+                size="sm"
+                icon="i-lucide-check"
+                label="On list"
               />
-              {{ fact.label }}
             </span>
           </span>
-
-          <UBadge
-            v-if="planned.derived"
-            color="primary"
-            variant="soft"
-            size="sm"
-            icon="i-lucide-check"
-            label="On list"
-            class="mt-2"
-          />
         </button>
 
         <UButton
@@ -213,6 +304,7 @@ const dishMeta = computed<{ icon: string, label: string }[]>(() => {
           color="neutral"
           variant="ghost"
           size="xs"
+          data-no-drag
           :aria-label="`Take ${dishLabel(planned)} off ${dayLabel}`"
           class="absolute right-1.5 top-1.5"
           @click="$emit('remove')"

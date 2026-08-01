@@ -158,9 +158,13 @@ const columns = computed(() => Math.min(Math.max(cards.length, 1), 4))
         rather than stretched ones: a card is as tall as it needs to be to hold a
         dish, and a Sunday on its own should not be a card the height of the
         screen.
+
+        The height is what a card holding a picture, two lines of name and a cost
+        line that has wrapped comes to. There is room below the week for it, and
+        a row any shorter clips whichever of those came last.
       -->
       <div
-        class="grid shrink-0 auto-rows-[12rem] gap-3"
+        class="grid shrink-0 auto-rows-[15rem] gap-3"
         :style="{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }"
       >
         <PlanNightCard

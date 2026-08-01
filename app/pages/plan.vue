@@ -274,5 +274,12 @@ async function derive() {
       v-model:open="editorOpen"
       :date="editingDate"
     />
+
+    <!--
+      Once for the page rather than once per shape: there is one pointer, so
+      there is one thing following it, and both layouts drag onto the same
+      nights through the same composable.
+    -->
+    <PlanDragGhost />
   </div>
 </template>

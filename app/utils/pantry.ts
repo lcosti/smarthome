@@ -129,7 +129,8 @@ export function derivePantryReservations(input: ReserveInput): ReserveResult {
     // Leftovers come off the shelf on the night they are cooked, not the night
     // they are eaten again — one reservation, dated to the cooking.
     if (deferred.has(entry.id)) continue
-    const recipe = recipes.get(entry.recipe_id)
+    // Nothing comes off the shelf for a night nobody is cooking on.
+    const recipe = entry.recipe_id ? recipes.get(entry.recipe_id) : null
     if (!recipe || recipe.deleted_at) continue
 
     for (const line of linesByRecipe.get(recipe.id) ?? []) {

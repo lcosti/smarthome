@@ -1,10 +1,15 @@
 <script setup lang="ts">
+import { useChoresStore } from '../stores/chores'
 import { useListStore } from '../stores/list'
+import { usePeopleStore } from '../stores/people'
 import { useSyncStore } from '../stores/sync'
-import type { AisleRow } from '../utils/db'
+import type { AisleRow, ChoreRow } from '../utils/db'
+import { dayLabel } from '../utils/week'
 
 const store = useListStore()
 const sync = useSyncStore()
+const chores = useChoresStore()
+const people = usePeopleStore()
 const supabase = useSupabaseClient()
 const signOut = useSignOut()
 const toast = useToast()
@@ -16,6 +21,28 @@ const newAisle = ref('')
 const confirmAisle = ref<string | null>(null)
 const confirmSignOut = ref(false)
 const drafts = ref(new Map<string, string>())
+const editingChore = ref<string | null>(null)
+const choreEditorOpen = ref(false)
+
+const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+/** "Tue, Fri · Maya · 19:00" — when it happens, whose it is, and at what time. */
+function choreMeta(chore: ChoreRow): string {
+  const when = chore.weekdays?.length
+    ? chore.weekdays.map(day => WEEKDAY_LABELS[day - 1]).join(', ')
+    : chore.due_date
+      ? dayLabel(chore.due_date)
+      : ''
+  const whose = chore.person_id
+    ? people.personById(chore.person_id)?.name ?? null
+    : 'Everyone'
+  return [when, whose, chore.at_time].filter(Boolean).join(' · ')
+}
+
+function editChore(id: string | null) {
+  editingChore.value = id
+  choreEditorOpen.value = true
+}
 
 onMounted(async () => {
   if (!sync.householdId) return
@@ -197,6 +224,56 @@ async function copyInviteCode() {
         >
           Manage pantry
         </UButton>
+      </section>
+
+      <section class="space-y-2">
+        <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
+          Chores
+        </h2>
+        <p class="text-sm text-muted">
+          These sit in Today's schedule alongside the calendar, and anyone can
+          tick them off there. A day without one shows nothing.
+        </p>
+
+        <ul
+          v-if="chores.chores.length"
+          class="divide-y divide-default rounded-lg border border-default"
+        >
+          <li
+            v-for="chore in chores.chores"
+            :key="chore.id"
+          >
+            <UButton
+              color="neutral"
+              variant="ghost"
+              size="lg"
+              block
+              :ui="{ base: 'justify-between rounded-none' }"
+              trailing-icon="i-lucide-chevron-right"
+              @click="editChore(chore.id)"
+            >
+              <span class="flex min-w-0 flex-col items-start gap-0.5">
+                <span class="truncate">{{ chore.name }}</span>
+                <span class="truncate text-xs font-normal text-dimmed">{{ choreMeta(chore) }}</span>
+              </span>
+            </UButton>
+          </li>
+        </ul>
+
+        <UButton
+          color="neutral"
+          variant="subtle"
+          size="lg"
+          block
+          icon="i-lucide-plus"
+          label="Add a chore"
+          @click="editChore(null)"
+        />
+
+        <ChoreEditor
+          v-model:open="choreEditorOpen"
+          :chore-id="editingChore"
+        />
       </section>
 
       <!--

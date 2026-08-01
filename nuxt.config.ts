@@ -126,6 +126,11 @@ export default defineNuxtConfig({
         'lucide:clock',
         'lucide:utensils',
         'lucide:refrigerator',
+        // Chosen from a stored token by skipIcon(), on a night nobody is cooking.
+        'lucide:bike',
+        'lucide:utensils-crossed',
+        'lucide:users',
+        'lucide:circle-slash',
         // Chosen at runtime by aisleIcon(), from the aisle's name.
         'lucide:carrot',
         'lucide:croissant',

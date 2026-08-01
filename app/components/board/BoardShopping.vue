@@ -84,33 +84,53 @@ async function add() {
     data-board-card="shopping"
     class="flex min-h-0 flex-1 flex-col"
     :ui="{
-      header: 'flex flex-none items-center justify-between gap-3 px-6 py-4 sm:px-6',
-      body: 'flex min-h-0 flex-1 flex-col p-0 sm:p-0'
+      header: 'flex flex-none flex-col gap-2.5 px-6 py-3 sm:px-6',
+      body: 'flex min-h-0 flex-1 flex-col p-0 sm:p-0',
+      footer: 'flex-none px-4 py-3 sm:px-6'
     }"
   >
     <template #header>
-      <div class="flex items-center gap-2.5">
-        <h2 class="text-base font-semibold text-highlighted">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
           Shopping
         </h2>
-        <UBadge
+        <p
           v-if="!shopping.empty"
-          color="neutral"
-          variant="subtle"
-          :label="shopping.countLabel"
-        />
+          class="text-xs text-dimmed"
+        >
+          {{ shopping.countLabel }}
+        </p>
       </div>
 
       <!--
-        The whole of an ad-hoc item, not just its name. Quantity and aisle are
-        what make a line actionable in a shop — "Feta, 200 g, Chilled" is walked
-        past once, "Feta" is walked past twice — and a modal has room to ask for
-        them. The list page keeps its one-field quick add, because there the
-        thing being beaten is a WhatsApp message.
+        How much of the shop is behind you. `UProgress` is exactly this shape —
+        one value against a track — and the number above it is the part still to
+        do, so the bar and the label never say the same thing twice.
 
-        Both are still optional: name alone submits, and the aisle already has a
-        sensible answer in it.
+        Inside the header rather than under it: as a sibling of this template it
+        landed in the card's default slot, which put it flush against the header's
+        bottom border and made the pair read as one doubled rule. It belongs to
+        the heading, so it lives in the heading.
       -->
+      <UProgress
+        v-if="!shopping.empty"
+        :model-value="doneCount"
+        :max="doneCount + shopping.count"
+        size="sm"
+      />
+    </template>
+
+    <!--
+      The whole of an ad-hoc item, not just its name. Quantity and aisle are
+      what make a line actionable in a shop — "Feta, 200 g, Chilled" is walked
+      past once, "Feta" is walked past twice — and a modal has room to ask for
+      them. The list page keeps its one-field quick add, because there the
+      thing being beaten is a WhatsApp message.
+
+      Both are still optional: name alone submits, and the aisle already has a
+      sensible answer in it.
+    -->
+    <template #footer>
       <UModal
         v-model:open="open"
         title="Add an item"
@@ -119,6 +139,9 @@ async function add() {
         <UButton
           color="neutral"
           variant="subtle"
+          size="lg"
+          block
+          icon="i-lucide-plus"
           label="Add item"
         />
 
@@ -247,17 +270,21 @@ async function add() {
       </UCheckbox>
 
       <!--
+        Only the action. The tally that used to sit beside it said what the
+        header and the bar above already say — the count of what is left, and
+        how much of the shop is behind you — a third time, in a third format.
+        The row appears when there is something to clear and is not there at all
+        when there is not.
+
         Inside the scroll container and pushed down by mt-auto, so on a short
         list it sits under the last row rather than floating at the bottom of an
         empty card.
       -->
-      <div class="mt-auto flex items-center justify-between border-t border-default px-2 pt-3">
-        <p class="text-xs text-dimmed">
-          {{ doneCount }} done · {{ shopping.count }} to buy
-        </p>
-
+      <div
+        v-if="doneCount"
+        class="mt-auto flex items-center justify-end border-t border-default px-2 pt-3"
+      >
         <UButton
-          v-if="doneCount"
           color="neutral"
           variant="link"
           size="xs"
