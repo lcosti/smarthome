@@ -115,6 +115,10 @@ create extension if not exists pg_net;
 --
 -- Until those exist the job fires and does nothing, which is the correct
 -- behaviour for a household that has not connected a calendar yet.
+--
+-- If the board says "no calendar" and you believe it should not, do not start
+-- here: read public.calendar_sync_status, added by 20260801000008, which records
+-- what the last run did and why it stopped. This job is replaced there too.
 select cron.schedule(
   'sync-calendar',
   -- Five minutes. A wall board showing a schedule five minutes stale is fine, and

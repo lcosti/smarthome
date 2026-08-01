@@ -89,8 +89,17 @@ const uncheckedCount = computed(() => list.liveItems.filter(item => !item.checke
  */
 const listEverUsed = computed(() => sync.rowsOf('shopping_list_items').size > 0)
 
-/** Whether a calendar has ever synced, over any date, not just today's window. */
-const hasCalendar = computed(() => sync.rowsOf('calendar_events').size > 0)
+/**
+ * Whether a calendar has ever synced, over any date, not just today's window.
+ *
+ * Cancelled events do not count, matching the settings page exactly. Reading the
+ * raw map — the way `listEverUsed` above deliberately does — was wrong here: a
+ * week where every event got cancelled left the board claiming a connected
+ * calendar with nothing on it while settings said there was none.
+ */
+const hasCalendar = computed(() =>
+  [...sync.rowsOf('calendar_events').values()].some(row => !row.deleted_at)
+)
 
 const board = computed(() =>
   buildBoard({

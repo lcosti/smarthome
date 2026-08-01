@@ -16,6 +16,7 @@ export type IngredientRow = Tables['ingredients']['Row']
 export type IngredientAliasRow = Tables['ingredient_aliases']['Row']
 export type PurchaseUnitRow = Tables['ingredient_purchase_units']['Row']
 export type CalendarEventRow = Tables['calendar_events']['Row']
+export type CalendarSyncStatusRow = Tables['calendar_sync_status']['Row']
 export type PantryItemRow = Tables['pantry_items']['Row']
 export type PantryReservationRow = Tables['pantry_reservations']['Row']
 export type ChoreRow = Tables['chores']['Row']
@@ -66,7 +67,12 @@ export const SYNC_TABLES = {
   // the service role, and pulled here like anything else. It is in this registry
   // for the pull and the realtime subscription, not for the queue — nothing on a
   // client ever commits one.
-  calendar_events: { cache: 'calendar_events', readOnly: true }
+  calendar_events: { cache: 'calendar_events', readOnly: true },
+  // What the last sync run did, on the same read-only terms. Cached rather than
+  // fetched on demand for the same reason as the events themselves: the screen
+  // that reports "the calendar is not working" is most useful on a device that
+  // currently has no network, and a status it cannot load reads as no status.
+  calendar_sync_status: { cache: 'calendar_sync_status', readOnly: true }
 } as const
 
 export type SyncTable = keyof typeof SYNC_TABLES
@@ -102,6 +108,7 @@ export interface RowOf {
   chores: ChoreRow
   chore_completions: ChoreCompletionRow
   calendar_events: CalendarEventRow
+  calendar_sync_status: CalendarSyncStatusRow
 }
 
 export type SyncedRow = RowOf[SyncTable]
@@ -134,6 +141,7 @@ export class AppDatabase extends Dexie {
   dietary_constraints!: Table<DietaryConstraintRow, string>
   attendance!: Table<AttendanceRow, string>
   calendar_events!: Table<CalendarEventRow, string>
+  calendar_sync_status!: Table<CalendarSyncStatusRow, string>
   pantry_items!: Table<PantryItemRow, string>
   pantry_reservations!: Table<PantryReservationRow, string>
   chores!: Table<ChoreRow, string>
@@ -192,11 +200,25 @@ export class AppDatabase extends Dexie {
       pantry_items: 'id',
       pantry_reservations: 'id'
     })
-    // v8 adds chores. Same terms as every version above — new empty stores filled
+    // v8 caches what the calendar sync last did. Same terms as every version
+    // above — a new empty store filled on the next pull — and an empty one is not
+    // a gap: no status row is itself the answer that no sync has ever run here.
+    this.version(8).stores({
+      calendar_sync_status: 'id'
+    })
+    // v9 adds chores. Same terms as every version above — new empty stores filled
     // on the next pull — and a household that never writes one carries two empty
     // tables, because a day with no chores derives no rows and the schedule card
     // reads exactly as it did before.
-    this.version(8).stores({
+    //
+    // `calendar_sync_status` is named again here, harmlessly: chores and the sync
+    // status were both written as v8 on branches that had not met yet, so a
+    // device that ran either one has already recorded version 8 and would never
+    // replay the other's stores. Repeating it costs nothing on a fresh install —
+    // Dexie merges each version's stores with the ones before it — and is the
+    // difference between a working tablet and one that throws on a missing table.
+    this.version(9).stores({
+      calendar_sync_status: 'id',
       chores: 'id',
       chore_completions: 'id'
     })

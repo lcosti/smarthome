@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { guessAisleId } from '../utils/aisles'
 import type { RecipeIngredientRow, RecipeRow, RecipeStepRow } from '../utils/db'
+import { deShout } from '../utils/name-case'
 import { shoppingName } from '../utils/shopping-name'
 import { plainCopy } from '../utils/sync'
 import { useListStore } from './list'
@@ -83,7 +84,9 @@ export const useRecipesStore = defineStore('recipes', () => {
     base_servings?: number
     image_url?: string | null
   }) {
-    const name = input.name.trim()
+    // Every recipe arrives here — typed in, photographed, or pasted as a link —
+    // so this is the one place a shouting source gets quietened.
+    const name = deShout(input.name.trim())
     if (!name || !sync.householdId) return
     const timestamp = nowIso()
     return sync.commit('recipes', {
@@ -119,7 +122,8 @@ export const useRecipesStore = defineStore('recipes', () => {
   async function updateRecipe(id: string, patch: RecipePatch) {
     const current = all.value.get(id)
     if (!current) return
-    await sync.commit('recipes', { ...plainCopy(current), ...patch })
+    const name = patch.name === undefined ? {} : { name: deShout(patch.name.trim()) || current.name }
+    await sync.commit('recipes', { ...plainCopy(current), ...patch, ...name })
   }
 
   /** What the household fancies soon, most recently added first. */
@@ -165,7 +169,9 @@ export const useRecipesStore = defineStore('recipes', () => {
     aisle_id?: string | null
     ingredient_id?: string | null
   }) {
-    const name = input.name.trim()
+    // Same treatment as the recipe's own name: a photographed page that shouts
+    // its title tends to shout its ingredient list too.
+    const name = deShout(input.name.trim())
     if (!name || !sync.householdId) return
     const timestamp = nowIso()
     const highest = ingredientsFor(recipeId).reduce((max, l) => Math.max(max, l.sort_order), 0)
@@ -191,7 +197,8 @@ export const useRecipesStore = defineStore('recipes', () => {
   ) {
     const current = allLines.value.get(id)
     if (!current) return
-    await sync.commit('recipe_ingredients', { ...plainCopy(current), ...patch })
+    const name = patch.name === undefined ? {} : { name: deShout(patch.name.trim()) || current.name }
+    await sync.commit('recipe_ingredients', { ...plainCopy(current), ...patch, ...name })
   }
 
   async function deleteIngredient(id: string) {

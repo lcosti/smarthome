@@ -6,6 +6,7 @@ import {
   type AisleRow,
   type AttendanceRow,
   type CalendarEventRow,
+  type CalendarSyncStatusRow,
   type ChoreCompletionRow,
   type ChoreRow,
   type DietaryConstraintRow,
@@ -66,7 +67,8 @@ export const useSyncStore = defineStore('sync', () => {
     shopping_list_items: ref(new Map<string, ItemRow>()),
     chores: ref(new Map<string, ChoreRow>()),
     chore_completions: ref(new Map<string, ChoreCompletionRow>()),
-    calendar_events: ref(new Map<string, CalendarEventRow>())
+    calendar_events: ref(new Map<string, CalendarEventRow>()),
+    calendar_sync_status: ref(new Map<string, CalendarSyncStatusRow>())
   }
 
   /** Rows with a write that has not reached the server yet. */

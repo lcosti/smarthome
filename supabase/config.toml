@@ -404,6 +404,13 @@ verify_jwt = true
 [functions.import-recipe-url]
 verify_jwt = true
 
+# Spends Anthropic API credit, so signed-in only. This restates the CLI default
+# rather than changing anything — it is here because a function absent from this
+# file reads as one nobody has thought about, and the next person adding one
+# copies its neighbours.
+[functions.estimate-nutrition]
+verify_jwt = true
+
 # Called by pg_cron, which has no user session to present, so a JWT check would
 # reject every legitimate invocation. The guard is a shared secret header instead
 # (SYNC_SECRET). A call that gets past it only makes the function do the work it
