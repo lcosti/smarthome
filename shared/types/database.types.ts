@@ -192,6 +192,56 @@ export type Database = {
           },
         ]
       }
+      calendar_sync_status: {
+        Row: {
+          calendars_failed: number
+          created_at: string
+          detail: string | null
+          fetched: number | null
+          household_id: string
+          id: string
+          outcome: string
+          ran_at: string
+          removed: number | null
+          updated_at: string
+          written: number | null
+        }
+        Insert: {
+          calendars_failed?: number
+          created_at?: string
+          detail?: string | null
+          fetched?: number | null
+          household_id: string
+          id?: string
+          outcome: string
+          ran_at: string
+          removed?: number | null
+          updated_at?: string
+          written?: number | null
+        }
+        Update: {
+          calendars_failed?: number
+          created_at?: string
+          detail?: string | null
+          fetched?: number | null
+          household_id?: string
+          id?: string
+          outcome?: string
+          ran_at?: string
+          removed?: number | null
+          updated_at?: string
+          written?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_sync_status_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: true
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dietary_constraints: {
         Row: {
           created_at: string

@@ -5,6 +5,7 @@ import {
   localDate,
   nextDate,
   resolvePersonId,
+  syncOutcome,
   toRow,
   toRows,
   vanishedIds,
@@ -238,5 +239,41 @@ describe('toRows', () => {
       { summary: 'No id' }
     ], OPTIONS)
     expect(rows.map(r => r.google_event_id)).toEqual(['a'])
+  })
+})
+
+/**
+ * The shaping that decides what the settings page says. This is the part of the
+ * sync that used to have no consequence: a calendar that threw was a console.error
+ * and an otherwise ordinary 200, so a household whose service account had lost
+ * access saw a board that looked merely quiet.
+ */
+describe('syncOutcome', () => {
+  const counts = { fetched: 12, written: 3, removed: 1 }
+
+  it('reports a clean run as ok with nothing to say', () => {
+    expect(syncOutcome(counts, [])).toEqual({
+      outcome: 'ok',
+      detail: null,
+      fetched: 12,
+      written: 3,
+      removed: 1,
+      calendars_failed: 0
+    })
+  })
+
+  it('makes a partial run an error, counts included', () => {
+    const status = syncOutcome(counts, ['family@group.calendar.google.com: 403 Forbidden'])
+    expect(status.outcome).toBe('error')
+    expect(status.calendars_failed).toBe(1)
+    // The rows that did land are still reported: the run half-worked, and hiding
+    // that would make a partial outage look like a total one.
+    expect(status.written).toBe(3)
+  })
+
+  it('keeps every calendar that failed in the detail', () => {
+    const status = syncOutcome(counts, ['a: 403 Forbidden', 'b: 404 Not Found'])
+    expect(status.detail).toBe('a: 403 Forbidden; b: 404 Not Found')
+    expect(status.calendars_failed).toBe(2)
   })
 })

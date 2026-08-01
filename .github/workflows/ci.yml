@@ -47,7 +47,7 @@ jobs:
       # node_modules instead.
       - name: Typecheck the Edge Functions
         working-directory: supabase/functions
-        run: deno check keepalive/index.ts import-recipe-photo/index.ts import-recipe-url/index.ts sync-calendar/index.ts
+        run: deno check keepalive/index.ts import-recipe-photo/index.ts import-recipe-url/index.ts estimate-nutrition/index.ts sync-calendar/index.ts
 
       - name: Test
         run: pnpm run test

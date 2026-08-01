@@ -1,5 +1,6 @@
 import { useIngredientsStore } from '../stores/ingredients'
 import { useRecipesStore } from '../stores/recipes'
+import { deShout } from '../utils/name-case'
 import { compressToJpeg } from '../utils/photo'
 import { coerceExtractedRecipe, type ExtractedRecipe } from '../utils/recipe-import'
 import { offline, useEdgeFunction } from './useEdgeFunction'
@@ -56,9 +57,13 @@ export function useRecipeImport() {
     // Sequential, not Promise.all: linkFor resolves against ingredients created
     // by earlier lines, so "tomatoes" twice must mint one row, not two.
     for (const line of recipe.ingredients) {
-      const ingredientId = await ingredients.linkFor(line.name, { quantity: line.quantity })
+      // De-shouted before it reaches the canonical list too, or a page printed in
+      // capitals mints "PLAIN FLOUR" as an ingredient row and it shouts on the
+      // shopping list forever. Matching is case-insensitive either way.
+      const name = deShout(line.name.trim())
+      const ingredientId = await ingredients.linkFor(name, { quantity: line.quantity })
       await recipes.addIngredient(created.id, {
-        name: line.name,
+        name,
         quantity: line.quantity,
         ingredient_id: ingredientId
       })

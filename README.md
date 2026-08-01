@@ -262,6 +262,40 @@ shared with, then `supabase secrets set` and two `vault.create_secret` calls.
 Until those exist the cron job fires and does nothing, which is the right
 behaviour for a household that has not connected a calendar.
 
+Every run records what it did in `calendar_sync_status`
+(`20260801000008_calendar_sync_status.sql`), which the settings page reads. That
+table exists because absence of events used to be the only symptom, and it was
+the symptom of five different things — four of which produced no log line
+anywhere. **Look there first.** A missing vault secret, an unset
+`GOOGLE_CALENDARS`, a calendar never shared with the service account: all of them
+now say so on the screen instead of looking like a household that never bothered.
+
+#### When the board says "no calendar"
+
+Read the row first — `select * from calendar_sync_status;` — and only fall back to
+these if there is no row at all, which means the scheduled job has never run:
+
+```sql
+-- Does the job exist, and is it firing? ('succeeded' only means the SQL ran.)
+select jobid, schedule, active from cron.job where jobname = 'sync-calendar';
+select status, return_message, start_time from cron.job_run_details
+where jobid = (select jobid from cron.job where jobname = 'sync-calendar')
+order by start_time desc limit 10;
+
+-- Are both vault secrets present? (names only — never select the value)
+select name, created_at from vault.decrypted_secrets
+where name in ('sync_calendar_url', 'sync_calendar_secret');
+
+-- What did the function actually reply? Retained a few hours only, so run this
+-- shortly after a tick. 401 = SYNC_SECRET does not match sync_calendar_secret.
+select id, status_code, content, created
+from net._http_response order by created desc limit 10;
+```
+
+And from a shell: `pnpm supabase migration list --linked` (is the schema even
+there), `pnpm supabase functions list` (`sync-calendar` must be `ACTIVE`),
+`pnpm supabase secrets list` (names and digests only).
+
 It needs no Google account to develop against:
 
 ```bash
@@ -290,7 +324,7 @@ Once you have created a Supabase project (free tier) and a Netlify site:
    pnpm deploy:functions
    ```
 
-   `deploy:functions` deploys all four at once. Re-run it after any change under
+   `deploy:functions` deploys all five at once. Re-run it after any change under
    `supabase/functions/` — including `_shared/`, which is bundled into each
    function rather than deployed on its own.
 
@@ -301,7 +335,7 @@ Once you have created a Supabase project (free tier) and a Netlify site:
    every request until it is set. It must match the `sync_calendar_secret` vault
    entry created in `supabase/migrations/20260730000005_calendar_events.sql`.
 
-   `pnpm supabase functions list` should show all four as `ACTIVE`. **If an
+   `pnpm supabase functions list` should show all five as `ACTIVE`. **If an
    import fails with a message ending in "check your signal", check that list
    before checking the wifi.** A function that was never deployed is answered by
    the project's own 404, which carries none of the CORS headers the function

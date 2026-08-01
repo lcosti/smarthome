@@ -286,8 +286,18 @@ describe('rowsNeedingRequeue', () => {
    */
   it('excludes server-owned tables from the writable set', () => {
     expect(WRITABLE_TABLE_NAMES).not.toContain('calendar_events')
+    expect(WRITABLE_TABLE_NAMES).not.toContain('calendar_sync_status')
     expect(WRITABLE_TABLE_NAMES).toContain('shopping_list_items')
-    expect(WRITABLE_TABLE_NAMES).toHaveLength(SYNC_TABLE_NAMES.length - 1)
+    expect(WRITABLE_TABLE_NAMES).toHaveLength(SYNC_TABLE_NAMES.length - 2)
+  })
+
+  /**
+   * The status row is only useful if it reaches the device, and it has to reach a
+   * device that may well be the one with no network — being pulled and cached like
+   * everything else is the whole mechanism.
+   */
+  it('pulls and caches the calendar sync status', () => {
+    expect(SYNC_TABLE_NAMES).toContain('calendar_sync_status')
   })
 })
 
@@ -568,6 +578,11 @@ describe('the synced table registry', () => {
       starts_at: '2026-07-30T17:30:00.000Z', ends_at: '2026-07-30T19:00:00.000Z',
       start_date: '2026-07-30', end_date: '2026-07-30', google_updated_at: null,
       deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
+    await db.cacheFor('calendar_sync_status').put({
+      id: 'cs-1', household_id: HOUSEHOLD, ran_at: STAMP, outcome: 'ok', detail: null,
+      fetched: 1, written: 1, removed: 0, calendars_failed: 0,
+      created_at: STAMP, updated_at: STAMP
     })
 
     // Each row lands in exactly one store, and nothing collides.

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useListStore } from '../stores/list'
 import { useSyncStore } from '../stores/sync'
+import { relativeTime } from '../utils/board'
 import type { AisleRow } from '../utils/db'
 
 const store = useListStore()
@@ -41,10 +42,46 @@ async function commitName(aisle: AisleRow) {
   if (draft && draft !== aisle.name) await store.renameAisle(aisle.id, draft)
 }
 
-/** Whether anything has ever arrived from the calendar sync, and how much. */
+/**
+ * What the calendar is actually doing.
+ *
+ * This used to be `rows.length > 0`, which made "nobody has set this up" and "the
+ * service account was never shared onto the calendar" the same sentence on screen.
+ * They are not the same problem and only one of them is anybody's fault, so the
+ * sync function now records what it did and this reads that record. The event
+ * count is still shown, because when it is working that is the useful number.
+ */
 const calendar = computed(() => {
-  const rows = [...sync.rowsOf('calendar_events').values()].filter(row => !row.deleted_at)
-  return { connected: rows.length > 0, count: rows.length }
+  const events = [...sync.rowsOf('calendar_events').values()].filter(row => !row.deleted_at)
+  const status = [...sync.rowsOf('calendar_sync_status').values()][0] ?? null
+  const ago = status ? relativeTime(status.ran_at, new Date()) : null
+  if (status?.outcome === 'error') {
+    return {
+      tone: 'error' as const,
+      title: 'Calendar sync is failing',
+      // The server's own words. Whoever reads this is the person who can go and
+      // fix it, and a code would only send them back here to look it up.
+      detail: status.detail ?? 'The last sync run failed and did not say why.',
+      ago
+    }
+  }
+  if (status?.outcome === 'skipped' || !status) {
+    return {
+      tone: 'idle' as const,
+      title: 'No calendar connected',
+      detail: status?.detail
+        ?? 'Set up on the server, not here: the sync function holds the account and '
+        + 'the list of calendars. Nothing has arrived yet.',
+      ago
+    }
+  }
+  return {
+    tone: 'ok' as const,
+    title: `${events.length} events cached`,
+    detail: 'Google Calendar, synced every few minutes and cached on this device so '
+      + 'the board still shows today with the wifi down.',
+    ago
+  }
 })
 
 async function copyInviteCode() {
@@ -203,23 +240,45 @@ async function copyInviteCode() {
         Read-only, and it says so. There is no per-user OAuth here — the
         sync-calendar Edge Function holds a service account and a list of
         calendar ids — so the honest thing this screen can do is report what
-        arrived rather than offer a button that connects nothing. It exists
-        because the board's "Connect a calendar" has to land somewhere true.
+        the server did rather than offer a button that connects nothing. It
+        exists because the board's "Connect a calendar" has to land somewhere
+        true.
+
+        Reporting what *arrived* was not enough: an empty table is the symptom of
+        a household that never connected a calendar and of one whose sync has
+        been failing for a month, and only the second needs anybody to do
+        something. So the failing case is a UAlert rather than the same grey box
+        — it is the one state here that is asking for action.
       -->
       <section class="space-y-2">
         <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
           Calendar
         </h2>
-        <div class="space-y-1 rounded-lg border border-default p-3">
+        <UAlert
+          v-if="calendar.tone === 'error'"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="calendar.title"
+          :description="calendar.detail"
+        />
+        <div
+          v-else
+          class="space-y-1 rounded-lg border border-default p-3"
+        >
           <p class="text-sm">
-            {{ calendar.connected ? `${calendar.count} events cached` : 'No calendar connected' }}
+            {{ calendar.title }}
           </p>
           <p class="text-sm text-muted">
-            {{ calendar.connected
-              ? 'Google Calendar, synced every few minutes and cached on this device so the board still shows today with the wifi down.'
-              : 'Set up on the server, not here: the sync function holds the account and the list of calendars. Nothing has arrived yet.' }}
+            {{ calendar.detail }}
           </p>
         </div>
+        <p
+          v-if="calendar.ago"
+          class="text-xs text-dimmed"
+        >
+          Last checked {{ calendar.ago }}
+        </p>
       </section>
 
       <section class="space-y-2">
