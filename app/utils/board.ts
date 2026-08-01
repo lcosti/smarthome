@@ -16,7 +16,7 @@
  * strings compared as minutes past midnight, dates are 'YYYY-MM-DD'.
  */
 
-import { deriveLifeStage, type LifeStage } from './people'
+import { deriveLifeStage } from './people'
 import { personHue } from './person-colors'
 import { pictureOf } from './photo'
 import { displayIngredientName, shoppingName } from './shopping-name'
@@ -35,12 +35,6 @@ export interface BoardPerson {
   created_at: string
 }
 
-export interface BoardConstraint {
-  person_id: string
-  kind: string
-  tag: string
-}
-
 export interface BoardEvent {
   id: string
   title: string
@@ -50,6 +44,24 @@ export interface BoardEvent {
   starts_at: string
   start_date: string
   end_date: string
+}
+
+/**
+ * One chore on one day, already derived from its rule by the caller.
+ *
+ * `completionId` rather than the chore's own id, because a weekly chore is on
+ * this card twice late in the evening — tonight's and tomorrow's — and they are
+ * two different rows with two different ticks.
+ */
+export interface BoardChore {
+  choreId: string
+  completionId: string
+  date: string
+  title: string
+  person_id: string | null
+  /** 'HH:MM', or null for a chore with no particular time. */
+  time: string | null
+  done: boolean
 }
 
 /** A planned dinner, already joined to its recipe by the caller. */
@@ -98,27 +110,6 @@ export interface BoardWeather {
   temperature: number
 }
 
-/**
- * One thing tonight's meal still needs, straight off the shopping list.
- *
- * The design calls this section "Still to buy" and it means the gap, not the
- * inventory: an earlier version listed what the household already had, which
- * read as counter-intuitive on a board whose job is to prompt action.
- *
- * The gap is read off the list rather than off the pantry, even now that there is
- * one — the unchecked items this night's plan entry put there. The list has
- * already had the cupboard subtracted from it by the time it is derived, so this
- * inherits that for free, and a plan that has never been derived contributes
- * nothing here, which is correct: the next press is "Send to list", not the shop.
- */
-export interface BoardToBuyLine {
-  /** The plan entry that put this on the list. */
-  entryId: string
-  name: string
-  /** '1 kg', or null when nobody said how much. */
-  qty: string | null
-}
-
 export interface BoardInput {
   now: Date
   /**
@@ -127,8 +118,7 @@ export interface BoardInput {
    */
   nights: BoardNight[]
   people: BoardPerson[]
-  constraints: BoardConstraint[]
-  /** Today's and tomorrow's events. Anything else is ignored. */
+  /** Today's, tomorrow's, and the week strip's events. Anything else is ignored. */
   events: BoardEvent[]
   /**
    * Whether a calendar has ever been synced, over any date.
@@ -138,8 +128,8 @@ export interface BoardInput {
    * card should not blame staleness for something it was never told.
    */
   hasCalendar: boolean
-  /** Unchecked plan-derived list items, for every night. Filtered to the hero's. */
-  toBuy: BoardToBuyLine[]
+  /** Today's and tomorrow's chore occurrences. Anything else is ignored. */
+  chores: BoardChore[]
   shopping: BoardShoppingInput
   /**
    * How many recipes the library holds. A count rather than the recipes
@@ -173,37 +163,29 @@ export interface SetupStep {
   to: string | null
 }
 
-export interface RosterPerson {
-  id: string
-  name: string
-  initial: string
-  /** Their photograph, or null for the initial in their own colour. */
-  avatar: string | null
-  hue: number
-  absent: boolean
-  /**
-   * What is different about this person's plate.
-   *
-   * An adult portion is the default and goes unsaid — four chips each reading
-   * "Adult portion" is four times nothing. A toddler's, a weaning baby's, and
-   * anything anybody cannot have are the whole point of the roster and stay.
-   */
-  note: string
-  /** Amber: they are out during the meal, or otherwise need acting on. */
-  warn: string | null
-}
-
 export interface ScheduleRow {
   id: string
-  /** 'HH:MM', or 'All day'. */
+  /** 'HH:MM', 'All day', or 'Today' for a chore with no particular time. */
   time: string
   title: string
-  /** 'Maya · recurring' — whose it is and anything worth flagging. May be empty. */
+  /** 'Maya · chore' — whose it is and anything worth flagging. May be empty. */
   meta: string
   hue: number | null
   past: boolean
-  next: boolean
   meal: boolean
+  /** Set on a chore row, which is the one kind of row that can be ticked. */
+  chore: { choreId: string, date: string, done: boolean } | null
+  /**
+   * How far down the grid this sits, 0 at the first hour and 1 at the last.
+   *
+   * A fraction rather than pixels so the card can draw the day at whatever
+   * height it has been given — a wall tablet stretches the same day taller than
+   * a laptop does, and both should show all of it rather than one of them
+   * scrolling. Already nudged clear of the row above, so two things half an hour
+   * apart do not print on top of each other. Meaningless for `allDay` rows,
+   * which are a list above the grid rather than points in it.
+   */
+  top: number
 }
 
 export interface WeekSlot {
@@ -215,6 +197,14 @@ export interface WeekSlot {
   dish: string
   /** '25 min' or '6 servings'. Empty when there is nothing planned. */
   meta: string
+  /**
+   * What else is on that day, in whoever's colour it is.
+   *
+   * Capped, because a tile is a sixth of a strip and a busy Saturday would
+   * otherwise push the meal off it. Two is enough to say "this day is spoken
+   * for", which is all the strip is claiming.
+   */
+  events: { id: string, title: string, hue: number | null }[]
   empty: boolean
   highlighted: boolean
 }
@@ -401,14 +391,14 @@ export interface BoardModel {
      * where a picture identifies a meal faster than its name does.
      */
     image: string | null
-    /** '35 min · 4 servings · one tray'. */
-    dishMeta: string
+    /** Prep plus cook, or null when the recipe does not say. */
+    minutes: number | null
+    /** '4 servings', '1 serving'. Null when there is no meal. */
+    servings: string | null
     /** '18:30' for the card's badge. Null when there is no meal. */
     timing: string | null
     /** 'start by 17:55', or null when the recipe never said how long it takes. */
     startBy: string | null
-    /** What tonight still needs. Empty when nothing does. */
-    toBuy: { name: string, qty: string | null }[]
     cook: {
       id: string
       name: string
@@ -417,10 +407,6 @@ export interface BoardModel {
       hue: number
       label: string
     } | null
-    /** 'Four for dinner'. */
-    eatingCount: string
-    roster: RosterPerson[]
-    foot: string
     /** Set only when there is no meal. */
     noMeal: {
       title: string
@@ -438,13 +424,33 @@ export interface BoardModel {
     empty: boolean
     /** '3 events' / 'No calendar' / 'Last known · 15:58'. */
     badge: string
+    /**
+     * Everything with no place on the grid: all-day events, chores with no
+     * particular time, and late in the evening tomorrow's first thing. A list
+     * above the hours rather than points within them.
+     */
+    allDay: ScheduleRow[]
+    /** Today's timed rows, in order, each carrying its offset down the grid. */
     rows: ScheduleRow[]
-    /** 'HH:MM' of the now marker, or null when offline or off the ends. */
+    /** The hour lines the grid is ruled with, each at its own fraction down. */
+    hours: { label: string, top: number }[]
+    /**
+     * The shortest the grid may be drawn, in pixels.
+     *
+     * The card stretches the day to fill whatever height it has; this is the
+     * floor below which the rows would start colliding, and the point at which
+     * it gives up and scrolls instead.
+     */
+    height: number
+    /** 'HH:MM' of the now marker, or null when offline and it may not be drawn. */
     nowAt: string | null
-    /** Index in `rows` the marker sits before. Only meaningful with `nowAt`. */
-    nowIndex: number
-    /** '2 earlier · +4 later, bins out 20:00'. */
-    overflow: string
+    /**
+     * Where now sits, on the same 0-to-1 scale. Always a number, even offline —
+     * where to scroll is arithmetic on the device's own clock, not a claim about
+     * how fresh the data is, and a board that opens on breakfast at nine at
+     * night is unhelpful whatever its connection is doing.
+     */
+    nowTop: number
     dim: boolean
   }
   shopping: {
@@ -489,14 +495,59 @@ const LATE_AFTER_MINUTES = 90
 /** The clock past which an evening is late even on a night with nothing planned. */
 const LATE_CLOCK = 20 * 60 + 30
 
-/** Somebody leaving within this long after the meal starts is a clash worth amber. */
-const CLASH_WINDOW_MINUTES = 60
+/**
+ * Where a chore with no time sits in the day's sort.
+ *
+ * Between the all-day events at -1 and the first thing with a clock on it, so it
+ * reads as "today, at some point" — which is what it is.
+ */
+const UNTIMED_AT = -0.5
 
-/** What fits the schedule card without scrolling, which it must never do. */
-const MAX_SCHEDULE_ROWS = 5
+/**
+ * How tall an hour of the day is drawn, in pixels.
+ *
+ * The grid is a real clock face rather than a list, so the gap between two
+ * things is the gap between two things. This is the scale that makes a waking
+ * day fit a wall-mounted tablet without scrolling.
+ */
+const GRID_HOUR_PX = 48
 
-/** How many already-happened rows keep their place before `now`. */
-const PAST_ROWS_KEPT = 2
+/**
+ * The least vertical room a row needs before the next one may start.
+ *
+ * Two appointments twenty minutes apart are sixteen pixels apart on a true
+ * scale, which is not enough for two lines of text. Rows below get nudged down
+ * until they clear — the price is that a busy hour drifts slightly out of true,
+ * and the alternative is a card that cannot be read at all.
+ */
+const GRID_MIN_GAP_PX = 44
+
+/** The hours the grid always covers, however quiet the day is. */
+const GRID_DEFAULT_FROM = 8
+const GRID_DEFAULT_TO = 21
+
+/** How many events a week tile names before it stops, being a sixth of a strip. */
+const MAX_WEEK_EVENTS = 2
+
+/**
+ * How close two things in the time column may be before one of them shuts up.
+ *
+ * An event at 09:30 prints its own time, and the 10:00 rule below it prints
+ * that — half an hour apart is twenty-four pixels, so the two overlap into
+ * mush. The rule stays either way; it is only the label that goes, because the
+ * event's own time is the more useful of the two.
+ */
+const GRID_LABEL_GAP_PX = 17
+
+/**
+ * How far a row's own time sits below the line it belongs to.
+ *
+ * An hour label is centred on its rule; a row's time starts at it, level with
+ * the first line of the title. So a row crowds the hour *below* it more than the
+ * one above, and the two are not interchangeable when working out which label to
+ * drop.
+ */
+const GRID_LABEL_OFFSET_PX = 8
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -515,7 +566,14 @@ function clockOf(minutes: number): string {
   return `${hours}:${String(wrapped % 60).padStart(2, '0')}`
 }
 
-function timeOf(date: Date): string {
+/**
+ * The clock face of an instant, in the reader's own timezone.
+ *
+ * Exported because the plan asks the same question of the same rows: an event's
+ * `starts_at` is an instant, and the two screens must not disagree about what
+ * time it says.
+ */
+export function timeOf(date: Date): string {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
@@ -536,15 +594,6 @@ function dateLine(date: string): string {
     day: 'numeric',
     month: 'long'
   })
-}
-
-const NUMBER_WORDS = [
-  'Nobody', 'One', 'Two', 'Three', 'Four', 'Five', 'Six',
-  'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve'
-]
-
-function numberWord(count: number): string {
-  return NUMBER_WORDS[count] ?? String(count)
 }
 
 /** '4 servings', '1 serving'. The board says these out where people read them. */
@@ -571,20 +620,6 @@ export function relativeTime(from: string, now: Date): string {
   if (hours < 24) return hours === 1 ? 'an hour ago' : `${hours} hours ago`
   const days = Math.floor(hours / 24)
   return days === 1 ? 'yesterday' : `${days} days ago`
-}
-
-/**
- * The portion this person eats, which is the roster row's whole job: one cooking
- * session, different plates. Derived from age, never stored.
- */
-function portionFor(stage: LifeStage): string {
-  switch (stage) {
-    case 'baby': return 'Milk — no plate'
-    case 'weaning': return 'Purée'
-    case 'toddler': return 'Toddler portion'
-    case 'child': return 'Child portion'
-    default: return 'Adult portion'
-  }
 }
 
 /**
@@ -711,45 +746,6 @@ export function buildBoard(input: BoardInput): BoardModel {
   const eatTime = meal?.eatTime ?? DEFAULT_EAT_TIME
   const eatMinutes = minutesOf(eatTime)
 
-  // --- roster ----------------------------------------------------------------
-  const constraintsFor = (personId: string) =>
-    input.constraints.filter(row => row.person_id === personId).map(row => row.tag)
-
-  // Who is out during the meal, and when. Only events on the hero's own day count
-  // — an appointment tomorrow is not a reason to plate up early tonight.
-  const clashAt = (personId: string): string | null => {
-    for (const event of input.events) {
-      if (event.person_id !== personId || event.all_day) continue
-      if (!occursOn(event, heroDate)) continue
-      const at = minutesOf(timeOf(new Date(event.starts_at)))
-      if (at >= eatMinutes - CLASH_WINDOW_MINUTES && at <= eatMinutes + CLASH_WINDOW_MINUTES) {
-        return clockOf(at)
-      }
-    }
-    return null
-  }
-
-  const presentIds = new Set(heroNight?.presentIds ?? [])
-  const roster: RosterPerson[] = people.map((person) => {
-    const absent = !presentIds.has(person.id)
-    const stage = deriveLifeStage(person.date_of_birth, heroDate)
-    const tags = constraintsFor(person.id)
-    const clash = absent ? null : clashAt(person.id)
-    return {
-      id: person.id,
-      name: person.name,
-      initial: initialOfName(person.name),
-      avatar: person.avatar,
-      hue: hueOf(person.id) ?? 0,
-      absent,
-      note: [
-        stage === 'adult' ? null : portionFor(stage),
-        ...tags.map(tag => `no ${tag}`)
-      ].filter(Boolean).join(' · '),
-      warn: clash ? `Out ${clash} — plate up first` : null
-    }
-  })
-
   // --- schedule --------------------------------------------------------------
   //
   // Today's calendar with the meal slotted into it, because dinner is the one
@@ -764,8 +760,27 @@ export function buildBoard(input: BoardInput): BoardModel {
       title: event.title,
       hue: hueOf(event.person_id),
       meal: false,
-      personId: event.person_id
+      personId: event.person_id,
+      chore: null as ScheduleRow['chore']
     }))
+
+  // Chores sit in the same timeline, because that is what they are — a thing
+  // happening today, belonging to somebody. An untimed one goes just after the
+  // all-day events and before anything with a clock on it: near the top, where
+  // it can be seen, without claiming a time nobody agreed to.
+  const choreRows = input.chores
+    .filter(chore => chore.date === scheduleDate)
+    .map(chore => ({
+      id: chore.completionId,
+      at: chore.time ? minutesOf(chore.time) : UNTIMED_AT,
+      time: chore.time ?? 'Today',
+      title: chore.title,
+      hue: hueOf(chore.person_id),
+      meal: false,
+      personId: chore.person_id,
+      chore: { choreId: chore.choreId, date: chore.date, done: chore.done }
+    }))
+  dayEvents.push(...choreRows)
 
   const todayMeal = tonight?.meal
   if (todayMeal) {
@@ -779,7 +794,8 @@ export function buildBoard(input: BoardInput): BoardModel {
       title: `Dinner — ${todayMeal.dish}${lateEvening ? ' · cooked' : ''}`,
       hue: null,
       meal: true,
-      personId: null
+      personId: null,
+      chore: null
     })
   }
 
@@ -787,38 +803,42 @@ export function buildBoard(input: BoardInput): BoardModel {
   // showing is tomorrow morning's — otherwise the card is a list of things that
   // already happened.
   if (lateEvening) {
-    const nextUp = input.events
-      .filter(event => occursOn(event, tomorrowDate))
-      .map(event => ({
-        id: event.id,
-        at: event.all_day ? -1 : minutesOf(timeOf(new Date(event.starts_at))),
-        time: event.all_day ? 'All day' : timeOf(new Date(event.starts_at)),
-        title: event.title,
-        hue: hueOf(event.person_id),
-        meal: false,
-        personId: event.person_id
-      }))
+    const nextUp = [
+      ...input.events
+        .filter(event => occursOn(event, tomorrowDate))
+        .map(event => ({
+          id: event.id,
+          at: event.all_day ? -1 : minutesOf(timeOf(new Date(event.starts_at))),
+          time: event.all_day ? 'All day' : timeOf(new Date(event.starts_at)),
+          title: event.title,
+          hue: hueOf(event.person_id),
+          meal: false,
+          personId: event.person_id,
+          chore: null as ScheduleRow['chore']
+        })),
+      ...input.chores
+        .filter(chore => chore.date === tomorrowDate)
+        .map(chore => ({
+          id: chore.completionId,
+          at: chore.time ? minutesOf(chore.time) : UNTIMED_AT,
+          time: chore.time ?? 'Tomorrow',
+          title: chore.title,
+          hue: hueOf(chore.person_id),
+          meal: false,
+          personId: chore.person_id,
+          chore: { choreId: chore.choreId, date: chore.date, done: chore.done }
+        }))
+    ]
       .sort((a, b) => a.at - b.at)[0]
     if (nextUp) dayEvents.push({ ...nextUp, at: 1440 + Math.max(nextUp.at, 0) })
   }
 
   dayEvents.sort((a, b) => a.at - b.at)
 
-  const clashIds = new Set(
-    roster.filter(person => person.warn).map(person => person.id)
-  )
-  const firstUpcoming = dayEvents.findIndex(event => event.at > nowMinutes)
-  // Whether anything is still to come *today*, which is what the card's heading
-  // is about. Tomorrow's first event may well be on screen below it; that does
-  // not make the evening unspent.
-  const moreToday = dayEvents.some(event => event.at > nowMinutes && event.at < 1440)
-
   const nameOf = (personId: string | null) =>
     personId ? people.find(person => person.id === personId)?.name ?? null : null
 
-  const allRows: ScheduleRow[] = dayEvents.map((event, index) => {
-    const past = event.at <= nowMinutes
-    const isNext = index === firstUpcoming
+  const toRow = (event: typeof dayEvents[number]): ScheduleRow => {
     const tomorrowRow = event.at >= 1440
     return {
       id: event.id,
@@ -830,85 +850,91 @@ export function buildBoard(input: BoardInput): BoardModel {
         nameOf(event.personId),
         tomorrowRow
           ? 'tomorrow'
-          : event.personId && clashIds.has(event.personId)
-            ? 'clashes with dinner'
-            : isNext && !event.meal ? 'next' : null
+          : event.chore
+            ? event.chore.done ? 'done' : 'chore'
+            : null
       ].filter(Boolean).join(' · '),
       hue: event.hue,
-      past: past && !tomorrowRow,
-      next: isNext,
-      meal: event.meal
+      // A chore dims when it is done, and only then. An event at 09:00 is over
+      // by lunchtime whatever anybody did about it, but a bin that was supposed
+      // to go out at seven and did not is still a bin that needs going out.
+      past: event.chore ? event.chore.done : event.at <= nowMinutes && !tomorrowRow,
+      meal: event.meal,
+      chore: event.chore,
+      top: 0
+    }
+  }
+
+  // Everything that is not a point on the clock: all-day events, chores nobody
+  // put a time to, and late in the evening tomorrow's first thing. They sit
+  // above the grid, because putting them in it would mean inventing an hour for
+  // them and drawing that invention to scale.
+  const allDay = dayEvents
+    .filter(event => event.at < 0 || event.at >= 1440)
+    .map(toRow)
+
+  const timed = dayEvents.filter(event => event.at >= 0 && event.at < 1440)
+
+  // How much of the day the grid covers. A working day by default, stretched to
+  // reach anything outside it — including the current time, because a marker
+  // that has fallen off the end is worse than a taller grid.
+  const marks = [...timed.map(event => event.at), nowMinutes]
+  const fromHour = Math.max(0, Math.min(GRID_DEFAULT_FROM, ...marks.map(at => Math.floor(at / 60))))
+  const toHour = Math.min(24, Math.max(GRID_DEFAULT_TO, ...marks.map(at => Math.ceil(at / 60) + 1)))
+
+  // Worked out in pixels at the design's own density, then handed over as
+  // fractions of the whole. The nudging below is about how much room two lines
+  // of text need, which is a pixel fact; where the card then draws them is not.
+  const height = (toHour - fromHour) * GRID_HOUR_PX
+  const gridTop = (minutes: number) => ((minutes - fromHour * 60) / 60) * GRID_HOUR_PX
+
+  // Positions run down the grid in order, each one pushed clear of the one above
+  // it. Done in a single forward pass, so a cluster of four things at lunchtime
+  // fans out downwards rather than every pair being resolved independently.
+  let floor = -Infinity
+  const rows = timed.map((event) => {
+    const top = Math.max(gridTop(event.at), floor)
+    floor = top + GRID_MIN_GAP_PX
+    return { ...toRow(event), top: top / height }
+  })
+
+  // Every hour gets its rule; an hour whose label would land on top of an
+  // event's own time, or on the now marker, gives the label up rather than
+  // printing two clocks in the same place.
+  const spoken = [
+    ...rows.map(row => row.top * height + GRID_LABEL_OFFSET_PX),
+    // Only when it will actually be drawn — offline there is no marker, so
+    // there is nothing for the hour to make room for. Centred on its own rule,
+    // like the hours, so it takes no offset.
+    ...(input.offline ? [] : [gridTop(nowMinutes)])
+  ]
+  const hours = Array.from({ length: toHour - fromHour + 1 }, (_, index) => {
+    const at = index * GRID_HOUR_PX
+    return {
+      label: spoken.some(other => Math.abs(other - at) < GRID_LABEL_GAP_PX)
+        ? ''
+        : clockOf((fromHour + index) * 60),
+      top: at / height
     }
   })
 
-  // Keep a couple of things that have already happened — a board with no recent
-  // past reads as though the day started at this moment — then fill forward.
-  //
-  // Late in the day there is nothing left to fill forward with, so the window
-  // reaches further back instead of leaving the card half empty. The budget is
-  // what fits; it should always be spent.
-  const upcomingStart = firstUpcoming === -1 ? allRows.length : firstUpcoming
-  const pastWanted = Math.max(PAST_ROWS_KEPT, MAX_SCHEDULE_ROWS - (allRows.length - upcomingStart))
-  const from = Math.max(0, upcomingStart - pastWanted)
-  const rows = allRows.slice(from, from + MAX_SCHEDULE_ROWS)
-  const earlier = from
-  const later = allRows.length - (from + rows.length)
-
   // The marker asserts "it is now this time", which a board that cannot reach the
   // server has no business claiming. It goes rather than going stale.
-  const markerIndex = rows.findIndex(row => !row.past)
   const nowAt = input.offline ? null : timeOf(now)
-  const nowIndex = markerIndex === -1 ? rows.length : markerIndex
+  const nowTop = gridTop(nowMinutes) / height
 
   const lastSyncedClock = input.lastSyncedAt ? timeOf(new Date(input.lastSyncedAt)) : null
-
-  // What the card could not fit. Only ever counts things actually hidden: saying
-  // "nothing else today" under a visible 20:00 row would be the board
-  // contradicting itself in its own footer.
-  const overflowParts: string[] = []
-  if (earlier > 0) overflowParts.push(`${earlier} earlier`)
-  if (later > 0) overflowParts.push(`+${later} later`)
-  const overflow = !input.hasCalendar
-    // Nothing has ever been synced, so there is nothing to caveat and nothing to
-    // count. Saying either would be inventing a history the board never had.
-    ? ''
-    : input.offline
-      ? lastSyncedClock
-        ? `Events after ${lastSyncedClock} may have changed`
-        : 'Events may have changed'
-      : overflowParts.length
-        ? overflowParts.join(' · ')
-        : moreToday ? '' : 'Nothing else today'
 
   // --- hero copy -------------------------------------------------------------
   const cookPerson = meal?.cookPersonId
     ? people.find(person => person.id === meal.cookPersonId)
     : undefined
 
-  const dishMeta = [
-    meal?.minutes ? `${meal.minutes} min` : null,
-    meal ? plural(meal.servings, 'serving') : null,
-    meal?.note ?? null
-  ].filter(Boolean).join(' · ')
-
-  // The badge says when to eat; the footer says when to get up. Two facts in two
-  // places, rather than one pill carrying both and being read as neither.
+  // The badge says when to eat; the aside under the buttons says when to get up.
+  // Two facts in two places, rather than one pill carrying both and being read
+  // as neither.
   const timing = hasMeal ? eatTime : null
   const startBy = meal?.minutes ? `start by ${clockOf(eatMinutes - meal.minutes)}` : null
-
-  const toBuy = meal
-    ? input.toBuy.filter(line => line.entryId === meal.entryId)
-        .map(({ name, qty }) => ({ name, qty }))
-    : []
-
-  // The mono aside at the far end of the footer. Only ever a remark — the
-  // actions beside it are the buttons, and this is what is worth saying once
-  // they have been read. Empty when `startBy` has something more useful to say.
-  const heroFoot = input.offline
-    ? 'stored locally'
-    : lateEvening && todayMeal
-      ? `tonight's ${todayMeal.dish.toLowerCase()} is done`
-      : ''
 
   // The board sends you to whichever step is actually next, rather than to a
   // generator that would silently do nothing without a roster or a library.
@@ -972,6 +998,17 @@ export function buildBoard(input: BoardInput): BoardModel {
           ? `${night.meal.minutes} min`
           : plural(night.meal.servings, 'serving')
         : '',
+      // What else that day is spoken for by. The calendar is why a night gets
+      // moved, so the strip that plans the week should say so rather than making
+      // somebody check two screens against each other.
+      events: input.events
+        .filter(event => occursOn(event, night.date))
+        .slice(0, MAX_WEEK_EVENTS)
+        .map(event => ({
+          id: event.id,
+          title: event.title,
+          hue: hueOf(event.person_id)
+        })),
       empty: !night.meal,
       highlighted: lateEvening && night.date === heroDate
     }))
@@ -1020,10 +1057,10 @@ export function buildBoard(input: BoardInput): BoardModel {
       recipeId: meal?.recipeId ?? null,
       dish: meal?.dish ?? '',
       image: meal?.image ?? null,
-      dishMeta,
+      minutes: meal?.minutes ?? null,
+      servings: meal ? plural(meal.servings, 'serving') : null,
       timing,
       startBy,
-      toBuy,
       cook: cookPerson
         ? {
             id: cookPerson.id,
@@ -1034,25 +1071,27 @@ export function buildBoard(input: BoardInput): BoardModel {
             label: lateEvening ? `${cookPerson.name} cooks tomorrow` : `${cookPerson.name} cooks`
           }
         : null,
-      eatingCount: `${numberWord(heroDiners.length)} for dinner${lateEvening ? ' tomorrow' : ''}`,
-      roster,
-      foot: heroFoot,
       noMeal
     },
     schedule: {
-      empty: !input.hasCalendar,
+      // Ghost rails are for a card with nothing behind it at all. A household
+      // that has written chores and never connected Google has a timeline — it
+      // should be shown, not offered a button instead of it.
+      empty: !input.hasCalendar && choreRows.length === 0,
       // A card with no calendar behind it says so, rather than blaming the
       // network for an absence that predates it. Offline, it stops claiming to
       // be the calendar and starts saying when it last was one.
       badge: !input.hasCalendar
-        ? 'No calendar'
+        ? choreRows.length ? plural(choreRows.length, 'chore') : 'No calendar'
         : input.offline
           ? lastSyncedClock ? `Last known · ${lastSyncedClock}` : 'Last known'
-          : `${dayEvents.filter(event => !event.meal && event.at < 1440).length} events`,
+          : `${dayEvents.filter(event => !event.meal && !event.chore && event.at < 1440).length} events`,
+      allDay,
       rows,
+      hours,
+      height,
       nowAt,
-      nowIndex,
-      overflow,
+      nowTop,
       dim: input.offline
     },
     shopping: {

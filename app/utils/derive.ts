@@ -146,7 +146,10 @@ export function derive(input: DeriveInput): DeriveResult {
     // A leftovers night is already in the trolley — it was bought with the night
     // it is left over from. Buying for it again is buying the meal twice.
     if (deferred.has(entry.id)) continue
-    const recipe = recipes.get(entry.recipe_id)
+    // A night nobody is cooking on has no recipe and so buys nothing. Its rows
+    // still come off the list below, through the same reconciliation that takes
+    // a deleted night's rows off — skipping a planned night un-buys it.
+    const recipe = entry.recipe_id ? recipes.get(entry.recipe_id) : null
     if (!recipe || recipe.deleted_at) continue
     for (const line of linesByRecipe.get(recipe.id) ?? []) {
       wanted.set(derivedItemId(entry.id, line.id), { entry, line, recipe })

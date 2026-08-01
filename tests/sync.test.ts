@@ -571,6 +571,15 @@ describe('the synced table registry', () => {
       amount: 1, date: '2026-08-04', settled_at: null,
       deleted_at: null, created_at: STAMP, updated_at: STAMP
     })
+    await db.cacheFor('chores').put({
+      id: 'cho-1', household_id: HOUSEHOLD, name: 'Bins out', person_id: 'per-1',
+      weekdays: [4], due_date: null, at_time: '19:00',
+      deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
+    await db.cacheFor('chore_completions').put({
+      id: 'cdone-1', household_id: HOUSEHOLD, chore_id: 'cho-1', date: '2026-08-04',
+      done: true, deleted_at: null, created_at: STAMP, updated_at: STAMP
+    })
     await db.cacheFor('calendar_events').put({
       id: 'cal-1', household_id: HOUSEHOLD, person_id: 'per-1',
       calendar_id: 'family@group.calendar.google.com', google_event_id: 'g-1',

@@ -3,6 +3,7 @@ import { useAttendanceStore } from '../stores/attendance'
 import { usePeopleStore } from '../stores/people'
 import { dishLabel, usePlanStore } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
+import { SKIP_REASONS } from '../utils/skip'
 import { dayLabel } from '../utils/week'
 
 const open = defineModel<boolean>('open', { required: true })
@@ -58,6 +59,12 @@ async function chooseLeftovers(sourceEntryId: string) {
   open.value = false
 }
 
+async function chooseSkip(reason: string) {
+  if (!date) return
+  await plan.skipNight(date, reason)
+  open.value = false
+}
+
 async function setServings(next: number) {
   if (!planned.value || !Number.isFinite(next)) return
   await plan.updateEntry(planned.value.entry.id, { servings: Math.max(1, next) })
@@ -109,7 +116,21 @@ async function clear() {
           <p class="font-medium">
             {{ dishLabel(planned) }}
           </p>
-          <div class="mt-2 flex items-center gap-2">
+          <!--
+            A night nobody is cooking on has no portions to set: the stepper
+            scales quantities, and there are none. What is worth saying is the
+            thing somebody opening this would want to check.
+          -->
+          <p
+            v-if="planned.skipped"
+            class="mt-2 text-sm text-dimmed"
+          >
+            Nothing to cook and nothing to buy — pick a recipe below to plan a dinner instead.
+          </p>
+          <div
+            v-else
+            class="mt-2 flex items-center gap-2"
+          >
             <UInputNumber
               :model-value="planned.entry.servings"
               :min="1"
@@ -162,6 +183,30 @@ async function clear() {
             >
               {{ dayLabel(source.entry.date) }}’s {{ source.recipe?.name ?? 'dinner' }}
             </UButton>
+          </div>
+        </div>
+
+        <!--
+          Not cooking is an answer to "what's for dinner", so it sits with the
+          other answers rather than under the recipe list — a night getting a
+          takeaway is decided before anybody scrolls a library they are not going
+          to cook from.
+        -->
+        <div class="rounded-lg border border-default p-3">
+          <p class="text-xs font-medium uppercase tracking-wide text-dimmed">
+            Not cooking
+          </p>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <UButton
+              v-for="reason in SKIP_REASONS"
+              :key="reason.value"
+              :color="planned?.entry.skip_reason === reason.value ? 'primary' : 'neutral'"
+              :variant="planned?.entry.skip_reason === reason.value ? 'solid' : 'subtle'"
+              size="lg"
+              :icon="reason.icon"
+              :label="reason.label"
+              @click="chooseSkip(reason.value)"
+            />
           </div>
         </div>
 

@@ -142,3 +142,13 @@ export const PANTRY_NAMESPACE = 'a5f30e62-8b14-4c79-9d2a-6e0b3f81c47d'
  * one row instead of spending the stock a second time. Fixed forever.
  */
 export const PANTRY_RESERVATION_NAMESPACE = '2f8c6b91-4d07-45ea-83b6-7c1a9e05d234'
+
+/**
+ * The namespace for chore completions, keyed on (household, chore, date).
+ *
+ * A chore's occurrences are never stored, only derived, so the tick is the one
+ * row a day produces — and whoever takes the bins out is whoever happens to be
+ * nearest the board. Two people ticking the same Tuesday must land on that row
+ * rather than two, for the same reason attendance must. Fixed forever.
+ */
+export const CHORE_COMPLETION_NAMESPACE = '7c4e0a58-9b31-4d6f-a2c7-5e83b0d19f46'

@@ -11,6 +11,8 @@ import {
 } from '../utils/generator'
 import { derivePantryReservations } from '../utils/pantry'
 import { deriveLifeStage } from '../utils/people'
+import { LEFTOVER_MAX_AGE_DAYS, planMove } from '../utils/plan-move'
+import { skipLabel } from '../utils/skip'
 import { plainCopy } from '../utils/sync'
 import { addDays, isoDate, todayIso, weekDates } from '../utils/week'
 import { useAttendanceStore } from './attendance'
@@ -25,6 +27,15 @@ export interface PlannedEntry {
   entry: PlanEntryRow
   /** Null when the recipe has since been deleted — the night still shows something. */
   recipe: RecipeRow | null
+  /**
+   * Whether the night is planned as not being cooked — a takeaway, a meal out.
+   *
+   * A decision, and the opposite of an empty night: nothing is bought for it,
+   * nothing is offered for it, and it counts as one of the week's nights that
+   * have been dealt with. Read off the row rather than stored twice — an entry
+   * with no recipe is a night with no cooking.
+   */
+  skipped: boolean
   derived: boolean
   /**
    * Whether this night is eating an earlier night's cooking rather than its own.
@@ -51,13 +62,9 @@ export interface PlannedNight {
 
 const DINNER = 'dinner'
 
-/**
- * How far back a night may reach for leftovers, in days.
- *
- * Two, which is the honest limit for a fridge and also the point past which
- * "leftovers of the roast" stops meaning anything to anybody looking at a plan.
- */
-export const LEFTOVER_MAX_AGE_DAYS = 2
+// Re-exported so callers keep asking the plan about the plan's own rules, while
+// the rule itself lives next to the code that has to enforce it on a drop.
+export { LEFTOVER_MAX_AGE_DAYS } from '../utils/plan-move'
 
 /**
  * What a night calls itself, in one place because four surfaces ask.
@@ -65,8 +72,12 @@ export const LEFTOVER_MAX_AGE_DAYS = 2
  * A leftovers night names the dish it is left over from, preferring the source
  * night's recipe over its own copy — so editing Sunday's dinner renames Monday
  * with nothing written to Monday's row.
+ *
+ * A skipped night names the reason instead. There is no dish to fall back to,
+ * and "Recipe deleted" on a night that never had one would be a lie.
  */
 export function dishLabel(planned: PlannedEntry): string {
+  if (planned.skipped) return skipLabel(planned.entry.skip_reason)
   const name = planned.leftoverSource?.recipe?.name ?? planned.recipe?.name ?? 'Recipe deleted'
   return planned.leftover ? `Leftovers · ${name}` : name
 }
@@ -113,7 +124,12 @@ export const usePlanStore = defineStore('plan', () => {
     if (!entry.leftover_of_entry_id) return null
     const source = allEntries.value.get(entry.leftover_of_entry_id)
     if (!source || source.deleted_at) return null
-    return { entry: source, recipe: recipesStore.recipeById(source.recipe_id) ?? null }
+    return { entry: source, recipe: recipeOf(source) }
+  }
+
+  /** A row's recipe, which a skipped night has not got. */
+  function recipeOf(entry: PlanEntryRow): RecipeRow | null {
+    return entry.recipe_id ? recipesStore.recipeById(entry.recipe_id) ?? null : null
   }
 
   /** The one join from a stored row to the shape every view renders. */
@@ -121,7 +137,8 @@ export const usePlanStore = defineStore('plan', () => {
     const leftoverSource = leftoverSourceOf(entry)
     return {
       entry,
-      recipe: recipesStore.recipeById(entry.recipe_id) ?? null,
+      recipe: recipeOf(entry),
+      skipped: !entry.recipe_id,
       derived: derivedEntryIds.value.has(entry.id),
       leftover: !!leftoverSource,
       leftoverSource
@@ -185,6 +202,7 @@ export const usePlanStore = defineStore('plan', () => {
       cook_person_id: null,
       eat_time: null,
       leftover_of_entry_id: leftoverOf ?? null,
+      skip_reason: null,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp
@@ -228,6 +246,46 @@ export const usePlanStore = defineStore('plan', () => {
     return row
   }
 
+  /**
+   * Plan a night as one nobody is cooking on — a takeaway, a meal out.
+   *
+   * Replaces whatever was there, exactly as setNight and setLeftovers do: not
+   * cooking is a thing the night *is*, not a note alongside a dinner.
+   *
+   * The row keeps a servings count because the column is not null and because it
+   * is still true — that many people are eating, whoever cooks it. Nothing reads
+   * it: a night with no recipe has no ingredients to scale.
+   */
+  async function skipNight(date: string, reason: string) {
+    if (!sync.householdId) return null
+
+    for (const existing of entriesOn(date)) {
+      await sync.commit('meal_plan_entries', { ...plainCopy(existing), deleted_at: nowIso() })
+    }
+
+    const timestamp = nowIso()
+    const row: PlanEntryRow = {
+      id: crypto.randomUUID(),
+      household_id: sync.householdId,
+      date,
+      meal: DINNER,
+      // The marker. Everything downstream — the list, the pantry, the generator,
+      // the board — asks whether there is a recipe, not whether there is a flag.
+      recipe_id: null,
+      servings: eatersOn(date) || 1,
+      note: null,
+      cook_person_id: null,
+      eat_time: null,
+      leftover_of_entry_id: null,
+      skip_reason: reason,
+      deleted_at: null,
+      created_at: timestamp,
+      updated_at: timestamp
+    }
+    await sync.commit('meal_plan_entries', row)
+    return row
+  }
+
   /** How many people are eating a given night, babies excepted. */
   function eatersOn(date: string): number {
     return attendance.presentOn(date)
@@ -246,6 +304,8 @@ export const usePlanStore = defineStore('plan', () => {
         // it would create has no answer for what happens when the middle night
         // is deleted. Point at the night it was cooked on.
         if (entry.leftover_of_entry_id) continue
+        // Nothing was cooked on a takeaway night, so there is nothing left of it.
+        if (!entry.recipe_id) continue
         sources.push(plannedEntry(entry))
       }
     }
@@ -264,13 +324,27 @@ export const usePlanStore = defineStore('plan', () => {
    */
   async function setLeftovers(date: string, sourceEntryId: string) {
     const source = allEntries.value.get(sourceEntryId)
-    if (!source || source.deleted_at || source.leftover_of_entry_id) return null
+    if (!source || source.deleted_at || source.leftover_of_entry_id || !source.recipe_id) return null
     if (!leftoverSourcesFor(date).some(planned => planned.entry.id === sourceEntryId)) return null
 
     for (const existing of entriesOn(date)) {
       await sync.commit('meal_plan_entries', { ...plainCopy(existing), deleted_at: nowIso() })
     }
     return addEntry(date, source.recipe_id, eatersOn(date) || source.servings, sourceEntryId)
+  }
+
+  /**
+   * Move a night onto another night, swapping with whatever is already there.
+   *
+   * The whole rearrangement is worked out first and committed second, so a drop
+   * that touches three rows — the two nights and a leftovers night whose claim
+   * it broke — reaches the queue as one coherent set rather than as a week that
+   * is briefly wrong.
+   */
+  async function moveEntry(entryId: string, toDate: string) {
+    const rows = planMove([...allEntries.value.values()], entryId, toDate, nowIso())
+    for (const row of rows) await sync.commit('meal_plan_entries', row)
+    return rows.length > 0
   }
 
   async function updateEntry(
@@ -320,7 +394,13 @@ export const usePlanStore = defineStore('plan', () => {
   function generatorInput(dates: string[]): GenerateInput {
     const alreadyPlanned: { date: string, recipe_id: string }[] = []
     for (const date of dates) {
-      for (const entry of entriesOn(date)) alreadyPlanned.push({ date, recipe_id: entry.recipe_id })
+      for (const entry of entriesOn(date)) {
+        // A skipped night takes its date off the table without taking any recipe
+        // with it — there is nothing on it to avoid repeating or to share
+        // ingredients with.
+        if (!entry.recipe_id) continue
+        alreadyPlanned.push({ date, recipe_id: entry.recipe_id })
+      }
     }
 
     return {
@@ -346,8 +426,8 @@ export const usePlanStore = defineStore('plan', () => {
       // Everything ever cooked before this week. Recency only looks back three
       // weeks, but which entries those are is the generator's business.
       history: liveEntries.value
-        .filter(entry => entry.date < dates[0]!)
-        .map(entry => ({ date: entry.date, recipe_id: entry.recipe_id })),
+        .filter(entry => entry.date < dates[0]! && !!entry.recipe_id)
+        .map(entry => ({ date: entry.date, recipe_id: entry.recipe_id! })),
       alreadyPlanned
     }
   }
@@ -559,6 +639,8 @@ export const usePlanStore = defineStore('plan', () => {
     addEntry,
     setNight,
     setLeftovers,
+    skipNight,
+    moveEntry,
     updateEntry,
     removeEntry,
     clearNight,

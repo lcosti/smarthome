@@ -3,6 +3,7 @@ import {
   buildBoard,
   buildRecipeLibrary,
   LEFTOVER_REHEAT_MINUTES,
+  type BoardChore,
   type BoardEvent,
   type BoardInput,
   type BoardNight,
@@ -100,15 +101,9 @@ function input(overrides: Partial<BoardInput> = {}): BoardInput {
     now: at('17:12'),
     nights: WEEK,
     people: PEOPLE,
-    constraints: [{ person_id: 'sophia', kind: 'dislike', tag: 'chilli' }],
     events: EVENTS,
     hasCalendar: true,
-    toBuy: [
-      { entryId: `entry-${THURSDAY}`, name: 'Chicken thighs', qty: '1 kg' },
-      { entryId: `entry-${THURSDAY}`, name: 'Feta', qty: null },
-      // Another night's, so the hero has to filter rather than take the lot.
-      { entryId: 'entry-2026-07-31', name: 'Red lentils', qty: '500 g' }
-    ],
+    chores: [],
     shopping: {
       count: 14,
       everUsed: true
@@ -133,18 +128,12 @@ describe('nominal', () => {
   })
 
   it('works out when to start cooking from the recipe', () => {
-    // Two facts in two places: the badge says when to eat, the footer says when
-    // to get up. A single pill carrying both was read as neither.
+    // Two facts in two places: the badge says when to eat, the aside under the
+    // buttons says when to get up. One pill carrying both was read as neither.
     expect(board.hero.timing).toBe('18:00')
     expect(board.hero.startBy).toBe('start by 17:25')
-    expect(board.hero.dishMeta).toBe('35 min · 4 servings · tray + one pan')
-  })
-
-  it('shows only what tonight still needs, and only tonight\'s', () => {
-    expect(board.hero.toBuy).toEqual([
-      { name: 'Chicken thighs', qty: '1 kg' },
-      { name: 'Feta', qty: null }
-    ])
+    expect(board.hero.minutes).toBe(35)
+    expect(board.hero.servings).toBe('4 servings')
   })
 
   it('names the cook', () => {
@@ -152,32 +141,10 @@ describe('nominal', () => {
     expect(board.hero.cook?.initial).toBe('L')
   })
 
-  it('gives each person the portion their age calls for', () => {
-    const notes = Object.fromEntries(board.hero.roster.map(p => [p.id, p.note]))
-    // An adult portion is the default and goes unsaid; everything else is the
-    // whole reason the roster exists.
-    expect(notes.naomi).toBe('')
-    expect(notes.sophia).toBe('Toddler portion · no chilli')
-    expect(notes.arabella).toBe('Purée')
-  })
-
-  it('counts only the people who eat food', () => {
-    // Arabella is eight months old: present, weaning, and counted. A newborn
-    // would not be.
-    expect(board.hero.eatingCount).toBe('Four for dinner')
-  })
-
-  it('warns about the person who leaves during the meal', () => {
-    const naomi = board.hero.roster.find(p => p.id === 'naomi')
-    expect(naomi?.warn).toBe('Out 18:30 — plate up first')
-    expect(board.hero.roster.find(p => p.id === 'luke')?.warn).toBeNull()
-  })
-
-  it('puts dinner in the schedule and flags the clash', () => {
+  it('puts dinner in the day, as an appointment among the others', () => {
     const meal = board.schedule.rows.find(r => r.meal)
     expect(meal?.title).toBe('Dinner — Chicken traybake')
-    const choir = board.schedule.rows.find(r => r.title === 'Naomi — choir')
-    expect(choir?.meta).toBe('Naomi · clashes with dinner')
+    expect(board.schedule.rows.find(r => r.title === 'Naomi — choir')?.meta).toBe('Naomi')
   })
 
   it('counts the day\'s events in the card badge, dinner aside', () => {
@@ -185,10 +152,17 @@ describe('nominal', () => {
     expect(board.schedule.badge).toBe('4 events')
   })
 
-  it('shows the now marker in the right place', () => {
+  it('puts the now marker at the minute it is', () => {
     expect(board.schedule.nowAt).toBe('17:12')
-    // Between the 15:15 pickup and the 18:00 meal.
-    expect(board.schedule.rows[board.schedule.nowIndex]?.title).toBe('Dinner — Chicken traybake')
+    // The grid opens at 08:00 and runs thirteen hours, so 17:12 is nine hours
+    // and twelve minutes into it — expressed as a fraction of the whole, so the
+    // card can draw the day at whatever height it has been given.
+    expect(board.schedule.nowTop).toBeCloseTo((9 + 12 / 60) / 13)
+    // Between the 15:15 pickup and the 18:00 meal, on the same scale.
+    const pickup = board.schedule.rows.find(r => r.title === 'Nursery pickup')!
+    const meal = board.schedule.rows.find(r => r.meal)!
+    expect(pickup.top).toBeLessThan(board.schedule.nowTop)
+    expect(meal.top).toBeGreaterThan(board.schedule.nowTop)
   })
 
   it('says how long ago the plan was made', () => {
@@ -207,6 +181,38 @@ describe('nominal', () => {
     expect(board.week.map(w => w.dateLabel)).toEqual(['31', '01', '02', '03', '04', '05'])
     expect(board.week.every(w => w.meta === '35 min')).toBe(true)
     expect(board.week.some(w => w.highlighted)).toBe(false)
+  })
+
+  it('names what else each night is spoken for by', () => {
+    // The calendar is why a night gets moved, so the strip that plans the week
+    // says so rather than making somebody check two screens against each other.
+    expect(board.week[0]?.events).toEqual([
+      { id: 'school', title: 'School run', hue: expect.any(Number) }
+    ])
+    expect(board.week[1]?.events).toEqual([])
+  })
+
+  it('stops at two events a night, being a sixth of a strip', () => {
+    const friday = '2026-07-31'
+    const busy = Array.from({ length: 5 }, (_, i) =>
+      event(`f${i}`, `0${8 + i}:00`, `Thing ${i}`, null, friday))
+    const board = buildBoard(input({ events: busy }))
+    expect(board.week[0]?.events).toHaveLength(2)
+  })
+
+  it('carries a trip across every day it covers', () => {
+    const trip: BoardEvent = {
+      id: 'trip',
+      title: 'Grandparents',
+      person_id: 'sophia',
+      all_day: true,
+      starts_at: at('00:00').toISOString(),
+      start_date: '2026-07-31',
+      end_date: '2026-08-02'
+    }
+    const week = buildBoard(input({ events: [trip] })).week
+    expect(week.filter(slot => slot.events.some(e => e.id === 'trip')).map(s => s.date))
+      .toEqual(['2026-07-31', '2026-08-01'])
   })
 })
 
@@ -229,7 +235,7 @@ describe('a leftovers night', () => {
 
   it('gets people up to reheat it, not to cook it', () => {
     expect(board.hero.startBy).toBe('start by 17:45')
-    expect(board.hero.dishMeta).toBe('15 min · 4 servings · tray + one pan')
+    expect(board.hero.minutes).toBe(LEFTOVER_REHEAT_MINUTES)
   })
 })
 
@@ -269,15 +275,6 @@ describe('nobodyhome', () => {
     expect(board.hero.noMeal?.title).toBe('Nobody home for dinner')
     expect(board.hero.noMeal?.action).toBeNull()
   })
-
-  it('strikes everybody through', () => {
-    expect(board.hero.roster.every(p => p.absent)).toBe(true)
-    expect(board.hero.eatingCount).toBe('Nobody for dinner')
-  })
-
-  it('does not warn about a clash for somebody already out', () => {
-    expect(board.hero.roster.every(p => p.warn === null)).toBe(true)
-  })
 })
 
 describe('setup', () => {
@@ -286,7 +283,6 @@ describe('setup', () => {
   const fresh = buildBoard(input({
     nights: EMPTY_WEEK,
     people: [],
-    constraints: [],
     events: [],
     hasCalendar: false,
     recipeCount: 0,
@@ -355,7 +351,6 @@ describe('setup', () => {
   it('says the calendar is absent rather than stale', () => {
     expect(fresh.schedule.empty).toBe(true)
     expect(fresh.schedule.badge).toBe('No calendar')
-    expect(fresh.schedule.overflow).toBe('')
   })
 
   it('does not congratulate an untouched shopping list', () => {
@@ -412,8 +407,13 @@ describe('offline', () => {
     expect(board.hero.dish).toBe('Chicken traybake')
   })
 
-  it('caveats the overflow line instead of counting', () => {
-    expect(board.schedule.overflow).toBe('Events after 15:58 may have changed')
+  it('takes the now marker down rather than letting it go stale', () => {
+    // A board that cannot reach the server has no business drawing a line across
+    // the day and calling it this moment.
+    expect(board.schedule.nowAt).toBeNull()
+    // The offset stays, because where to scroll is arithmetic on this device's
+    // own clock rather than a claim about how fresh the data is.
+    expect(board.schedule.nowTop).toBeGreaterThan(0)
   })
 
   it('does not call a device stale before it has ever synced', () => {
@@ -435,12 +435,7 @@ describe('lateevening', () => {
     expect(board.hero.eyebrow).toBe('Tomorrow · Friday')
     expect(board.hero.date).toBe('2026-07-31')
     expect(board.hero.dish).toBe('Lentil ragù')
-    expect(board.hero.eatingCount).toBe('Four for dinner tomorrow')
     expect(board.hero.cook?.label).toBe('Luke cooks tomorrow')
-  })
-
-  it('says tonight is done', () => {
-    expect(board.hero.foot).toBe('tonight\'s chicken traybake is done')
   })
 
   it('highlights tomorrow in the week strip', () => {
@@ -449,8 +444,9 @@ describe('lateevening', () => {
   })
 
   it('shows tomorrow morning once today is spent', () => {
-    const tomorrowRow = board.schedule.rows.find(r => r.meta.includes('tomorrow'))
-    expect(tomorrowRow).toBeDefined()
+    // Above the grid, because it is not a point on today's clock face.
+    const tomorrowRow = board.schedule.allDay.find(r => r.meta.includes('tomorrow'))
+    expect(tomorrowRow?.title).toBe('School run')
     expect(board.schedule.rows.filter(r => r.past).length).toBeGreaterThan(0)
   })
 
@@ -472,33 +468,78 @@ describe('lateevening', () => {
 })
 
 describe('the schedule card', () => {
-  it('never renders more rows than fit, and counts what it dropped', () => {
-    const many = Array.from({ length: 16 }, (_, i) =>
+  it('shows the whole day rather than a window onto it', () => {
+    // The old card fitted five rows and counted the rest. A grid has room for
+    // the day itself, so nothing is dropped and nothing has to be apologised for.
+    const many = Array.from({ length: 12 }, (_, i) =>
       event(`e${i}`, `${String(8 + i).padStart(2, '0')}:00`, `Event ${i}`))
     const board = buildBoard(input({ events: many }))
-    expect(board.schedule.rows.length).toBe(5)
-    expect(board.schedule.overflow).toContain('earlier')
-    expect(board.schedule.overflow).toContain('later')
+    expect(board.schedule.rows).toHaveLength(13)
   })
 
-  it('spends its whole row budget once the day is behind it', () => {
-    // Nothing upcoming, so the window reaches further back rather than showing
-    // two rows and a lot of empty card.
-    const board = buildBoard(input({ now: at('23:50') }))
-    expect(board.schedule.rows).toHaveLength(5)
-  })
-
-  it('keeps recent history visible rather than starting at now', () => {
+  it('rules the grid by the hour, from eight to nine by default', () => {
     const board = buildBoard(input())
-    expect(board.schedule.rows.filter(r => r.past)).toHaveLength(2)
+    expect(board.schedule.hours[0]).toEqual({ label: '08:00', top: 0 })
+    expect(board.schedule.hours.at(-1)).toEqual({ label: '21:00', top: 1 })
+    // The floor below which it stops stretching and starts scrolling.
+    expect(board.schedule.height).toBe(13 * 48)
   })
 
-  it('stays quiet when nothing was left out', () => {
-    // "Nothing else today" under a visible 20:00 row would be the board
-    // contradicting its own schedule.
+  it('places each row at its own minute', () => {
     const board = buildBoard(input())
-    expect(board.schedule.rows).toHaveLength(5)
-    expect(board.schedule.overflow).toBe('')
+    const rows = Object.fromEntries(board.schedule.rows.map(r => [r.title, r.top]))
+    // 12:30 is four and a half hours after the 08:00 the grid opens at, of the
+    // thirteen it covers.
+    expect(rows['Health visitor']).toBeCloseTo(4.5 / 13)
+    expect(rows['Nursery pickup']).toBeCloseTo((7 + 15 / 60) / 13)
+  })
+
+  it('stretches to reach anything outside the working day', () => {
+    const early = buildBoard(input({
+      now: at('06:20'),
+      events: [event('gym', '06:00', 'Swimming')]
+    }))
+    // Six in the morning through nine at night: sixteen hour lines, and the
+    // swim sits on the very first of them.
+    expect(early.schedule.hours).toHaveLength(16)
+    expect(early.schedule.hours.at(-1)?.label).toBe('21:00')
+    expect(early.schedule.rows[0]?.top).toBe(0)
+  })
+
+  it('lets an event speak for the hour it lands on', () => {
+    // Two clocks printed in the same place is mush, and the event's own time is
+    // the more useful of the two.
+    const board = buildBoard(input({
+      offline: true,
+      nights: WEEK.map(n => ({ ...n, meal: null })),
+      events: [event('market', '09:30', 'Farmers market')]
+    }))
+    const labels = board.schedule.hours.map(h => h.label)
+    // A row's time is level with the first line of its title, so it crowds the
+    // hour below it and clears the one above.
+    expect(labels).toContain('09:00')
+    expect(labels).not.toContain('10:00')
+    expect(labels).toContain('11:00')
+    // The rules themselves all stay, so the grid is still ruled by the hour.
+    expect(board.schedule.hours).toHaveLength(14)
+  })
+
+  it('nudges rows apart rather than printing them on top of each other', () => {
+    // Three things twenty minutes apart are sixteen pixels apart on a true
+    // scale, which is not enough for a title and a name underneath it.
+    const board = buildBoard(input({
+      nights: WEEK.map(n => ({ ...n, meal: null })),
+      events: [
+        event('a', '10:00', 'One'),
+        event('b', '10:20', 'Two'),
+        event('c', '10:40', 'Three')
+      ]
+    }))
+    const tops = board.schedule.rows.map(r => r.top)
+    expect(tops[0]).toBeCloseTo(2 / 13)
+    for (let i = 1; i < tops.length; i++) {
+      expect(tops[i]! - tops[i - 1]!).toBeGreaterThanOrEqual(44 / (13 * 48) - 1e-9)
+    }
   })
 
   it('says so when the day is spent', () => {
@@ -517,7 +558,10 @@ describe('the schedule card', () => {
       end_date: '2026-07-31'
     }
     const board = buildBoard(input({ events: [allDay] }))
-    expect(board.schedule.rows.find(r => r.id === 'holiday')?.time).toBe('All day')
+    // Above the grid rather than in it: giving it an hour would mean inventing
+    // one and then drawing the invention to scale.
+    expect(board.schedule.rows.some(r => r.id === 'holiday')).toBe(false)
+    expect(board.schedule.allDay.find(r => r.id === 'holiday')?.time).toBe('All day')
   })
 
   it('spans an all-day event across the days it covers, exclusive of the last', () => {
@@ -530,17 +574,154 @@ describe('the schedule card', () => {
       start_date: THURSDAY,
       end_date: '2026-08-01'
     }
-    expect(buildBoard(input({ events: [trip] })).schedule.rows).toHaveLength(2)
+    expect(buildBoard(input({ events: [trip] })).schedule.allDay).toHaveLength(1)
+    const friday = buildBoard(input({ now: at('17:12', '2026-07-31'), events: [trip] }))
+    expect(friday.schedule.allDay.some(r => r.id === 'trip')).toBe(true)
     // On the Saturday it ends, it is over.
     const saturday = buildBoard(input({ now: at('17:12', '2026-08-01'), events: [trip] }))
-    expect(saturday.schedule.rows.some(r => r.id === 'trip')).toBe(false)
+    expect(saturday.schedule.allDay.some(r => r.id === 'trip')).toBe(false)
   })
 })
 
-describe('the hero when offline', () => {
-  it('says the plan is local rather than pretending it is live', () => {
-    const board = buildBoard(input({ offline: true }))
-    expect(board.hero.foot).toBe('stored locally')
+describe('chores on the schedule', () => {
+  function boardChore(overrides: Partial<BoardChore> & { choreId: string }): BoardChore {
+    return {
+      completionId: `done-${overrides.choreId}`,
+      date: THURSDAY,
+      title: overrides.choreId,
+      person_id: null,
+      time: null,
+      done: false,
+      ...overrides
+    }
+  }
+
+  it('slots a timed chore into the day at its time', () => {
+    const board = buildBoard(input({
+      chores: [boardChore({ choreId: 'recycling', title: 'Recycling out', time: '16:00' })]
+    }))
+    const titles = board.schedule.rows.map(r => r.title)
+    expect(titles).toContain('Recycling out')
+    expect(titles.indexOf('Recycling out')).toBeLessThan(titles.indexOf('Naomi — choir'))
+    expect(titles.indexOf('Nursery pickup')).toBeLessThan(titles.indexOf('Recycling out'))
+  })
+
+  it('pins an untimed chore above everything with a clock on it', () => {
+    const allDay: BoardEvent = {
+      id: 'holiday',
+      title: 'Bank holiday',
+      person_id: null,
+      all_day: true,
+      starts_at: at('00:00').toISOString(),
+      start_date: THURSDAY,
+      end_date: '2026-07-31'
+    }
+    const board = buildBoard(input({
+      events: [allDay, event('hv', '12:30', 'Health visitor')],
+      chores: [boardChore({ choreId: 'plants', title: 'Water the plants' })],
+      nights: WEEK.map(n => ({ ...n, meal: null }))
+    }))
+    // A chore with no time belongs above the grid beside the all-day events,
+    // for the same reason they do: it has no hour to be drawn at.
+    expect(board.schedule.allDay.map(r => r.title))
+      .toEqual(['Bank holiday', 'Water the plants'])
+    expect(board.schedule.allDay[1]?.time).toBe('Today')
+    expect(board.schedule.rows.map(r => r.title)).toEqual(['Health visitor'])
+  })
+
+  it('carries whose it is, and says it is a chore', () => {
+    const board = buildBoard(input({
+      chores: [boardChore({ choreId: 'bins', title: 'Bins out', person_id: 'luke', time: '16:00' })]
+    }))
+    const row = board.schedule.rows.find(r => r.title === 'Bins out')
+    expect(row?.meta).toBe('Luke · chore')
+    expect(row?.chore).toEqual({ choreId: 'bins', date: THURSDAY, done: false })
+  })
+
+  it('says nothing about whose it is when it belongs to the house', () => {
+    const board = buildBoard(input({
+      chores: [boardChore({ choreId: 'bins', title: 'Bins out', time: '16:00' })]
+    }))
+    const row = board.schedule.rows.find(r => r.title === 'Bins out')
+    expect(row?.meta).toBe('chore')
+    expect(row?.hue).toBeNull()
+  })
+
+  it('keeps a done chore on the card, dimmed rather than dropped', () => {
+    const board = buildBoard(input({
+      chores: [boardChore({ choreId: 'bins', title: 'Bins out', time: '16:00', done: true })]
+    }))
+    const row = board.schedule.rows.find(r => r.title === 'Bins out')
+    expect(row?.past).toBe(true)
+    expect(row?.meta).toBe('done')
+  })
+
+  it('does not dim a chore just because its time has gone', () => {
+    // A bin that was meant to go out at seven and did not is still a bin that
+    // needs going out — unlike an appointment, which is simply over.
+    const board = buildBoard(input({
+      now: at('21:00'),
+      chores: [boardChore({ choreId: 'bins', title: 'Bins out', time: '19:00' })]
+    }))
+    expect(board.schedule.rows.find(r => r.title === 'Bins out')?.past).toBe(false)
+  })
+
+  it('keeps an untimed chore out of the grid\'s reckoning', () => {
+    // It has no hour, so it must not stretch the grid to reach one — the day
+    // still opens at eight.
+    const board = buildBoard(input({
+      chores: [boardChore({ choreId: 'plants', title: 'Water the plants' })]
+    }))
+    expect(board.schedule.hours[0]?.label).toBe('08:00')
+    expect(board.schedule.rows.some(r => r.chore)).toBe(false)
+  })
+
+  it('does not count chores as calendar events in the badge', () => {
+    const board = buildBoard(input({
+      chores: [boardChore({ choreId: 'bins', title: 'Bins out', time: '16:00' })]
+    }))
+    expect(board.schedule.badge).toBe('4 events')
+  })
+
+  it('shows a timeline for a household with chores and no calendar', () => {
+    const board = buildBoard(input({
+      events: [],
+      hasCalendar: false,
+      chores: [
+        boardChore({ choreId: 'bins', title: 'Bins out', time: '16:00' }),
+        boardChore({ choreId: 'plants', title: 'Water the plants' })
+      ]
+    }))
+    expect(board.schedule.empty).toBe(false)
+    expect(board.schedule.badge).toBe('2 chores')
+    expect(board.schedule.rows.map(r => r.title)).toContain('Bins out')
+  })
+
+  it('fans a pile of chores at one time down the grid', () => {
+    const board = buildBoard(input({
+      nights: WEEK.map(n => ({ ...n, meal: null })),
+      events: [],
+      chores: Array.from({ length: 4 }, (_, i) =>
+        boardChore({ choreId: `c${i}`, title: `Chore ${i}`, time: '16:00' }))
+    }))
+    const tops = board.schedule.rows.map(r => r.top)
+    expect(tops).toHaveLength(4)
+    for (let i = 1; i < tops.length; i++) {
+      expect(tops[i]! - tops[i - 1]!).toBeGreaterThanOrEqual(44 / (13 * 48) - 1e-9)
+    }
+  })
+
+  it('offers tomorrow\'s first chore once tonight is spent', () => {
+    const board = buildBoard(input({
+      now: at('23:50'),
+      events: [],
+      chores: [boardChore({
+        choreId: 'school-bag', title: 'School bags', date: '2026-07-31', time: '07:00'
+      })]
+    }))
+    const row = board.schedule.allDay.find(r => r.title === 'School bags')
+    expect(row?.meta).toBe('tomorrow')
+    expect(row?.chore).toEqual({ choreId: 'school-bag', date: '2026-07-31', done: false })
   })
 })
 

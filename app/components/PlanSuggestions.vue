@@ -2,6 +2,7 @@
 import { usePlanStore, type PlannedNight } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
 import { suggestionReason, type RankedCandidate } from '../utils/generator'
+import { pictureOf } from '../utils/photo'
 
 /**
  * What to cook on the next night still open, offered rather than decided.
@@ -30,6 +31,24 @@ const emit = defineEmits<{ pick: [recipeId: string] }>()
 const plan = usePlanStore()
 const recipes = useRecipesStore()
 const pantryCovers = usePantryCovers()
+
+/**
+ * An offer can be carried to the night you want it on.
+ *
+ * The button plans onto the next free night, which is right most of the time and
+ * wrong precisely when somebody has a night in mind — dragging is how they say
+ * which, without the button having to grow a menu of seven days.
+ */
+const drag = usePlanDrag()
+
+function pickUp(event: PointerEvent, candidate: RankedCandidate) {
+  drag.press(event, {
+    kind: 'suggestion',
+    recipeId: candidate.recipe.id,
+    label: candidate.recipe.name,
+    image: pictureOf(recipes.recipeById(candidate.recipe.id))
+  })
+}
 
 const dayName = computed(() => {
   if (!target) return null
@@ -84,15 +103,28 @@ function reasonFor(candidate: RankedCandidate): string {
         -->
         <UCard
           variant="soft"
-          :ui="{ body: 'px-3.5 py-3 sm:p-3.5' }"
+          :ui="{ root: 'touch-manipulation select-none', body: 'px-3.5 py-3 sm:p-3.5' }"
+          class="cursor-grab"
+          @pointerdown="pickUp($event, candidate)"
         >
-          <p class="text-pretty text-sm font-medium leading-tight text-highlighted">
-            {{ candidate.recipe.name }}
-          </p>
-          <p class="mt-1 text-xs text-muted">
-            {{ reasonFor(candidate) }}
-          </p>
+          <div class="flex items-start gap-3">
+            <RecipeThumb
+              :src="pictureOf(recipes.recipeById(candidate.recipe.id))"
+              :alt="candidate.recipe.name"
+            />
 
+            <div class="min-w-0 flex-1">
+              <p class="text-pretty text-sm font-medium leading-tight text-highlighted">
+                {{ candidate.recipe.name }}
+              </p>
+              <p class="mt-1 text-xs text-muted">
+                {{ reasonFor(candidate) }}
+              </p>
+            </div>
+          </div>
+
+          <!-- What it costs and the one thing to do about it, on the card's own
+               width — the offer indents beside its picture, the action does not. -->
           <div class="mt-2.5 flex items-center gap-2">
             <UBadge
               v-if="minutesOf(candidate)"
@@ -108,6 +140,7 @@ function reasonFor(candidate: RankedCandidate): string {
               size="xs"
               label="On plan"
               disabled
+              data-no-drag
               class="ml-auto"
             />
             <UButton
@@ -115,6 +148,7 @@ function reasonFor(candidate: RankedCandidate): string {
               color="primary"
               variant="subtle"
               size="xs"
+              data-no-drag
               :label="`Use ${dayName}`"
               class="ml-auto"
               @click="emit('pick', candidate.recipe.id)"

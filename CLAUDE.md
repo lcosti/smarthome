@@ -129,11 +129,17 @@ and why. Current sanctioned exceptions:
   a stock `UAvatar` on the default size scale.
 - **Card and row tap targets** whose content is a laid-out block rather than a
   label — `RecipeRow`, `RecipeStepRow`, `IngredientLineRow`, `PlanNightCard`,
-  `BoardRecipeCard`, `BoardPersonChip`. A `UButton` renders its
+  `BoardRecipeCard`. A `UButton` renders its
   content through `label`/slot inside a flex row; these need their own internal
   grid, and wrapping one in a button is cheaper than overriding four slots.
   A row whose content *is* a label is a `UButton` — see `people.vue`,
   `ingredients.vue`.
+- The day grid in `BoardSchedule` — the wide layout only. Nuxt UI has no
+  calendar view: `UCalendar` is a date picker, and a day laid out by the minute
+  needs absolute offsets computed at runtime from real times, which cannot be
+  Tailwind classes. Every control inside it is stock — the chore tick is a
+  `UCheckbox`, the header is a `UButton` and a `UBadge` — and the phone renders
+  the same rows as an ordinary list.
 - `IngredientSuggest` — the suggestion list only. `UInputMenu` calls
   `highlightFirstItem()` on every change, so an open menu owns the enter key;
   this field's rule is that enter always submits what was typed.
@@ -147,6 +153,15 @@ and why. Current sanctioned exceptions:
   timer still running opens its segment out into that timer — a stock `UButton`,
   the only tap target in the bar — so a pan you walked away from keeps its place
   in the sequence instead of becoming a chip in a corner.
+- Dragging a dinner onto a night — `usePlanDrag`, `PlanDragGhost`. Nuxt UI has
+  no drag-and-drop, and neither has the platform in any form this app can use:
+  HTML5 `dragstart` never fires on a touchscreen, and the kitchen tablet is the
+  device most likely to be rearranging a week. One pointer-event code path
+  covers mouse, pen and finger. A mouse picks a card up on the first few pixels
+  of travel; a finger holds it still for a moment first, because the phone's
+  plan is a scrolling column and a card that grabbed every downward swipe would
+  make the page unreadable. Everything a drag does is also reachable by tapping
+  the night, so nothing depends on the gesture.
 - The hidden `<input type="file">` wherever a picture is chosen —
   `recipes/index.vue`, `PersonEditor`, `recipes/[id]/index.vue`. Invisible
   plumbing behind a `UButton`, not a control. `UFileUpload` brings a dropzone
@@ -157,6 +172,10 @@ and why. Current sanctioned exceptions:
 plan show a night as `PlanNightCard` — a phone gets the same card in a column,
 with `:table="false"` dropping the roll-call along the bottom — so there is one
 answer to "what does a night look like" rather than two that drift.
+
+`BoardPersonChip` used to be on this list and no longer exists. Today shows the
+day rather than the dinner, and the roster went with the redesign — who is eating
+is asked and answered on the plan, which is where the week is decided.
 
 `ChecklistRow` used to be on this list and is not any more. The shopping list is
 a `UCheckboxGroup` (`ShoppingAisleCard`), which answered both of its objections:

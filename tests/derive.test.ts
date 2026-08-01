@@ -338,6 +338,29 @@ describe('derive', () => {
     expect(new Set(result.creates.map(i => i.id)).size).toBe(2)
   })
 
+  it('buys nothing for a night nobody is cooking on', () => {
+    const result = derive(input({
+      entries: [entry({ recipe_id: null, skip_reason: 'takeaway' })]
+    }))
+
+    expect(result.creates).toHaveLength(0)
+  })
+
+  it('takes a night off the list when it becomes a takeaway', () => {
+    // The whole point of skipping rather than deleting: the night stays on the
+    // plan, and its shopping does not.
+    const bought = applied([], derive(input()))
+    expect(bought).toHaveLength(1)
+
+    const result = derive(input({
+      entries: [entry({ recipe_id: null, skip_reason: 'out' })],
+      planItems: bought
+    }))
+
+    expect(result.creates).toHaveLength(0)
+    expect(result.removes).toHaveLength(1)
+  })
+
   it('never touches an ad-hoc item, even one handed to it by mistake', () => {
     // "Bin bags" disappearing because somebody changed Tuesday's dinner is the
     // kind of thing that stops a household trusting the list.

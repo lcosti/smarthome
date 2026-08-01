@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { PlanEvent } from '../composables/usePlanEvents'
 import type { PlannedNight } from '../stores/plan'
 import type { RankedCandidate } from '../utils/generator'
 import { isoDate, mondayOf, weekLabel } from '../utils/week'
@@ -24,7 +25,7 @@ import { isoDate, mondayOf, weekLabel } from '../utils/week'
  * what the buttons do, and hands the same facts to the phone — so neither shape
  * can grow an opinion the other does not have.
  */
-const { cards, weekStart, canFill, canDerive, filling, deriving } = defineProps<{
+const { cards, weekStart, events, canFill, canDerive, filling, deriving } = defineProps<{
   /** The whole week, for the aside's numbers and its roster. */
   nights: PlannedNight[]
   /** The nights that have gone, and the ones still to come. */
@@ -34,6 +35,8 @@ const { cards, weekStart, canFill, canDerive, filling, deriving } = defineProps<
   weekStart: string
   suggestions: RankedCandidate[]
   target: string | null
+  /** The week's diary, by date. Empty when no calendar is connected. */
+  events: Map<string, PlanEvent[]>
   canFill: boolean
   canDerive: boolean
   deriveLabel: string
@@ -158,9 +161,15 @@ const columns = computed(() => Math.min(Math.max(cards.length, 1), 4))
         rather than stretched ones: a card is as tall as it needs to be to hold a
         dish, and a Sunday on its own should not be a card the height of the
         screen.
+
+        Rows as tall as what is in them, with a floor rather than a fixed height.
+        A fixed one has to be tall enough for the worst night of the week — a
+        long name, a picture, a cost line that has wrapped — which left every
+        ordinary night a short line of text in a tall empty box. The floor is
+        what an empty night needs to be a comfortable target for "Add dinner".
       -->
       <div
-        class="grid shrink-0 auto-rows-[12rem] gap-3"
+        class="grid shrink-0 auto-rows-[minmax(9rem,auto)] gap-3"
         :style="{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }"
       >
         <PlanNightCard
@@ -169,6 +178,7 @@ const columns = computed(() => Math.min(Math.max(cards.length, 1), 4))
           :night="night"
           :today="night.date === today"
           :past="night.date < today"
+          :events="events.get(night.date)"
           @open="emit('open', night.date)"
           @remove="emit('remove', night)"
         />

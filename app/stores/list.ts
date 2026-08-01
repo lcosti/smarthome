@@ -219,7 +219,7 @@ export const useListStore = defineStore('list', () => {
   function sourceLabelFor(item: ItemRow): string | null {
     if (!item.plan_entry_id) return null
     const entry = sync.rowsOf('meal_plan_entries').get(item.plan_entry_id)
-    if (!entry) return null
+    if (!entry?.recipe_id) return null
     return sync.rowsOf('recipes').get(entry.recipe_id)?.name ?? null
   }
 

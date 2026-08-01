@@ -31,6 +31,12 @@ const today = useToday()
 const { nights, strip, cards, target, suggestions, canDerive, deriveLabel, removeNight }
   = usePlanWeek(weekStart, today)
 
+/**
+ * The week's diary, by date. Empty on a household with no calendar connected,
+ * which is the only thing that decides whether a night mentions one.
+ */
+const events = usePlanEvents(computed(() => nights.value.map(night => night.date)))
+
 const canFill = computed(() => plan.hasGapsFor(weekStart.value) && recipes.recipes.length > 0)
 
 async function fill() {
@@ -180,6 +186,7 @@ async function derive() {
       :week-start="weekStart"
       :suggestions="suggestions"
       :target="target"
+      :events="events"
       :can-fill="canFill"
       :can-derive="canDerive"
       :derive-label="deriveLabel"
@@ -223,6 +230,7 @@ async function derive() {
             :today="night.date === today"
             :past="night.date < today"
             :table="false"
+            :events="events.get(night.date)"
             class="min-h-36"
             @open="openNight(night.date)"
             @remove="remove(night)"
@@ -274,5 +282,12 @@ async function derive() {
       v-model:open="editorOpen"
       :date="editingDate"
     />
+
+    <!--
+      Once for the page rather than once per shape: there is one pointer, so
+      there is one thing following it, and both layouts drag onto the same
+      nights through the same composable.
+    -->
+    <PlanDragGhost />
   </div>
 </template>
