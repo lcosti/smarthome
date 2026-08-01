@@ -169,29 +169,58 @@ function resetTimer() {
 }
 
 /**
- * Timers running on steps you have walked away from.
+ * The step bar, and the timers living in it.
  *
  * The whole reason to time something is that you then go and do the next thing,
  * which on this screen means the timer scrolls out of view exactly when it
- * starts to matter. So it detaches and sits in the top bar, named, and pressing
- * it goes back to the step that set it.
+ * starts to matter. So a timer left running does not scroll away with its step —
+ * that step's segment of the bar opens out into the timer, named, and pressing
+ * it goes back to the pan.
  *
- * The step you are on is left out: its timer is already on screen at four times
- * the size, and two of the same number is a reason to look twice.
+ * Putting it here rather than in a tray of its own is the point: the bar is
+ * already the answer to "where am I in this", and a pan on the heat is a place
+ * you still are. Two steps back with three minutes on it reads off the bar's own
+ * geometry, which no chip in a corner can say.
+ *
+ * The step you are on never opens out: its timer is already on screen at four
+ * times the size, and two of the same number is a reason to look twice.
  */
-const pinned = computed(() => steps.value.flatMap((step, index) => {
+const track = computed(() => steps.value.map((step, index) => {
   const end = endings.get(step.id)
-  if (end === undefined || index === stepIndex.value) return []
+  const running = end !== undefined && index !== stepIndex.value
+  const left = running ? Math.max(0, Math.ceil((end - nowMs.value) / 1000)) : 0
 
-  const left = Math.max(0, Math.ceil((end - nowMs.value) / 1000))
-  return [{
+  return {
     id: step.id,
     index,
-    left,
-    done: left === 0,
-    name: findStepDuration(splitStepBody(step.body).main)?.name ?? `Step ${index + 1}`
-  }]
+    filled: index <= stepIndex.value,
+    timer: running
+      ? {
+          left,
+          done: left === 0,
+          name: findStepDuration(splitStepBody(step.body).main)?.name ?? `Step ${index + 1}`
+        }
+      : null
+  }
 }))
+
+// A phone has not got the width for "Step 3 of 6", two open timers and a bar
+// that still looks like a bar. When one opens, the bar takes a line of its own.
+const anyTimerOpen = computed(() => track.value.some(seg => seg.timer))
+
+/**
+ * A countdown, one character slot at a time.
+ *
+ * Each slot holds a Transition keyed on its character, so each second only the
+ * digits whose value changed roll — the old one slides down and out as the new
+ * one slides in from above, an odometer wheel turning one notch. 4:59 to 4:58
+ * moves one digit; the rest of the number holds still, which is what makes it
+ * read as a countdown rather than a flicker. The classes live in main.css as
+ * `.tick-*`.
+ */
+function countdownChars(seconds: number) {
+  return formatCountdown(seconds).split('')
+}
 
 function stopTick() {
   if (tick) clearInterval(tick)
@@ -263,41 +292,16 @@ onUnmounted(() => {
           One badge, at the end of the day on a wide screen and pushed to the
           far edge on a phone by `ms-auto` — the group it sits in is the whole
           header row there, because everything to its right is hidden.
-
-          It gives a phone's top bar back to a running timer. There is only room
-          for one of them beside the dish's name, and between a label saying
-          where you already are and the number telling you when to go back to a
-          pan, the pan wins.
         -->
         <UBadge
           color="primary"
           variant="outline"
           label="Cook mode"
           class="shrink-0 max-lg:ms-auto"
-          :class="pinned.length ? 'max-lg:hidden' : ''"
         />
       </div>
 
       <div class="flex shrink-0 items-center gap-3 lg:gap-4">
-        <!--
-          A timer left running on another step. Amber while it counts, solid
-          when it goes off, and pressing it takes you back to the pan.
-        -->
-        <UButton
-          v-for="timer in pinned"
-          :key="timer.id"
-          data-cook-pinned
-          color="primary"
-          :variant="timer.done ? 'solid' : 'subtle'"
-          size="lg"
-          class="gap-2.5 rounded-full"
-          @click="goTo(timer.index)"
-        >
-          <span class="size-2 shrink-0 rounded-full bg-current" />
-          <span class="text-sm font-medium">{{ timer.name }}</span>
-          <span class="font-mono text-sm tabular-nums">{{ formatCountdown(timer.left) }}</span>
-        </UButton>
-
         <!-- Both already under the recipe's name on a phone. -->
         <span class="hidden font-mono text-sm text-dimmed lg:inline">{{ metaLine }}</span>
         <UButton
@@ -410,7 +414,7 @@ onUnmounted(() => {
           root: `flex min-h-0 flex-col overflow-hidden bg-elevated
                  max-lg:rounded-none max-lg:bg-default max-lg:ring-0
                  ${pane === 'steps' ? '' : 'max-lg:hidden'}`,
-          header: 'flex items-center gap-4 px-5 py-4 sm:px-6 lg:gap-6',
+          header: 'flex flex-wrap items-center gap-x-4 gap-y-2.5 px-5 py-4 sm:px-6 lg:flex-nowrap lg:gap-x-6',
           // Scrolls itself, so a nine-line step on a phone never pushes Next
           // step off the bottom of the screen.
           body: 'flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-5 py-5 sm:p-0 sm:px-6 sm:py-6',
@@ -429,18 +433,71 @@ onUnmounted(() => {
             Custom, replacing UProgress: that draws one value against one track,
             and this is n discrete segments where n is the number of steps —
             the count is the information, because it is also how far there is
-            left to go.
+            left to go, and a segment can carry a running timer.
+
+            The row holds `h-7` whether or not anything is timing, and every
+            segment keeps its equal share of the width. A timer starting must
+            not move the bar: the geometry is what you read your position off,
+            and a bar that reshuffles when a pan goes on is a bar you have to
+            re-read rather than glance at.
           -->
           <div
             v-if="steps.length"
-            class="flex flex-1 items-center gap-1.5"
+            class="flex h-7 min-w-0 flex-1 items-center gap-1.5"
+            :class="anyTimerOpen ? 'max-lg:basis-full' : ''"
           >
-            <span
-              v-for="(step, index) in steps"
-              :key="step.id"
-              class="h-1 flex-1 rounded-full"
-              :class="index <= stepIndex ? 'bg-primary' : 'bg-accented'"
-            />
+            <!--
+              One element per step, which grows into its timer rather than being
+              swapped for one. The fill is the same rounded strip throughout —
+              it just gets taller and takes the room for a name and a number —
+              so a timer starting reads as this step opening up, not as a chip
+              appearing from somewhere else.
+
+              It takes its equal share of the width like every other segment,
+              and `min-w-fit` lets it keep whatever more the reading needs. That
+              nudges its neighbours a little, which is a fair price: a countdown
+              you cannot read is not worth a bar that never moves.
+            -->
+            <div
+              v-for="seg in track"
+              :key="seg.id"
+              class="relative flex h-full flex-1 items-center"
+              :class="seg.timer ? 'min-w-fit' : 'min-w-0'"
+            >
+              <span
+                class="w-full rounded-full transition-[height,background-color] duration-300 ease-out"
+                :class="[
+                  seg.timer ? 'h-full' : 'h-1',
+                  seg.timer || seg.filled ? 'bg-primary' : 'bg-accented',
+                  seg.timer?.done ? 'animate-pulse' : ''
+                ]"
+              />
+
+              <!--
+                The tap target, laid over the fill with nothing of its own to
+                draw — the strip underneath is already the right shape and the
+                right amber. Ghost rather than solid for exactly that reason.
+              -->
+              <UButton
+                v-if="seg.timer"
+                data-cook-pinned
+                color="primary"
+                variant="ghost"
+                size="xs"
+                class="absolute inset-0 justify-center gap-1.5 rounded-full px-2.5 text-inverted transition-opacity duration-300 hover:bg-transparent starting:opacity-0"
+                @click="goTo(seg.index)"
+              >
+                <span class="text-xs font-medium">{{ seg.timer.name }}</span>
+                <span class="inline-flex font-mono text-xs tabular-nums"><span
+                  v-for="(char, slot) in countdownChars(seg.timer.left)"
+                  :key="slot"
+                  class="relative overflow-hidden"
+                ><Transition name="tick"><span
+                  :key="char"
+                  class="inline-block"
+                >{{ char }}</span></Transition></span></span>
+              </UButton>
+            </div>
           </div>
         </template>
 
@@ -486,7 +543,14 @@ onUnmounted(() => {
                     : timerPhase === 'running' ? (duration.name ?? 'Timer') : `${duration.name ?? 'Timer'} done` }}
                 </span>
                 <span class="h-7 w-px shrink-0 bg-current opacity-25" />
-                <span class="font-mono text-lg tabular-nums lg:text-2xl">{{ formatCountdown(remaining) }}</span>
+                <span class="inline-flex font-mono text-lg tabular-nums lg:text-2xl"><span
+                  v-for="(char, slot) in countdownChars(remaining)"
+                  :key="slot"
+                  class="relative overflow-hidden"
+                ><Transition name="tick"><span
+                  :key="char"
+                  class="inline-block"
+                >{{ char }}</span></Transition></span></span>
               </UButton>
 
               <UButton

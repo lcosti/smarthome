@@ -417,9 +417,10 @@ try {
   assert((await boardText()).includes('Add the squash'), 'and shows that step')
 
   // The pan is still on the heat two steps later, which is the entire reason
-  // the timer detaches instead of scrolling away with the step that set it.
+  // that step's segment of the bar opens out into its timer instead of the
+  // timer scrolling away with the step that set it.
   const pin = frame().locator('[data-cook-pinned]')
-  assert(await pin.count() === 1, 'the running timer followed us to the top bar')
+  assert(await pin.count() === 1, 'the running timer opened out of the step bar')
   const pinText = await pin.innerText()
   assert(/Brown/.test(pinText) && /\d:\d\d/.test(pinText),
     `named and still counting, saw: ${pinText}`)
@@ -428,8 +429,8 @@ try {
   await page.waitForTimeout(300)
   assert(await atStep() === '1/3', `and pressing it goes back to the pan, got ${await atStep()}`)
   assert(!(await frame().locator('[data-cook-pinned]').count()),
-    'where it stops being pinned, because it is on screen at full size again')
-  log('a running timer follows you off the step and leads you back to it')
+    'where the segment closes again, because the timer is on screen at full size')
+  log('a running timer opens out of the step bar and leads you back to it')
 
   await frame().getByRole('button', { name: 'Next step' }).click()
   await page.waitForTimeout(300)

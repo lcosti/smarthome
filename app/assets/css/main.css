@@ -35,6 +35,35 @@
 }
 
 /*
+  The second hand on every countdown — see countdownChars() in cook.vue.
+
+  Each digit sits in an overflow-hidden slot, and when its value changes the
+  old one slides down and out as the new one slides in from above: an odometer
+  wheel turning a notch, not a swap. The leaving digit is absolute so the two
+  can share the slot for the 100ms they are both in it — a second hand snaps to
+  the next mark, it does not glide there.
+*/
+.tick-enter-active,
+.tick-leave-active {
+  transition: transform 100ms ease-out, opacity 100ms ease-out;
+}
+
+.tick-leave-active {
+  position: absolute;
+  inset: 0;
+}
+
+.tick-enter-from {
+  opacity: 0;
+  transform: translateY(-100%);
+}
+
+.tick-leave-to {
+  opacity: 0;
+  transform: translateY(100%);
+}
+
+/*
   Scrollbars. One kind, everywhere something scrolls.
 
   A native scrollbar is browser chrome, and a pale grey 9px trough down the side
