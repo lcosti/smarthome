@@ -70,7 +70,9 @@ async function add() {
 
   draft.value = ''
   const created = await store.addRecipe({ name: typed })
-  if (created) await navigateTo(`/recipes/${created.id}`)
+  // Straight to the editor: a recipe that is only a name is all blanks, and
+  // the view page would be a wall of empty sections with nothing to read.
+  if (created) await navigateTo(`/recipes/${created.id}/edit`)
 }
 
 async function onPhotosPicked(event: Event) {
@@ -85,7 +87,9 @@ async function onPhotosPicked(event: Event) {
 /** The new recipe, or the reason there isn't one. */
 async function land(recipeId: string | null) {
   if (recipeId) {
-    await navigateTo(`/recipes/${recipeId}`)
+    // The editor, not the view: an import is a draft somebody should look over
+    // — a misread quantity is cheapest to fix while the page is still open.
+    await navigateTo(`/recipes/${recipeId}/edit`)
   } else if (recipeImport.error.value) {
     toast.add({ title: recipeImport.error.value, color: 'error' })
   }

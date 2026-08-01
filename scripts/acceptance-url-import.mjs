@@ -167,7 +167,9 @@ async function paste(url) {
   await page.getByTestId('recipe-draft').fill(url)
   await page.getByRole('button', { name: 'Import recipe from the link' }).click()
   await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 20_000 })
-  return page.url().split('/').pop()
+  // The id out of the address, not the last segment: imports land on the
+  // editor at /recipes/<id>/edit, where the last segment is 'edit'.
+  return page.url().match(/\/recipes\/([0-9a-f-]{36})/)?.[1]
 }
 
 async function backToRecipes() {

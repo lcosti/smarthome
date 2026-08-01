@@ -1,148 +1,82 @@
 <script setup lang="ts">
-import { useIngredientsStore } from '../../../stores/ingredients'
 import { useListStore } from '../../../stores/list'
+import { usePlanStore } from '../../../stores/plan'
 import { useRecipesStore } from '../../../stores/recipes'
 import { useSyncStore } from '../../../stores/sync'
-import type { IngredientRow } from '../../../utils/db'
-import { NUTRITION_FIELDS, type NutritionKey } from '../../../utils/nutrition'
-import { photoForRecipe, pictureOf } from '../../../utils/photo'
+import { buildRecipeLibrary } from '../../../utils/board'
+import { pictureOf } from '../../../utils/photo'
+
+/**
+ * The recipe as something to read, which is what a tap on the library opens.
+ *
+ * The wide library answers "shall we have this?" in its detail pane — how heavy
+ * it is, what it would still need, when it was last had — and a phone deserves
+ * the same answers rather than being dropped into the editor, where the first
+ * accidental touch reorders an ingredient. So this page carries the pane's
+ * content and its decisions (shortlist it, buy what it needs), plus the steps,
+ * which the pane leaves out because a pane is for comparing and a page is for
+ * reading. Every typing job is one deliberate press away behind the pencil,
+ * on /recipes/[id]/edit.
+ */
 
 const route = useRoute()
-const toast = useToast()
 const store = useRecipesStore()
+const plan = usePlanStore()
 const list = useListStore()
 const sync = useSyncStore()
-const ingredients = useIngredientsStore()
+const toast = useToast()
+
+const now = useBoardClock()
+const pantryCovers = usePantryCovers()
 
 const id = computed(() => String(route.params.id))
 const recipe = computed(() => store.recipeById(id.value))
-const lines = computed(() => store.ingredientsFor(id.value))
 const steps = computed(() => store.stepsFor(id.value))
-
-const estimator = useNutritionEstimate()
-/** The estimator only fills blanks, so a full panel gives it nothing to do. */
-const nutritionBlanks = computed(() =>
-  Boolean(recipe.value && NUTRITION_FIELDS.some(field => recipe.value![field.key] == null))
-)
-
-const draftName = ref('')
-const draftIngredient = ref('')
-const draftStep = ref('')
-const editingLineId = ref<string | null>(null)
-const editorOpen = ref(false)
-const confirmDelete = ref(false)
-const editingStepId = ref<string | null>(null)
-const stepEditorOpen = ref(false)
-const ingredientInput = useTemplateRef<{ focus: () => void }>('ingredientInput')
-const photoInput = useTemplateRef<HTMLInputElement>('photoInput')
-const savingPhoto = ref(false)
-
 const picture = computed(() => pictureOf(recipe.value))
 
-watch(recipe, (value) => {
-  if (value && document.activeElement?.tagName !== 'INPUT') draftName.value = value.name
-}, { immediate: true })
+/**
+ * The wide pane's own view model, handed just this recipe. One implementation
+ * of "what is missing, what is already in the cupboard, when was it cooked"
+ * rather than a second one that drifts from what the desktop says.
+ */
+const detail = computed(() => {
+  if (!recipe.value) return null
+  return buildRecipeLibrary({
+    recipes: [recipe.value],
+    lines: store.ingredientsFor(id.value),
+    planEntries: plan.liveEntries,
+    listItems: list.liveItems,
+    now: now.value,
+    query: '',
+    facet: 'all',
+    sort: 'recent',
+    selectedId: id.value,
+    pantryCovers: pantryCovers.value
+  }).detail
+})
 
-function aisleNameFor(aisleId: string | null) {
-  return aisleId ? list.aisles.get(aisleId)?.name ?? null : null
-}
-
-async function renameOnBlur() {
-  const name = draftName.value.trim()
-  if (!recipe.value || !name || name === recipe.value.name) return
-  await store.updateRecipe(id.value, { name })
-}
-
-async function addIngredient(name: string, chosen: IngredientRow | null) {
-  // Clear first so the next one can be typed straight away. Quantity and aisle
-  // are one tap away in the editor; asking for them here would turn eight
-  // ingredients into twenty-four decisions.
-  draftIngredient.value = ''
-  // Everything on a recipe is an ingredient by definition, so an unknown name is
-  // worth a canonical row. Picking a suggestion instead records what was typed as
-  // an alias, so next time this resolves without anybody choosing.
-  const ingredientId = await ingredients.linkFor(name, { chosen })
-  const line = chosen ? { name: chosen.name } : { name }
-  await store.addIngredient(id.value, { ...line, ingredient_id: ingredientId })
-  ingredientInput.value?.focus()
-}
-
-function editLine(lineId: string) {
-  editingLineId.value = lineId
-  editorOpen.value = true
-}
-
-function editStep(stepId: string) {
-  editingStepId.value = stepId
-  stepEditorOpen.value = true
-}
-
-async function addStep() {
-  const body = draftStep.value.trim()
-  if (!body) return
-  // Cleared first, like the ingredient box above: a method is typed one step
-  // after another and waiting on a write between them is the whole friction.
-  draftStep.value = ''
-  await store.addStep(id.value, body)
-}
-
-async function setServings(next: number) {
-  if (!recipe.value || !Number.isFinite(next)) return
-  await store.updateRecipe(id.value, { base_servings: Math.max(1, next) })
-}
-
-async function setNutrition(key: NutritionKey, next: number | null | undefined) {
-  const value = typeof next === 'number' && Number.isFinite(next) && next >= 0 ? next : null
-  if (!recipe.value || value === recipe.value[key]) return
-  await store.updateRecipe(id.value, { [key]: value })
-}
-
-async function saveMethod(event: Event) {
-  const value = (event.target as HTMLTextAreaElement).value.trim()
-  if (!recipe.value || value === (recipe.value.method ?? '')) return
-  await store.updateRecipe(id.value, { method: value || null })
-}
+const sending = ref(false)
 
 /**
- * Give the recipe a photograph of the dish.
+ * What this recipe needs that isn't already on the list.
  *
- * Written the moment it is chosen, like the avatar on a person and unlike the
- * name field above: picking a picture reads as done as soon as it appears, and
- * there is no form here to submit.
- *
- * Shrunk on this device rather than anywhere else — a phone hands over three to
- * twelve megabytes, and the row it is going into is replicated to every device
- * in the house.
+ * The plain add path rather than the plan's derivation, exactly as on the wide
+ * library: these items have no plan entry behind them — somebody decided to buy
+ * for a recipe without committing to a night — and giving them a provenance
+ * they don't have would put them in line to be swept up when that night changed.
  */
-async function onPhotoPicked(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  // Cleared straight away so picking the same file twice in a row still fires.
-  input.value = ''
-  if (!file || savingPhoto.value) return
-
-  savingPhoto.value = true
+async function sendToList() {
+  const missing = detail.value?.missing
+  if (!missing?.length || sending.value) return
+  sending.value = true
   try {
-    await store.updateRecipe(id.value, { photo: await photoForRecipe(file) })
-  } catch {
-    toast.add({
-      title: 'That photo could not be read',
-      description: 'Try another one, or take a new picture.',
-      color: 'warning',
-      icon: 'i-lucide-image-off'
-    })
+    for (const line of missing) {
+      await list.addItem(line.name, { quantity: line.quantity, aisleId: line.aisleId })
+    }
+    toast.add({ title: `Added ${missing.length === 1 ? '1 item' : `${missing.length} items`}`, color: 'success' })
   } finally {
-    savingPhoto.value = false
+    sending.value = false
   }
-}
-
-async function removePhoto() {
-  await store.updateRecipe(id.value, { photo: null })
-}
-
-async function removeRecipe() {
-  await store.deleteRecipe(id.value)
-  await navigateTo('/recipes')
 }
 </script>
 
@@ -151,65 +85,28 @@ async function removeRecipe() {
     <AppPageHeader
       back="/recipes"
       back-label="Back to recipes"
+      :title="recipe?.name"
     >
-      <template #title>
-        <UInput
-          v-if="recipe"
-          v-model="draftName"
-          variant="ghost"
-          size="xl"
-          class="min-w-0 flex-1 font-semibold"
-          aria-label="Recipe name"
-          @blur="renameOnBlur"
-          @keydown.enter="renameOnBlur"
-        />
-      </template>
-
       <template #actions>
-        <!-- This page is for editing a recipe; cook mode is for standing at the
-             hob with it. One press between them, from either direction. -->
+        <!-- Reading, cooking and editing are three different evenings. Cook mode
+             is for standing at the hob; the pencil is for the typing jobs. -->
         <UButton
           v-if="recipe"
-          :to="`/recipes/${recipe.id}/cook`"
+          :to="`/recipes/${id}/cook`"
           icon="i-lucide-chef-hat"
           color="neutral"
           variant="ghost"
           aria-label="Cook this recipe"
         />
-        <!-- In the header rather than beside the picture, so it is in the same
-             place whether or not there is one to change. -->
         <UButton
           v-if="recipe"
-          icon="i-lucide-camera"
+          :to="`/recipes/${id}/edit`"
+          icon="i-lucide-pencil"
           color="neutral"
           variant="ghost"
-          :loading="savingPhoto"
-          :aria-label="recipe.photo ? 'Change the photo' : 'Add a photo'"
-          @click="photoInput?.click()"
+          aria-label="Edit this recipe"
+          data-testid="recipe-edit"
         />
-        <UButton
-          v-if="recipe?.photo"
-          icon="i-lucide-image-off"
-          color="neutral"
-          variant="ghost"
-          aria-label="Remove the photo"
-          @click="removePhoto"
-        />
-        <!--
-          A bare input rather than UFileUpload, exactly as on the recipe import
-          and the person editor: nothing here is visible, the control people see
-          is the button beside it, and UFileUpload brings a dropzone this has no
-          use for. No `capture`, so the phone offers the camera and the library
-          rather than forcing the camera.
-        -->
-        <input
-          ref="photoInput"
-          type="file"
-          accept="image/*"
-          class="hidden"
-          data-testid="recipe-photo-input"
-          @change="onPhotoPicked"
-        >
         <!-- Imported recipes keep their address: the page has the photographs,
              the comments and whatever the method left out. -->
         <UButton
@@ -236,12 +133,9 @@ async function removeRecipe() {
         :actions="[{ label: 'Back to recipes', to: '/recipes', color: 'neutral', variant: 'subtle' }]"
       />
 
-      <template v-else>
-        <!--
-          No placeholder when there is no picture: the page simply starts at the
-          ingredients, which is what a hand-typed recipe has always looked like.
-          The wrapper collapses with the image, so nothing reserves the space.
-        -->
+      <template v-else-if="detail">
+        <!-- No placeholder when there is no picture, same as the editor: the
+             page simply starts at the facts. -->
         <div
           v-if="picture"
           class="-mt-1 aspect-video overflow-hidden rounded-lg bg-elevated/30"
@@ -253,244 +147,131 @@ async function removeRecipe() {
         </div>
 
         <section>
-          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
+          <p class="text-xs font-medium uppercase tracking-wide text-dimmed">
+            {{ detail.eyebrow }}
+          </p>
+          <p class="mt-1.5 font-mono text-sm text-muted">
+            {{ detail.meta }}
+          </p>
+
+          <!--
+            The pane's two decisions, up here where a thumb reaches them without
+            scrolling past the ingredients. Shortlisting is primary for the same
+            reason it is on the wide library: it is how a person says "this week,
+            please" without picking the night themselves.
+          -->
+          <div class="mt-4 flex flex-col gap-2.5">
+            <UButton
+              :color="detail.shortlisted ? 'neutral' : 'primary'"
+              :variant="detail.shortlisted ? 'subtle' : 'solid'"
+              size="xl"
+              :icon="detail.shortlisted ? 'i-lucide-check' : 'i-lucide-bookmark-plus'"
+              :label="detail.shortlisted ? 'On the shortlist' : 'Add to shortlist'"
+              class="justify-center"
+              data-testid="recipe-shortlist"
+              @click="store.toggleShortlist(id)"
+            />
+            <UButton
+              v-if="detail.sendLabel"
+              color="neutral"
+              variant="subtle"
+              size="lg"
+              :label="detail.sendLabel"
+              :loading="sending"
+              class="justify-center"
+              data-testid="recipe-send-list"
+              @click="sendToList()"
+            />
+          </div>
+        </section>
+
+        <!-- Renders nothing when the recipe has no figures, so a hand-typed
+             recipe reads exactly as it did before there was a panel. -->
+        <RecipeNutritionPanel :recipe="recipe" />
+
+        <section>
+          <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
             Ingredients
           </h2>
 
           <ul
-            v-if="lines.length"
-            class="rounded-lg border border-default bg-elevated/30"
+            v-if="detail.ingredients.length"
+            class="mt-3 flex flex-col gap-2"
           >
-            <IngredientLineRow
-              v-for="(item, index) in lines"
-              :key="item.id"
-              :name="item.name"
-              :quantity="item.quantity"
-              :aisle-name="aisleNameFor(item.aisle_id)"
-              :can-move-up="index > 0"
-              :can-move-down="index < lines.length - 1"
-              @edit="editLine(item.id)"
-              @move-up="store.moveIngredient(item.id, -1)"
-              @move-down="store.moveIngredient(item.id, 1)"
-            />
+            <li
+              v-for="line in detail.ingredients"
+              :key="line.id"
+              class="flex items-baseline gap-3"
+            >
+              <!-- The dot marks what you would still have to buy, exactly as on
+                   the wide pane: amber for missing, recessed for handled. -->
+              <span
+                class="size-1.5 shrink-0 translate-y-[-2px] rounded-full"
+                :class="line.onList || line.inPantry ? 'bg-accented' : 'bg-primary'"
+              />
+              <span class="min-w-0 flex-1 text-sm text-default">{{ line.name }}</span>
+              <span
+                v-if="line.inPantry && !line.onList"
+                class="shrink-0 text-[10px] font-medium uppercase tracking-wide text-dimmed"
+              >pantry</span>
+              <span
+                v-if="line.quantity"
+                class="shrink-0 whitespace-nowrap font-mono text-xs text-dimmed"
+              >{{ line.quantity }}</span>
+            </li>
           </ul>
 
-          <UEmpty
+          <p
             v-else
-            icon="i-lucide-carrot"
-            title="Nothing yet."
-            description="Add the first ingredient below."
-          />
-
-          <UForm
-            :state="{ draftIngredient }"
-            class="mt-2 flex gap-2"
-            @submit="addIngredient(draftIngredient.trim(), null)"
+            class="mt-3 text-sm text-dimmed"
           >
-            <IngredientSuggest
-              ref="ingredientInput"
-              v-model="draftIngredient"
-              placeholder="Add an ingredient"
-              @submit="addIngredient"
-            />
-            <UButton
-              type="submit"
-              size="xl"
-              icon="i-lucide-plus"
-              :disabled="!draftIngredient.trim()"
-              aria-label="Add ingredient"
-            />
-          </UForm>
-        </section>
-
-        <section>
-          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
-            Serves
-          </h2>
-          <div class="flex items-center gap-2">
-            <UInputNumber
-              :model-value="recipe.base_servings"
-              :min="1"
-              size="xl"
-              class="w-36"
-              aria-label="Servings"
-              @update:model-value="setServings"
-            />
-            <p class="ml-2 flex-1 text-sm text-dimmed">
-              What the quantities above are written for.
-            </p>
-          </div>
-        </section>
-
-        <!--
-          What the source printed, kept as printed. Imports fill these in when
-          the page or photo carried a panel; anything else is typed by hand or
-          left empty — empty is the honest state, never zero. Nothing sums or
-          tracks these; they are facts about one serving of one recipe.
-        -->
-        <section>
-          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
-            Nutrition
-          </h2>
-          <p class="mb-2 text-sm text-dimmed">
-            Per serving, as the source states it.
+            No ingredients listed.
           </p>
-          <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <UFormField
-              v-for="field in NUTRITION_FIELDS"
-              :key="field.key"
-              :label="field.unit === 'g' ? `${field.label} (g)` : field.label"
-            >
-              <UInputNumber
-                :model-value="recipe[field.key] ?? undefined"
-                :min="0"
-                :step="field.key === 'kcal' ? 1 : 0.01"
-                :format-options="{ maximumFractionDigits: 2 }"
-                size="lg"
-                class="w-full"
-                :aria-label="field.label"
-                @update:model-value="setNutrition(field.key, $event)"
-              />
-            </UFormField>
-          </div>
-
-          <!--
-            The one deliberate exception to "as the source states it": estimated
-            figures land in the same editable boxes, but only the empty ones —
-            an estimate never overwrites what a source printed or a person typed.
-            Clearing a field is how you ask for it to be re-estimated.
-          -->
-          <div class="mt-3 flex items-center gap-3">
-            <UButton
-              icon="i-lucide-sparkles"
-              color="neutral"
-              variant="subtle"
-              label="Estimate the blanks"
-              :loading="estimator.busy.value"
-              :disabled="!lines.length || !nutritionBlanks"
-              @click="estimator.estimate(id)"
-            />
-            <p
-              v-if="estimator.error.value"
-              class="text-sm text-error"
-            >
-              {{ estimator.error.value }}
-            </p>
-            <p
-              v-else
-              class="text-sm text-dimmed"
-            >
-              A model's guess from the ingredients — it fills only what's empty.
-            </p>
-          </div>
         </section>
 
-        <!--
-          The method, as the ordered thing it is. It used to live in the Notes
-          box below, which meant an imported recipe buried its own notes under a
-          wall of instructions and the board had to guess where one step ended.
-        -->
-        <section>
-          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
+        <section v-if="steps.length">
+          <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
             Steps
           </h2>
-
-          <ol
-            v-if="steps.length"
-            class="rounded-lg border border-default bg-elevated/30"
-          >
-            <RecipeStepRow
+          <ol class="mt-3 flex flex-col gap-3">
+            <li
               v-for="(step, index) in steps"
               :key="step.id"
-              :body="step.body"
-              :position="index + 1"
-              :can-move-up="index > 0"
-              :can-move-down="index < steps.length - 1"
-              @edit="editStep(step.id)"
-              @move-up="store.moveStep(step.id, -1)"
-              @move-down="store.moveStep(step.id, 1)"
-            />
+              class="flex gap-3"
+            >
+              <span class="w-5 shrink-0 pt-px text-right font-mono text-sm text-dimmed">{{ index + 1 }}</span>
+              <p class="min-w-0 flex-1 whitespace-pre-line text-sm leading-relaxed text-default">
+                {{ step.body }}
+              </p>
+            </li>
           </ol>
-
-          <UEmpty
-            v-else
-            icon="i-lucide-list-ordered"
-            title="No method yet."
-            description="Add the first step below."
-          />
-
-          <UForm
-            :state="{ draftStep }"
-            class="mt-2 flex items-end gap-2"
-            @submit="addStep"
-          >
-            <!--
-              A textarea, so enter means a new line the way it does everywhere
-              else you write a paragraph. That costs enter-to-submit, which is
-              why the button is beside it rather than implied.
-            -->
-            <UTextarea
-              v-model="draftStep"
-              :rows="2"
-              autoresize
-              size="xl"
-              class="flex-1"
-              placeholder="Add a step"
-              aria-label="Add a step"
-            />
-            <UButton
-              type="submit"
-              size="xl"
-              icon="i-lucide-plus"
-              :disabled="!draftStep.trim()"
-              aria-label="Add step"
-            />
-          </UForm>
         </section>
 
-        <!-- Notes is notes again: what the method left out, not the method. -->
-        <section>
-          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
+        <section v-if="recipe.method">
+          <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
             Notes
           </h2>
-          <UTextarea
-            :model-value="recipe.method ?? ''"
-            :rows="4"
-            size="xl"
-            class="w-full"
-            placeholder="Anything worth remembering next time."
-            aria-label="Notes"
-            @blur="saveMethod"
-          />
+          <p class="mt-3 whitespace-pre-line text-sm leading-relaxed text-default">
+            {{ recipe.method }}
+          </p>
         </section>
 
-        <section>
-          <ConfirmModal
-            v-model:open="confirmDelete"
-            :title="`Delete ${recipe.name}?`"
-            description="The recipe, its ingredients and its method go with it. Nights already planned from it keep their name but lose the link."
-            confirm-label="Delete recipe"
-            @confirm="removeRecipe"
-          >
-            <UButton
-              icon="i-lucide-trash-2"
-              color="error"
-              variant="subtle"
-              label="Delete recipe"
-            />
-          </ConfirmModal>
+        <section v-if="detail.history.length">
+          <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
+            History
+          </h2>
+          <ul class="mt-3 flex flex-col gap-1.5">
+            <li
+              v-for="entry in detail.history"
+              :key="entry.date"
+              class="flex items-baseline gap-4"
+            >
+              <span class="w-[62px] shrink-0 font-mono text-sm text-muted">{{ entry.dateLabel }}</span>
+              <span class="text-sm text-dimmed">{{ entry.label }}</span>
+            </li>
+          </ul>
         </section>
       </template>
     </main>
-
-    <IngredientLineEditor
-      v-model:open="editorOpen"
-      :line-id="editingLineId"
-    />
-
-    <RecipeStepEditor
-      v-model:open="stepEditorOpen"
-      :step-id="editingStepId"
-    />
   </div>
 </template>

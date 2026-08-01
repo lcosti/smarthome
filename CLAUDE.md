@@ -148,7 +148,7 @@ and why. Current sanctioned exceptions:
   the only tap target in the bar — so a pan you walked away from keeps its place
   in the sequence instead of becoming a chip in a corner.
 - The hidden `<input type="file">` wherever a picture is chosen —
-  `recipes/index.vue`, `PersonEditor`, `recipes/[id]/index.vue`. Invisible
+  `recipes/index.vue`, `PersonEditor`, `recipes/[id]/edit.vue`. Invisible
   plumbing behind a `UButton`, not a control. `UFileUpload` brings a dropzone
   none of them want, and `capture` makes iOS force the camera and silently drop
   `multiple`.
