@@ -566,7 +566,14 @@ function clockOf(minutes: number): string {
   return `${hours}:${String(wrapped % 60).padStart(2, '0')}`
 }
 
-function timeOf(date: Date): string {
+/**
+ * The clock face of an instant, in the reader's own timezone.
+ *
+ * Exported because the plan asks the same question of the same rows: an event's
+ * `starts_at` is an instant, and the two screens must not disagree about what
+ * time it says.
+ */
+export function timeOf(date: Date): string {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 

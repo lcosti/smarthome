@@ -23,7 +23,7 @@ import { skipIcon } from '../utils/skip'
  * Presentational: the week above owns which night is being edited, so the phone
  * rows and these cards cannot drift apart over what changing a night does.
  */
-const { night, today, past = false, table = true } = defineProps<{
+const { night, today, past = false, table = true, events = [] } = defineProps<{
   night: PlannedNight
   today: boolean
   /** The night is before today. */
@@ -38,6 +38,13 @@ const { night, today, past = false, table = true } = defineProps<{
    * ink.
    */
   table?: boolean
+  /**
+   * What else the day is already spoken for by.
+   *
+   * Passed in rather than read here, like everything else on this card: the page
+   * owns the week, so both shapes of the plan show a night the same way.
+   */
+  events?: PlanEvent[]
 }>()
 
 defineEmits<{ open: [], remove: [] }>()
@@ -146,6 +153,23 @@ const dishMeta = computed<{ icon: string, label: string }[]>(() => {
  * correction of the record, and the plan is a record as much as an intention.
  * Only a night with something on it is a source.
  */
+/**
+ * At most two, and a count for the rest.
+ *
+ * A card is a quarter of a screen and the dinner is what it is for. Two lines is
+ * enough to know the evening is spoken for; the day itself is where you go to
+ * read the whole of it.
+ */
+const MAX_EVENTS = 2
+
+const shownEvents = computed(() => events.slice(0, MAX_EVENTS))
+const moreEvents = computed(() => Math.max(0, events.length - MAX_EVENTS))
+
+/** Whoever's event it is, in their colour. Neutral for the household's own. */
+function railStyle(hue: number | null) {
+  return hue === null ? undefined : { background: `oklch(0.72 0.13 ${hue})` }
+}
+
 const drag = usePlanDrag()
 const root = useTemplateRef<{ $el?: HTMLElement } | HTMLElement>('root')
 
@@ -330,6 +354,40 @@ function pickUp(event: PointerEvent) {
         class="min-h-0 flex-1 justify-center text-dimmed"
         @click="$emit('open')"
       />
+
+      <!--
+        What the evening is already spoken for by, under the dinner rather than
+        beside it: the calendar is the reason a night gets moved, and reading it
+        here is what stops the plan and the diary being two screens checked
+        against each other. Each one carries its owner's colour on the same
+        little rail the board's week strip uses — the answer to "whose is this"
+        should look the same wherever it is asked.
+      -->
+      <div
+        v-if="shownEvents.length"
+        class="mt-2 flex min-w-0 flex-col gap-1"
+      >
+        <span
+          v-for="event in shownEvents"
+          :key="event.id"
+          class="flex min-w-0 items-center gap-1.5"
+        >
+          <span
+            class="h-3 w-0.5 shrink-0 rounded-sm bg-accented"
+            :style="railStyle(event.hue)"
+          />
+          <span
+            v-if="event.time"
+            class="shrink-0 font-mono text-[11px] text-dimmed tabular-nums"
+          >{{ event.time }}</span>
+          <span class="truncate text-[11px] text-dimmed">{{ event.title }}</span>
+        </span>
+
+        <span
+          v-if="moreEvents"
+          class="pl-2 text-[11px] text-dimmed"
+        >+{{ moreEvents }} more</span>
+      </div>
     </div>
 
     <template
