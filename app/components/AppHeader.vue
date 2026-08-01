@@ -17,6 +17,9 @@ import { buildHeader } from '../utils/board'
  * does not. It sits beside the plan badge rather than replacing it: the two
  * answer different questions and both can be true at once.
  *
+ * The plan badge is `AppPlanBadge`, shared with the phone's plan page, so the
+ * two headers cannot disagree about whether there is a plan.
+ *
  * Three groups, and the outer two must not shrink. Letting them do so was a
  * real bug — at narrow widths the bar clipped the date and the temperature
  * instead of wrapping.
@@ -59,9 +62,21 @@ const items = computed<NavigationMenuItem[]>(() => [
            gap-x-6 gap-y-3 border-b border-default bg-default/85 px-6 py-3 backdrop-blur"
   >
     <div class="flex flex-none items-center gap-3 whitespace-nowrap">
-      <h1 class="text-xl font-semibold leading-none tracking-[-0.02em] text-highlighted">
-        {{ header.dayName }}
-      </h1>
+      <!--
+        The day is this app's wordmark, and pressing the wordmark goes home. The
+        heading stays a heading inside the link, so the page still has exactly
+        one — the button supplies the affordance, not the semantics.
+      -->
+      <UButton
+        to="/"
+        color="neutral"
+        variant="ghost"
+        :ui="{ base: '-mx-2 px-2 py-1' }"
+      >
+        <h1 class="text-xl font-semibold leading-none tracking-[-0.02em] text-highlighted">
+          {{ header.dayName }}
+        </h1>
+      </UButton>
       <USeparator
         orientation="vertical"
         class="h-5"
@@ -106,17 +121,7 @@ const items = computed<NavigationMenuItem[]>(() => [
     />
 
     <div class="ml-auto flex flex-none items-center gap-3 whitespace-nowrap">
-      <UBadge
-        :color="header.plan.generated ? 'primary' : 'neutral'"
-        variant="subtle"
-        class="gap-1.5"
-      >
-        <span
-          class="size-1.5 rounded-full"
-          :class="header.plan.generated ? 'bg-primary' : 'bg-[var(--ui-text-dimmed)]'"
-        />
-        {{ header.plan.label }}
-      </UBadge>
+      <AppPlanBadge />
 
       <!--
         Neutral with an amber dot, not an amber badge: this is a note about how

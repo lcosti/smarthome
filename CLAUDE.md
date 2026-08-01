@@ -122,14 +122,14 @@ and why. Current sanctioned exceptions:
 - `AppTabBar` — stacked icon-over-label equal-width columns aren't a
   `UNavigationMenu` layout; converting means rebuilding it inside an `#item`
   slot.
-- `BoardAvatar` — runtime pixel sizes and generated per-person oklch hues can't
-  be expressed as Tailwind classes.
-- `ChecklistRow` — full-row tap target containing a nested action button
-  (a `<label>` wrapping a button double-fires on iOS), plus a third `covered`
-  state `UCheckbox` has no room for.
+- `BoardAvatar` — the wall board only. Runtime pixel sizes and generated
+  per-person oklch hues can't be expressed as Tailwind classes, and colour is how
+  the board tells four people apart from across a kitchen. Everywhere a phone or
+  a laptop shows a person — the plan, the people page, the person editor — it is
+  a stock `UAvatar` on the default size scale.
 - **Card and row tap targets** whose content is a laid-out block rather than a
-  label — `RecipeRow`, `RecipeStepRow`, `IngredientLineRow`, `PlanNightRow`,
-  `PlanNightCard`, `BoardRecipeCard`, `BoardPersonChip`. A `UButton` renders its
+  label — `RecipeRow`, `RecipeStepRow`, `IngredientLineRow`, `PlanNightCard`,
+  `BoardRecipeCard`, `BoardPersonChip`. A `UButton` renders its
   content through `label`/slot inside a flex row; these need their own internal
   grid, and wrapping one in a button is cheaper than overriding four slots.
   A row whose content *is* a label is a `UButton` — see `people.vue`,
@@ -137,8 +137,30 @@ and why. Current sanctioned exceptions:
 - `IngredientSuggest` — the suggestion list only. `UInputMenu` calls
   `highlightFirstItem()` on every change, so an open menu owns the enter key;
   this field's rule is that enter always submits what was typed.
-- The hidden `<input type="file">` in `recipes/index.vue` — invisible plumbing
-  behind a `UButton`, not a control.
+- The macro bar in `RecipeNutritionPanel` — the segments only. `UProgress` draws
+  one value against a track; this is three series summing to a whole, and their
+  widths are runtime percentages rather than Tailwind classes. The scope toggle
+  above it is a stock `UTabs`, and every figure around it is plain text.
+- The step bar in cook mode — `recipes/[id]/cook.vue`. Same shape of exception:
+  `UProgress` draws one value against a track, and this is one segment per step,
+  where the number of segments is half of what it is telling you.
+- The hidden `<input type="file">` wherever a picture is chosen —
+  `recipes/index.vue`, `PersonEditor`, `recipes/[id]/index.vue`. Invisible
+  plumbing behind a `UButton`, not a control. `UFileUpload` brings a dropzone
+  none of them want, and `capture` makes iOS force the camera and silently drop
+  `multiple`.
+
+`PlanNightRow` used to be on this list and no longer exists. Both shapes of the
+plan show a night as `PlanNightCard` — a phone gets the same card in a column,
+with `:table="false"` dropping the roll-call along the bottom — so there is one
+answer to "what does a night look like" rather than two that drift.
+
+`ChecklistRow` used to be on this list and is not any more. The shopping list is
+a `UCheckboxGroup` (`ShoppingAisleCard`), which answered both of its objections:
+`variant="list"` keeps the root a plain element so only the text is a `<label>`
+and the edit button beside it is not — `.prevent` on that button stops the label
+forwarding the click — and the third `covered` state reads better as a badge than
+as a box nobody can tick anyway.
 
 ---
 
@@ -158,7 +180,9 @@ Roughly these tables. Everything scoped to a `household_id` with RLS.
   tomatoes", "canned tomatoes" all resolve to one row.
 - `ingredient_purchase_units` — how it's bought ("1 tin = 400g") so the list says
   something you can act on in an aisle.
-- `recipes` — name, source_url, base_servings, prep/cook minutes, method, tags
+- `recipes` — name, source_url, base_servings, prep/cook minutes, method, tags,
+  per-serving nutrition as the source printed it (kcal + seven gram columns,
+  all nullable — see `app/utils/nutrition.ts` for the field list)
 - `recipe_ingredients` — recipe_id, ingredient_id, quantity, unit, optional flag
 - `recipe_adaptations` — recipe_id, life_stage, guidance text
 - `meal_plans` / `meal_plan_entries` — date, meal, recipe_id, servings
@@ -213,9 +237,24 @@ Do not build 4 before 1 works and is in daily use.
   Function must ping the database every 2–3 days. Do not rely on the weekly
   generation job for this — a 7-day cycle racing a 7-day timer will lose.
 - **Migrations live in git as numbered SQL files.** Never make schema changes in
-  the Supabase dashboard table editor. Local dev is `supabase start` /
-  `supabase db reset`, which replays migrations from scratch and catches drift
-  immediately.
+  the Supabase dashboard table editor. Everything goes through
+  `pnpm supabase ...` — the CLI is a devDependency, so a bare `supabase` may be a
+  different version.
+- **Apply migrations with `pnpm supabase migration up`. Do not use
+  `db reset`.** A reset replays from scratch and drops everything in the local
+  database with it — that database is not scratch space, it holds the household's
+  real library. `migration up` applies what is pending and keeps the data. Reset
+  only against an empty stack you are deliberately rebuilding, and only after
+  checking `select count(*) from recipes`.
+- **A local database behind the bundle is the failure to look for first.** If
+  writes seem to vanish, or an imported field arrives empty, check
+  `supabase_migrations.schema_migrations` against `supabase/migrations/` before
+  suspecting the feature. Writes for columns the database has not got yet halt the
+  sync queue and wait (see `SCHEMA_DRIFT_CODES` in `app/utils/sync.ts`), so the
+  rows sit unsynced with a pending badge rather than being lost — but nothing
+  reaches the server until the migration lands. Edge Functions are the same trap
+  from the other end: `functions serve` must be restarted to pick up a change
+  under `_shared/`.
 - Free tier ceilings (500MB DB, 1GB storage, 5GB bandwidth, 50k MAU) are far
   beyond what this will ever use. It can live on free indefinitely.
 
@@ -224,7 +263,9 @@ Do not build 4 before 1 works and is in daily use.
 ## Explicitly out of scope
 
 - Multi-tenancy beyond one household
-- Nutrition tracking, calorie counting, macros
+- Nutrition *tracking* — daily totals, calorie counting, macro targets. Storing
+  a recipe's own per-serving figures (captured on import, editable on the recipe
+  page) is in; summing them across a plan or a day is not.
 - Supermarket basket integration (interesting, but depends on closed APIs)
 - Anything for users other than this family
 

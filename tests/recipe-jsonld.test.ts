@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractRecipeJsonLd, openGraphImage } from '../supabase/functions/_shared/jsonld'
+import { extractRecipeJsonLd, pageImage } from '../supabase/functions/_shared/jsonld'
 
 /** A page with the given JSON-LD payload embedded, plus enough noise to be real. */
 function page(payload: unknown, extra = ''): string {
@@ -144,6 +144,125 @@ describe('extractRecipeJsonLd', () => {
   })
 })
 
+describe('the nutrition panel', () => {
+  it('reads the panel a site publishes, units and all', () => {
+    const fed = {
+      ...RECIPE,
+      nutrition: {
+        '@type': 'NutritionInformation',
+        'calories': '480 calories',
+        'fatContent': '34 g',
+        'saturatedFatContent': '15&nbsp;g',
+        'carbohydrateContent': '15 g',
+        'sugarContent': '10 g',
+        'fiberContent': '5 g',
+        'proteinContent': '26 g',
+        'sodiumContent': '1.05 g'
+      }
+    }
+    expect(extractRecipeJsonLd(page(fed))?.nutrition).toEqual({
+      kcal: 480,
+      fat_g: 34,
+      saturates_g: 15,
+      carbs_g: 15,
+      sugars_g: 10,
+      fibre_g: 5,
+      protein_g: 26,
+      salt_g: 1.05
+    })
+  })
+
+  it('keeps the decimals a panel prints', () => {
+    const decimal = { ...RECIPE, nutrition: { '@type': 'NutritionInformation', 'fatContent': '34.5g' } }
+    expect(extractRecipeJsonLd(page(decimal))?.nutrition?.fat_g).toBe(34.5)
+  })
+
+  it('leaves out what the panel left out', () => {
+    const partial = { ...RECIPE, nutrition: { '@type': 'NutritionInformation', 'calories': '480 kcal' } }
+    const panel = extractRecipeJsonLd(page(partial))?.nutrition
+    expect(panel?.kcal).toBe(480)
+    expect(panel?.fat_g).toBeNull()
+    expect(panel?.salt_g).toBeNull()
+  })
+
+  it('turns milligrams of sodium into grams of salt', () => {
+    const american = { ...RECIPE, nutrition: { '@type': 'NutritionInformation', 'sodiumContent': '460 mg' } }
+    expect(extractRecipeJsonLd(page(american))?.nutrition?.salt_g).toBe(1.15)
+  })
+
+  it('keeps grams of sodiumContent as salt, which is what UK sites put there', () => {
+    const british = { ...RECIPE, nutrition: { '@type': 'NutritionInformation', 'sodiumContent': '1.05 g' } }
+    expect(extractRecipeJsonLd(page(british))?.nutrition?.salt_g).toBe(1.05)
+  })
+
+  /**
+   * The magnitude decides, not the word. BBC Good Food says "milligram of sodium"
+   * on a page printing salt 1.45g; a site saying the same words about a real
+   * milligram figure means it. Reading either literally breaks the other.
+   */
+  it.each([
+    ['1.45 milligram of sodium', 1.45],
+    ['1450 milligrams of sodium', 3.63],
+    ['0.8 milligrams', 0.8]
+  ])('reads sodiumContent %j as %j grams of salt', (written, expected) => {
+    const node = { ...RECIPE, nutrition: { '@type': 'NutritionInformation', 'sodiumContent': written } }
+    expect(extractRecipeJsonLd(page(node))?.nutrition?.salt_g).toBe(expected)
+  })
+})
+
+/**
+ * The panel exactly as bbcgoodfood.com/recipes/mushroom-risotto publishes it,
+ * against the figures its own page prints. A real page rather than a constructed
+ * one, because this is the site the household actually imports from — and because
+ * its sodiumContent wording is the trap the magnitude rule exists for.
+ */
+describe('a real BBC Good Food panel', () => {
+  it('reads the whole panel as the page prints it', () => {
+    const risotto = {
+      ...RECIPE,
+      name: 'Mushroom risotto',
+      recipeYield: 4,
+      nutrition: {
+        '@type': 'NutritionInformation',
+        'calories': '445 calories',
+        'fatContent': '17 grams fat',
+        'saturatedFatContent': '7.7 grams saturated fat',
+        'carbohydrateContent': '63 grams carbohydrates',
+        'sugarContent': '3 grams sugar',
+        'fiberContent': '4 grams fiber',
+        'proteinContent': '15 grams protein',
+        'sodiumContent': '1.45 milligram of sodium'
+      }
+    }
+    const recipe = extractRecipeJsonLd(page(risotto))
+    expect(recipe?.base_servings).toBe(4)
+    expect(recipe?.nutrition).toEqual({
+      kcal: 445,
+      fat_g: 17,
+      saturates_g: 7.7,
+      carbs_g: 63,
+      sugars_g: 3,
+      fibre_g: 4,
+      protein_g: 15,
+      salt_g: 1.45
+    })
+  })
+
+  it('reads kilojoules as the kcal the odd site means by calories', () => {
+    const kj = { ...RECIPE, nutrition: { '@type': 'NutritionInformation', 'calories': '2008 kJ' } }
+    expect(extractRecipeJsonLd(page(kj))?.nutrition?.kcal).toBe(480)
+  })
+
+  it('is null when the page published no panel', () => {
+    expect(extractRecipeJsonLd(page(RECIPE))?.nutrition).toBeNull()
+  })
+
+  it('is null rather than a panel of nothing', () => {
+    const empty = { ...RECIPE, nutrition: { '@type': 'NutritionInformation', 'calories': 'varies' } }
+    expect(extractRecipeJsonLd(page(empty))?.nutrition).toBeNull()
+  })
+})
+
 describe('the recipe photograph', () => {
   it('reads a bare address', () => {
     const withImage = { ...RECIPE, image: 'https://img.example.com/soup.jpg' }
@@ -173,34 +292,74 @@ describe('the recipe photograph', () => {
   })
 })
 
-describe('openGraphImage', () => {
+describe('pageImage', () => {
   it('reads the tag whichever order its attributes are in', () => {
-    expect(openGraphImage('<meta property="og:image" content="https://e.com/a.jpg">'))
+    expect(pageImage('<meta property="og:image" content="https://e.com/a.jpg">'))
       .toBe('https://e.com/a.jpg')
-    expect(openGraphImage('<meta content="https://e.com/b.jpg" property="og:image"/>'))
+    expect(pageImage('<meta content="https://e.com/b.jpg" property="og:image"/>'))
       .toBe('https://e.com/b.jpg')
   })
 
   it('accepts the name= and og:image:url spellings sites also use', () => {
-    expect(openGraphImage('<meta name="og:image" content="https://e.com/c.jpg">'))
+    expect(pageImage('<meta name="og:image" content="https://e.com/c.jpg">'))
       .toBe('https://e.com/c.jpg')
-    expect(openGraphImage('<meta property="og:image:url" content="https://e.com/d.jpg">'))
+    expect(pageImage('<meta property="og:image:url" content="https://e.com/d.jpg">'))
       .toBe('https://e.com/d.jpg')
   })
 
   it('decodes the entity-encoded ampersands a shared address arrives with', () => {
-    expect(openGraphImage('<meta property="og:image" content="https://e.com/e.jpg?w=1&amp;h=2">'))
+    expect(pageImage('<meta property="og:image" content="https://e.com/e.jpg?w=1&amp;h=2">'))
       .toBe('https://e.com/e.jpg?w=1&h=2')
   })
 
   it('keeps looking past a tag it cannot use', () => {
     const both = '<meta property="og:image" content="/relative.jpg">'
       + '<meta property="og:image" content="https://e.com/good.jpg">'
-    expect(openGraphImage(both)).toBe('https://e.com/good.jpg')
+    expect(pageImage(both)).toBe('https://e.com/good.jpg')
   })
 
-  it('is null when there is no og:image to read', () => {
-    expect(openGraphImage('<meta property="og:title" content="Dinner">')).toBeNull()
-    expect(openGraphImage('<html><body>Just words</body></html>')).toBeNull()
+  it('falls back to twitter:image, then rel=image_src', () => {
+    expect(pageImage('<meta name="twitter:image" content="https://e.com/t.jpg">'))
+      .toBe('https://e.com/t.jpg')
+    expect(pageImage('<meta name="twitter:image:src" content="https://e.com/s.jpg">'))
+      .toBe('https://e.com/s.jpg')
+    expect(pageImage('<link rel="image_src" href="https://e.com/l.jpg">'))
+      .toBe('https://e.com/l.jpg')
+  })
+
+  it('prefers what the page declares over what it merely paints first', () => {
+    const both = '<link rel="preload" as="image" href="https://e.com/hero.jpg">'
+      + '<meta property="og:image" content="https://e.com/shared.jpg">'
+    expect(pageImage(both)).toBe('https://e.com/shared.jpg')
+  })
+
+  it('takes the largest paint when a page publishes no social tags at all', () => {
+    // tomkerridge.com: no Recipe JSON-LD, og:* without an og:image, and the
+    // photograph named twice as the thing to paint first.
+    const preload = '<link rel="preload" data-rocket-preload as="image"'
+      + ' href="https://tomkerridge.com/wp-content/uploads/2020/11/Ribeye-square.jpg" fetchpriority="high">'
+    expect(pageImage(preload)).toBe('https://tomkerridge.com/wp-content/uploads/2020/11/Ribeye-square.jpg')
+
+    const img = '<img fetchpriority="high" src="https://e.com/dish.jpg" class="img-fluid" alt="Dinner">'
+    expect(pageImage(img)).toBe('https://e.com/dish.jpg')
+  })
+
+  it('reads a lazy hero out of data-src rather than its stub', () => {
+    const lazy = '<img fetchpriority="high" src="https://e.com/placeholder.gif"'
+      + ' data-src="https://e.com/dish.jpg">'
+    expect(pageImage(lazy)).toBe('https://e.com/dish.jpg')
+  })
+
+  it('will not guess its way to the masthead', () => {
+    const logo = '<img fetchpriority="high" src="https://e.com/TK-Logo-Gold.png">'
+      + '<img fetchpriority="high" src="https://e.com/dish.jpg">'
+    expect(pageImage(logo)).toBe('https://e.com/dish.jpg')
+    expect(pageImage('<link rel="preload" as="image" href="https://e.com/icons/sprite.svg">')).toBeNull()
+  })
+
+  it('is null when there is no picture to read', () => {
+    expect(pageImage('<meta property="og:title" content="Dinner">')).toBeNull()
+    expect(pageImage('<html><body>Just words</body></html>')).toBeNull()
+    expect(pageImage('<link rel="preload" as="font" href="https://e.com/f.woff2">')).toBeNull()
   })
 })

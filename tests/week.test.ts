@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addDays, dayLabel, isoDate, isoWeekNumber, mondayOf, todayIso, weekDates, weekLabel
+  addDays, dayLabel, isoDate, isoWeekNumber, mondayOf, splitWeek, todayIso, weekDates, weekLabel
 } from '../app/utils/week'
 
 describe('isoDate', () => {
@@ -154,5 +154,32 @@ describe('isoWeekNumber', () => {
   it('numbers a year that starts on a Thursday from the first', () => {
     // 1 January 2026 is a Thursday, so it is in week 1 by definition.
     expect(isoWeekNumber(new Date(2026, 0, 1))).toBe(1)
+  })
+})
+
+describe('splitWeek', () => {
+  const week = ['2026-07-27', '2026-07-28', '2026-07-29', '2026-07-30', '2026-07-31', '2026-08-01', '2026-08-02']
+    .map(date => ({ date }))
+
+  it('puts what has been cooked in the strip and what is ahead in the cards', () => {
+    const { strip, cards } = splitWeek(week, '2026-07-31')
+    expect(strip.map(n => n.date)).toEqual(['2026-07-27', '2026-07-28', '2026-07-29', '2026-07-30'])
+    expect(cards.map(n => n.date)).toEqual(['2026-07-31', '2026-08-01', '2026-08-02'])
+  })
+
+  it('keeps today in the cards, since tonight is still a decision', () => {
+    expect(splitWeek(week, '2026-08-02').cards.map(n => n.date)).toEqual(['2026-08-02'])
+  })
+
+  it('gives a week still to come no strip at all', () => {
+    const { strip, cards } = splitWeek(week, '2026-07-27')
+    expect(strip).toEqual([])
+    expect(cards).toHaveLength(7)
+  })
+
+  it('shows a week entirely in the past as cards rather than emptying the page', () => {
+    const { strip, cards } = splitWeek(week, '2026-08-10')
+    expect(strip).toEqual([])
+    expect(cards).toHaveLength(7)
   })
 })

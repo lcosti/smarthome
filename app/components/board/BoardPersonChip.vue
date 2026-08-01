@@ -36,6 +36,7 @@ const nameInk = computed(() => personColors(person.hue, { absent: person.absent 
   >
     <BoardAvatar
       :initial="person.initial"
+      :src="person.avatar"
       :hue="person.hue"
       :absent="person.absent"
       :size="24"

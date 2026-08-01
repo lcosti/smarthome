@@ -10,7 +10,7 @@
 // here — the target is one script tag with JSON in it, not the document.
 
 import { splitIngredientLine } from './ingredient-line.ts'
-import type { ExtractedLine, ExtractedRecipe } from './recipe-schema.ts'
+import type { ExtractedLine, ExtractedNutrition, ExtractedRecipe } from './recipe-schema.ts'
 
 const SCRIPTS = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
 
@@ -109,25 +109,64 @@ function image(value: unknown): string | null {
   return absoluteUrl(first(node.url)) ?? absoluteUrl(first(node.contentUrl))
 }
 
+/** Entity-encoded query separators are ordinary in a shared address. */
+function attribute(tag: string, name: string): string | null {
+  const found = tag.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']+)["']`, 'i'))?.[1]
+  return absoluteUrl(found?.replace(/&amp;/g, '&'))
+}
+
 /**
- * The page's og:image — the picture it wants shown when somebody shares it.
+ * Furniture rather than food. Only ever applied to the guessed picture below —
+ * a page that declares an address has said what it means, but a page we are
+ * reading the layout of can easily hand back its own masthead.
+ */
+const FURNITURE = /\b(?:logo|icon|favicon|sprite|avatar|placeholder|spacer|blank)\b/i
+
+/**
+ * The page's own picture of the dish.
  *
  * The backstop for both extraction paths. A page whose JSON-LD omits `image`
- * nearly always still has this, because it is what every social preview reads;
- * and a page with no JSON-LD at all went to the model, which is handed the page
- * as plain text with the tags stripped and so never saw an address to report.
+ * usually still declares one of these, because they are what social previews
+ * read; and a page with no JSON-LD at all went to the model, which is handed the
+ * page as plain text with the tags stripped and so never saw an address at all.
  *
- * Attribute order varies between sites, so this finds the tag first and reads
+ * In declaration order, most deliberate first: og:image, twitter:image,
+ * `rel="image_src"`, and finally whatever the page marked as its largest
+ * paint — `rel="preload" as="image"` or `fetchpriority="high"`. That last one is
+ * a guess rather than a statement, but it is a good one: it is how a page names
+ * the photograph at the top of itself, and some otherwise well-marked-up recipe
+ * sites (tomkerridge.com) publish no social tags whatsoever.
+ *
+ * Attribute order varies between sites, so this finds each tag first and reads
  * its attributes second rather than trying to spell every order in one pattern.
  */
-export function openGraphImage(html: string): string | null {
-  for (const tag of html.matchAll(/<meta\b[^>]*>/gi)) {
-    const meta = tag[0]!
-    if (!/\b(?:property|name)\s*=\s*["']og:image(?::url)?["']/i.test(meta)) continue
-    const content = meta.match(/\bcontent\s*=\s*["']([^"']+)["']/i)?.[1]
-    // Entity-encoded query separators are ordinary in a shared address.
-    const found = absoluteUrl(content?.replace(/&amp;/g, '&'))
-    if (found) return found
+export function pageImage(html: string): string | null {
+  const tags = [...html.matchAll(/<(?:meta|link|img)\b[^>]*>/gi)].map(match => match[0]!)
+
+  const declared = (test: RegExp, attr: string) => {
+    for (const tag of tags) {
+      if (!test.test(tag)) continue
+      const found = attribute(tag, attr)
+      if (found) return found
+    }
+    return null
+  }
+
+  const social = /\b(?:property|name)\s*=\s*["']og:image(?::url)?["']/i
+  const twitter = /\b(?:property|name)\s*=\s*["']twitter:image(?::src)?["']/i
+  const linked = /\brel\s*=\s*["']image_src["']/i
+
+  const stated = declared(social, 'content')
+    ?? declared(twitter, 'content')
+    ?? declared(linked, 'href')
+  if (stated) return stated
+
+  for (const tag of tags) {
+    const preloaded = /\brel\s*=\s*["']preload["']/i.test(tag) && /\bas\s*=\s*["']image["']/i.test(tag)
+    if (!preloaded && !/\bfetchpriority\s*=\s*["']high["']/i.test(tag)) continue
+    // Lazy-loaded heroes keep the real address in data-src and a stub in src.
+    const found = attribute(tag, 'href') ?? attribute(tag, 'data-src') ?? attribute(tag, 'src')
+    if (found && !FURNITURE.test(found)) return found
   }
   return null
 }
@@ -141,6 +180,96 @@ function servings(value: unknown): number | null {
   if (!match) return null
   const count = Number(match[0])
   return count > 0 ? count : null
+}
+
+const round2 = (value: number) => Math.round(value * 100) / 100
+
+/**
+ * A figure off a nutrition panel: the first number in "34 g", "34.5g",
+ * "480 calories", or a bare 34, and whether it was printed in milligrams —
+ * which changes what the number means, not just its scale.
+ *
+ * Both spellings of the unit count, because sites use both. What they cannot be
+ * trusted on is whether the word is *true* — see toSalt.
+ */
+function figure(value: unknown): { amount: number, milligrams: boolean } | null {
+  const raw = first(value)
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) && raw >= 0 ? { amount: raw, milligrams: false } : null
+  }
+  const cleaned = typeof raw === 'string' ? clean(raw).toLowerCase() : ''
+  // The word boundary binds to the unit, never after the optional group as a
+  // whole: trailing it would make "34.5g" backtrack the number itself down to 34.
+  const match = cleaned.match(/(\d+(?:\.\d+)?)\s*(mg\b|milligrams?\b)?/)
+  if (!match) return null
+  const amount = Number(match[1])
+  return Number.isFinite(amount) ? { amount, milligrams: Boolean(match[2]) } : null
+}
+
+function toGrams(value: unknown): number | null {
+  const found = figure(value)
+  if (!found) return null
+  return round2(found.milligrams ? found.amount / 1000 : found.amount)
+}
+
+/** schema.org `calories` means kcal; the odd site prints kilojoules instead. */
+function toKcal(value: unknown): number | null {
+  const raw = first(value)
+  const found = figure(raw)
+  if (!found) return null
+  const kilojoules = typeof raw === 'string' && /\bkj\b/i.test(clean(raw))
+  return Math.round(kilojoules ? found.amount / 4.184 : found.amount)
+}
+
+/**
+ * Above this, a `sodiumContent` figure is milligrams of sodium; below it, grams
+ * of salt. Nobody serves 25g of salt in a portion — that is a fifth of a lethal
+ * dose — and no meal contains 25mg of sodium, so the two ranges never overlap.
+ */
+const SODIUM_MG_FLOOR = 25
+
+/**
+ * Salt out of `sodiumContent`, the only field the vocabulary offers for it.
+ *
+ * Milligrams means sodium the element, which is how US labels print it — salt is
+ * sodium × 2.5. Grams means the figure is already salt: UK sites put their label's
+ * salt line here because there is nowhere else for it to go.
+ *
+ * The magnitude decides, not the stated unit, because the stated unit is often
+ * wrong. BBC Good Food publishes `"1.45 milligram of sodium"` on a page that
+ * prints **salt 1.45g** — take the word literally and a correct 1.45 becomes
+ * 0.0036. The ranges are three orders of magnitude apart, so the number itself is
+ * the more trustworthy signal and no real panel is ambiguous.
+ */
+function toSalt(value: unknown): number | null {
+  const found = figure(value)
+  if (!found) return null
+  return round2(found.amount >= SODIUM_MG_FLOOR ? found.amount * 2.5 / 1000 : found.amount)
+}
+
+/**
+ * The per-serving panel a site publishes as NutritionInformation.
+ *
+ * Per serving is assumed rather than checked: that is the convention for a
+ * Recipe's nutrition node, since recipeYield names the divisor. Null when the
+ * page published nothing usable — a panel of eight nulls is not a panel.
+ */
+function nutrition(value: unknown): ExtractedNutrition | null {
+  const raw = first(value)
+  if (typeof raw !== 'object' || raw === null) return null
+  const node = raw as Record<string, unknown>
+
+  const panel: ExtractedNutrition = {
+    kcal: toKcal(node.calories),
+    fat_g: toGrams(node.fatContent),
+    saturates_g: toGrams(node.saturatedFatContent),
+    carbs_g: toGrams(node.carbohydrateContent),
+    sugars_g: toGrams(node.sugarContent),
+    fibre_g: toGrams(node.fiberContent),
+    protein_g: toGrams(node.proteinContent),
+    salt_g: toSalt(node.sodiumContent)
+  }
+  return Object.values(panel).some(entry => entry !== null) ? panel : null
 }
 
 /**
@@ -230,6 +359,7 @@ export function extractRecipeJsonLd(html: string): ExtractedRecipe | null {
     // the one thing a HowToStep is for.
     steps: instructions(recipe.recipeInstructions),
     ingredients,
+    nutrition: nutrition(recipe.nutrition),
     image_url: image(recipe.image)
   }
 }

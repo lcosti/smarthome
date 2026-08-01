@@ -654,6 +654,26 @@ describe('the recipe library', () => {
     expect(count(searched, 'batch')).toBe(0)
   })
 
+  it('faceted on the shortlist, and tells the pane which way the button reads', () => {
+    const shortlisted = recipe('miso', 'Miso aubergine', {
+      shortlisted_at: '2026-08-01T09:00:00Z'
+    })
+    const model = buildRecipeLibrary(library({
+      recipes: [...LIBRARY_RECIPES, shortlisted],
+      facet: 'shortlist',
+      selectedId: 'miso'
+    }))
+
+    expect(model.cards.map(c => c.id)).toEqual(['miso'])
+    expect(model.facets.find(f => f.key === 'shortlist')?.count).toBe(1)
+    expect(model.detail?.shortlisted).toBe(true)
+
+    // Nothing shortlisted is the resting state, and it must not read as one.
+    const none = buildRecipeLibrary(library({ selectedId: 'orzo' }))
+    expect(none.facets.find(f => f.key === 'shortlist')?.count).toBe(0)
+    expect(none.detail?.shortlisted).toBe(false)
+  })
+
   it('finds a recipe by something in it, not just by its name', () => {
     const model = buildRecipeLibrary(library({ query: 'feta' }))
     expect(model.cards.map(c => c.id)).toEqual(['orzo'])
@@ -729,6 +749,27 @@ describe('the recipe library', () => {
     const model = buildRecipeLibrary(library({ selectedId: 'pork' }))
     expect(model.detail?.eyebrow).toBe('Library · never cooked')
     expect(model.detail?.history).toEqual([])
+  })
+
+  it('shows the household\'s own photograph over the source site\'s', () => {
+    const shot = recipe('shot', 'Photographed here', {
+      image_url: 'https://cdn.example/orzo.jpg',
+      photo: 'data:image/jpeg;base64,AAAA'
+    })
+    const linked = recipe('linked', 'Imported only', { image_url: 'https://cdn.example/x.jpg' })
+    const bare = recipe('bare', 'Neither')
+
+    const model = buildRecipeLibrary(library({ recipes: [shot, linked, bare], lines: [] }))
+    const imageOf = (id: string) => model.cards.find(card => card.id === id)?.image
+
+    expect(imageOf('shot')).toBe('data:image/jpeg;base64,AAAA')
+    expect(imageOf('linked')).toBe('https://cdn.example/x.jpg')
+    expect(imageOf('bare')).toBe(null)
+
+    // The detail pane resolves it the same way, not separately.
+    expect(buildRecipeLibrary(library({
+      recipes: [shot, linked, bare], lines: [], selectedId: 'shot'
+    })).detail?.image).toBe('data:image/jpeg;base64,AAAA')
   })
 
   it('falls back to the first card when the selection is searched away', () => {

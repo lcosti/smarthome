@@ -4,8 +4,11 @@ import { useListStore } from '../../../stores/list'
 import { useRecipesStore } from '../../../stores/recipes'
 import { useSyncStore } from '../../../stores/sync'
 import type { IngredientRow } from '../../../utils/db'
+import { NUTRITION_FIELDS, type NutritionKey } from '../../../utils/nutrition'
+import { photoForRecipe, pictureOf } from '../../../utils/photo'
 
 const route = useRoute()
+const toast = useToast()
 const store = useRecipesStore()
 const list = useListStore()
 const sync = useSyncStore()
@@ -16,6 +19,12 @@ const recipe = computed(() => store.recipeById(id.value))
 const lines = computed(() => store.ingredientsFor(id.value))
 const steps = computed(() => store.stepsFor(id.value))
 
+const estimator = useNutritionEstimate()
+/** The estimator only fills blanks, so a full panel gives it nothing to do. */
+const nutritionBlanks = computed(() =>
+  Boolean(recipe.value && NUTRITION_FIELDS.some(field => recipe.value![field.key] == null))
+)
+
 const draftName = ref('')
 const draftIngredient = ref('')
 const draftStep = ref('')
@@ -25,6 +34,10 @@ const confirmDelete = ref(false)
 const editingStepId = ref<string | null>(null)
 const stepEditorOpen = ref(false)
 const ingredientInput = useTemplateRef<{ focus: () => void }>('ingredientInput')
+const photoInput = useTemplateRef<HTMLInputElement>('photoInput')
+const savingPhoto = ref(false)
+
+const picture = computed(() => pictureOf(recipe.value))
 
 watch(recipe, (value) => {
   if (value && document.activeElement?.tagName !== 'INPUT') draftName.value = value.name
@@ -78,10 +91,53 @@ async function setServings(next: number) {
   await store.updateRecipe(id.value, { base_servings: Math.max(1, next) })
 }
 
+async function setNutrition(key: NutritionKey, next: number | null | undefined) {
+  const value = typeof next === 'number' && Number.isFinite(next) && next >= 0 ? next : null
+  if (!recipe.value || value === recipe.value[key]) return
+  await store.updateRecipe(id.value, { [key]: value })
+}
+
 async function saveMethod(event: Event) {
   const value = (event.target as HTMLTextAreaElement).value.trim()
   if (!recipe.value || value === (recipe.value.method ?? '')) return
   await store.updateRecipe(id.value, { method: value || null })
+}
+
+/**
+ * Give the recipe a photograph of the dish.
+ *
+ * Written the moment it is chosen, like the avatar on a person and unlike the
+ * name field above: picking a picture reads as done as soon as it appears, and
+ * there is no form here to submit.
+ *
+ * Shrunk on this device rather than anywhere else — a phone hands over three to
+ * twelve megabytes, and the row it is going into is replicated to every device
+ * in the house.
+ */
+async function onPhotoPicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // Cleared straight away so picking the same file twice in a row still fires.
+  input.value = ''
+  if (!file || savingPhoto.value) return
+
+  savingPhoto.value = true
+  try {
+    await store.updateRecipe(id.value, { photo: await photoForRecipe(file) })
+  } catch {
+    toast.add({
+      title: 'That photo could not be read',
+      description: 'Try another one, or take a new picture.',
+      color: 'warning',
+      icon: 'i-lucide-image-off'
+    })
+  } finally {
+    savingPhoto.value = false
+  }
+}
+
+async function removePhoto() {
+  await store.updateRecipe(id.value, { photo: null })
 }
 
 async function removeRecipe() {
@@ -120,6 +176,40 @@ async function removeRecipe() {
           variant="ghost"
           aria-label="Cook this recipe"
         />
+        <!-- In the header rather than beside the picture, so it is in the same
+             place whether or not there is one to change. -->
+        <UButton
+          v-if="recipe"
+          icon="i-lucide-camera"
+          color="neutral"
+          variant="ghost"
+          :loading="savingPhoto"
+          :aria-label="recipe.photo ? 'Change the photo' : 'Add a photo'"
+          @click="photoInput?.click()"
+        />
+        <UButton
+          v-if="recipe?.photo"
+          icon="i-lucide-image-off"
+          color="neutral"
+          variant="ghost"
+          aria-label="Remove the photo"
+          @click="removePhoto"
+        />
+        <!--
+          A bare input rather than UFileUpload, exactly as on the recipe import
+          and the person editor: nothing here is visible, the control people see
+          is the button beside it, and UFileUpload brings a dropzone this has no
+          use for. No `capture`, so the phone offers the camera and the library
+          rather than forcing the camera.
+        -->
+        <input
+          ref="photoInput"
+          type="file"
+          accept="image/*"
+          class="hidden"
+          data-testid="recipe-photo-input"
+          @change="onPhotoPicked"
+        >
         <!-- Imported recipes keep their address: the page has the photographs,
              the comments and whatever the method left out. -->
         <UButton
@@ -153,11 +243,11 @@ async function removeRecipe() {
           The wrapper collapses with the image, so nothing reserves the space.
         -->
         <div
-          v-if="recipe.image_url"
+          v-if="picture"
           class="-mt-1 aspect-video overflow-hidden rounded-lg bg-elevated/30"
         >
           <RecipeImage
-            :src="recipe.image_url"
+            :src="picture"
             :alt="recipe.name"
           />
         </div>
@@ -228,6 +318,69 @@ async function removeRecipe() {
             />
             <p class="ml-2 flex-1 text-sm text-dimmed">
               What the quantities above are written for.
+            </p>
+          </div>
+        </section>
+
+        <!--
+          What the source printed, kept as printed. Imports fill these in when
+          the page or photo carried a panel; anything else is typed by hand or
+          left empty — empty is the honest state, never zero. Nothing sums or
+          tracks these; they are facts about one serving of one recipe.
+        -->
+        <section>
+          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
+            Nutrition
+          </h2>
+          <p class="mb-2 text-sm text-dimmed">
+            Per serving, as the source states it.
+          </p>
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <UFormField
+              v-for="field in NUTRITION_FIELDS"
+              :key="field.key"
+              :label="field.unit === 'g' ? `${field.label} (g)` : field.label"
+            >
+              <UInputNumber
+                :model-value="recipe[field.key] ?? undefined"
+                :min="0"
+                :step="field.key === 'kcal' ? 1 : 0.01"
+                :format-options="{ maximumFractionDigits: 2 }"
+                size="lg"
+                class="w-full"
+                :aria-label="field.label"
+                @update:model-value="setNutrition(field.key, $event)"
+              />
+            </UFormField>
+          </div>
+
+          <!--
+            The one deliberate exception to "as the source states it": estimated
+            figures land in the same editable boxes, but only the empty ones —
+            an estimate never overwrites what a source printed or a person typed.
+            Clearing a field is how you ask for it to be re-estimated.
+          -->
+          <div class="mt-3 flex items-center gap-3">
+            <UButton
+              icon="i-lucide-sparkles"
+              color="neutral"
+              variant="subtle"
+              label="Estimate the blanks"
+              :loading="estimator.busy.value"
+              :disabled="!lines.length || !nutritionBlanks"
+              @click="estimator.estimate(id)"
+            />
+            <p
+              v-if="estimator.error.value"
+              class="text-sm text-error"
+            >
+              {{ estimator.error.value }}
+            </p>
+            <p
+              v-else
+              class="text-sm text-dimmed"
+            >
+              A model's guess from the ingredients — it fills only what's empty.
             </p>
           </div>
         </section>

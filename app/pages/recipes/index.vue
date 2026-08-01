@@ -2,6 +2,7 @@
 import { usePlanStore } from '../../stores/plan'
 import { useRecipesStore } from '../../stores/recipes'
 import { useSyncStore } from '../../stores/sync'
+import { pictureOf } from '../../utils/photo'
 import { looksLikeUrl } from '../../utils/recipe-import'
 import { dayLabel } from '../../utils/week'
 
@@ -99,67 +100,59 @@ async function land(recipeId: string | null) {
     class="flex h-full flex-col"
   >
     <AppPageHeader :title="swapDate ? `Pick a meal for ${dayLabel(swapDate)}` : 'Recipes'">
-      <div>
-        <UForm
-          :state="{ draft }"
-          class="flex gap-2"
-          @submit="add"
-        >
-          <UInput
-            v-model="draft"
-            size="xl"
-            placeholder="Search, add or paste a link"
-            autocapitalize="sentences"
-            enterkeyhint="done"
-            class="flex-1"
-            data-testid="recipe-draft"
-          />
-          <UButton
-            type="submit"
-            size="xl"
-            :icon="pasted ? 'i-lucide-link' : 'i-lucide-plus'"
-            :disabled="!draft.trim() || recipeImport.busy.value"
-            :aria-label="pasted ? 'Import recipe from the link' : 'Add recipe'"
-          />
-          <UButton
-            size="xl"
-            color="neutral"
-            variant="outline"
-            :icon="recipeImport.busy.value ? '' : 'i-lucide-camera'"
-            :loading="recipeImport.busy.value"
-            :disabled="recipeImport.busy.value"
-            aria-label="Add recipe from a photo"
-            @click="photoInput?.click()"
-          />
-          <!-- A bare input rather than UFileUpload, because nothing here is
-               visible: the control people see is the UButton above, and this is
-               only the file picker it opens. UFileUpload brings a dropzone and a
-               model this flow has no use for.
+      <UForm
+        :state="{ draft }"
+        class="flex gap-2"
+        @submit="add"
+      >
+        <UInput
+          v-model="draft"
+          size="xl"
+          placeholder="Search, add or paste a link"
+          autocapitalize="sentences"
+          enterkeyhint="done"
+          class="flex-1"
+          data-testid="recipe-draft"
+        />
+        <UButton
+          type="submit"
+          size="xl"
+          :icon="recipeImport.busy.value ? '' : (pasted ? 'i-lucide-link' : 'i-lucide-plus')"
+          :loading="recipeImport.busy.value"
+          :disabled="!draft.trim() || recipeImport.busy.value"
+          :aria-label="pasted ? 'Import recipe from the link' : 'Add recipe'"
+        />
+        <UButton
+          size="xl"
+          color="neutral"
+          variant="outline"
+          :icon="recipeImport.busy.value ? '' : 'i-lucide-camera'"
+          :loading="recipeImport.busy.value"
+          :disabled="recipeImport.busy.value"
+          aria-label="Add recipe from a photo"
+          @click="photoInput?.click()"
+        />
+        <!-- A bare input rather than UFileUpload, because nothing here is
+             visible: the control people see is the UButton above, and this is
+             only the file picker it opens. UFileUpload brings a dropzone and a
+             model this flow has no use for.
 
-               No `capture` attribute: on iOS it forces the camera and silently
-               drops `multiple`, and a cookbook recipe often needs two photos.
-               Without it the phone offers camera or library, both of which work. -->
-          <input
-            ref="photoInput"
-            type="file"
-            accept="image/*"
-            multiple
-            class="hidden"
-            data-testid="recipe-photo-input"
-            @change="onPhotosPicked"
-          >
-        </UForm>
-
-        <p
-          v-if="recipeImport.progress.value"
-          class="mt-2 text-sm text-muted"
+             No `capture` attribute: on iOS it forces the camera and silently
+             drops `multiple`, and a cookbook recipe often needs two photos.
+             Without it the phone offers camera or library, both of which work. -->
+        <input
+          ref="photoInput"
+          type="file"
+          accept="image/*"
+          multiple
+          class="hidden"
+          data-testid="recipe-photo-input"
+          @change="onPhotosPicked"
         >
-          {{ recipeImport.progress.value }}
-        </p>
-      </div>
+      </UForm>
     </AppPageHeader>
 
-    <main class="mx-auto w-full max-w-xl min-h-0 flex-1 overflow-y-auto px-3 pb-6">
+    <main class="mx-auto flex w-full max-w-xl min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-6">
       <LoadingState v-if="!sync.hydrated" />
 
       <UEmpty
@@ -167,6 +160,7 @@ async function land(recipeId: string | null) {
         icon="i-lucide-chef-hat"
         title="No recipes yet."
         description="Type above to add the first one."
+        class="flex-1"
       />
 
       <UEmpty
@@ -174,6 +168,7 @@ async function land(recipeId: string | null) {
         icon="i-lucide-search-x"
         :title="`Nothing matches “${draft.trim()}”.`"
         description="Press add to make it a new recipe."
+        class="flex-1"
       />
 
       <ul
@@ -186,7 +181,7 @@ async function land(recipeId: string | null) {
           :name="item.name"
           :ingredient-count="store.ingredientsFor(item.id).length"
           :servings="item.base_servings"
-          :image-url="item.image_url"
+          :image-url="pictureOf(item)"
           @select="pick(item.id)"
         />
       </ul>

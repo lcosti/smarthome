@@ -64,7 +64,7 @@ defineEmits<{ select: [] }>()
         variant="solid"
         icon="i-lucide-package-check"
         label="Have it all"
-        class="absolute bottom-2.5 left-2.5 px-2 py-0.5 font-mono text-[11px] tracking-[0.06em]"
+        class="absolute bottom-2.5 left-2.5 px-2 py-0.5 text-[11px]"
       />
     </div>
 

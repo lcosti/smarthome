@@ -591,6 +591,7 @@ export type Database = {
       people: {
         Row: {
           auth_user_id: string | null
+          avatar: string | null
           created_at: string
           date_of_birth: string | null
           deleted_at: string | null
@@ -601,6 +602,7 @@ export type Database = {
         }
         Insert: {
           auth_user_id?: string | null
+          avatar?: string | null
           created_at?: string
           date_of_birth?: string | null
           deleted_at?: string | null
@@ -611,6 +613,7 @@ export type Database = {
         }
         Update: {
           auth_user_id?: string | null
+          avatar?: string | null
           created_at?: string
           date_of_birth?: string | null
           deleted_at?: string | null
@@ -751,44 +754,74 @@ export type Database = {
       recipes: {
         Row: {
           base_servings: number
+          carbs_g: number | null
           cook_minutes: number | null
           created_at: string
           deleted_at: string | null
+          fat_g: number | null
+          fibre_g: number | null
           household_id: string
           id: string
           image_url: string | null
+          kcal: number | null
           method: string | null
           name: string
+          photo: string | null
           prep_minutes: number | null
+          protein_g: number | null
+          salt_g: number | null
+          saturates_g: number | null
+          shortlisted_at: string | null
           source_url: string | null
+          sugars_g: number | null
           updated_at: string
         }
         Insert: {
           base_servings?: number
+          carbs_g?: number | null
           cook_minutes?: number | null
           created_at?: string
           deleted_at?: string | null
+          fat_g?: number | null
+          fibre_g?: number | null
           household_id: string
           id: string
           image_url?: string | null
+          kcal?: number | null
           method?: string | null
           name: string
+          photo?: string | null
           prep_minutes?: number | null
+          protein_g?: number | null
+          salt_g?: number | null
+          saturates_g?: number | null
+          shortlisted_at?: string | null
           source_url?: string | null
+          sugars_g?: number | null
           updated_at?: string
         }
         Update: {
           base_servings?: number
+          carbs_g?: number | null
           cook_minutes?: number | null
           created_at?: string
           deleted_at?: string | null
+          fat_g?: number | null
+          fibre_g?: number | null
           household_id?: string
           id?: string
           image_url?: string | null
+          kcal?: number | null
           method?: string | null
           name?: string
+          photo?: string | null
           prep_minutes?: number | null
+          protein_g?: number | null
+          salt_g?: number | null
+          saturates_g?: number | null
+          shortlisted_at?: string | null
           source_url?: string | null
+          sugars_g?: number | null
           updated_at?: string
         }
         Relationships: [

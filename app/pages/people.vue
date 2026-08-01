@@ -3,6 +3,7 @@ import { usePeopleStore } from '../stores/people'
 import { useSyncStore } from '../stores/sync'
 import { isHardConstraint } from '../utils/attendance'
 import { ageLabel, STAGE_LABEL } from '../utils/people'
+import { initialOf } from '../utils/person-colors'
 import { useToday } from '../composables/useToday'
 
 const store = usePeopleStore()
@@ -69,6 +70,12 @@ async function addPerson() {
               class="min-h-12 min-w-0 gap-2 px-3 py-3 text-left font-normal"
               @click="edit(person.id)"
             >
+              <UAvatar
+                :src="person.avatar ?? undefined"
+                :alt="person.name"
+                :text="initialOf(person.name)"
+                size="md"
+              />
               <span class="min-w-0 flex-1">
                 <span class="block truncate">{{ person.name }}</span>
                 <span class="block truncate text-xs text-dimmed">

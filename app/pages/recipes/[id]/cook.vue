@@ -46,6 +46,14 @@ const dateLabel = computed(() =>
   now.value.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })
 )
 
+// What the dish costs you, in one line. Set in the mono face — figures you
+// compare, never prose.
+const metaLine = computed(() => [
+  minutes.value ? `${minutes.value} min` : null,
+  recipe.value?.kcal ? `${recipe.value.kcal} kcal` : null,
+  `serves ${recipe.value?.base_servings}`
+].filter(Boolean).join(' · '))
+
 // --- the ingredients you have already got out --------------------------------
 
 const checked = ref(new Set<string>())
@@ -57,6 +65,28 @@ function toggleLine(lineId: string) {
 }
 
 const checkedCount = computed(() => lines.value.filter(line => checked.value.has(line.id)).length)
+
+/**
+ * Which pane the phone is showing.
+ *
+ * A wide screen puts the step and the ingredients side by side, because it has
+ * the room and glancing across costs nothing. A phone has room for exactly one
+ * of them, and stacking the two — the old answer — meant the step you are
+ * cooking scrolled off the top the moment you checked what was in it.
+ *
+ * So on a phone they are two tabs, and the tab you are not on carries its own
+ * count: "Ingredients 3/11" answers the question most glances at that list were
+ * asking anyway, without switching.
+ *
+ * Session state like the ticks and the step, and only consulted below `lg` —
+ * the wide layout renders both panes whatever this says.
+ */
+const pane = ref<'steps' | 'ingredients'>('steps')
+
+const panes = computed(() => [
+  { label: 'Steps', value: 'steps' },
+  { label: `Ingredients ${checkedCount.value}/${lines.value.length}`, value: 'ingredients' }
+])
 
 /**
  * The next one to get out.
@@ -192,15 +222,59 @@ onUnmounted(() => {
     class="flex h-full min-h-0 flex-col"
   >
     <div class="flex shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 border-b border-default px-4 py-3 lg:px-6 lg:py-3.5">
-      <div class="flex min-w-0 items-center gap-3.5">
-        <span class="text-lg font-semibold tracking-[-0.02em] text-highlighted lg:text-xl">{{ dayName }}</span>
-        <span class="h-5 w-px shrink-0 bg-accented" />
-        <span class="text-lg text-muted lg:text-xl">{{ dateLabel }}</span>
+      <div class="flex min-w-0 flex-1 items-center gap-3 lg:flex-none lg:gap-3.5">
+        <!--
+          Leaving is a labelled button on a laptop and a cross on a phone, where
+          the width it would cost is width the recipe's name is using. Same
+          destination, same place on the screen it was already looked for.
+        -->
+        <UButton
+          to="/"
+          icon="i-lucide-x"
+          color="neutral"
+          variant="ghost"
+          size="lg"
+          aria-label="Exit cook mode"
+          class="-ms-2 shrink-0 lg:hidden"
+        />
+
+        <!--
+          The day on a wall board, the dish on a phone. A tablet propped in the
+          kitchen is also a calendar and wants to say which day it is; a phone
+          in your hand was opened from the recipe and needs to confirm which one
+          it opened.
+        -->
+        <div class="hidden items-center gap-3.5 lg:flex">
+          <span class="text-lg font-semibold tracking-[-0.02em] text-highlighted lg:text-xl">{{ dayName }}</span>
+          <span class="h-5 w-px shrink-0 bg-accented" />
+          <span class="text-lg text-muted lg:text-xl">{{ dateLabel }}</span>
+        </div>
+
+        <div class="min-w-0 lg:hidden">
+          <h1 class="truncate text-base font-semibold tracking-[-0.02em] text-highlighted">
+            {{ recipe.name }}
+          </h1>
+          <p class="truncate font-mono text-xs text-dimmed">
+            {{ metaLine }}
+          </p>
+        </div>
+
+        <!--
+          One badge, at the end of the day on a wide screen and pushed to the
+          far edge on a phone by `ms-auto` — the group it sits in is the whole
+          header row there, because everything to its right is hidden.
+
+          It gives a phone's top bar back to a running timer. There is only room
+          for one of them beside the dish's name, and between a label saying
+          where you already are and the number telling you when to go back to a
+          pan, the pan wins.
+        -->
         <UBadge
           color="primary"
           variant="outline"
           label="Cook mode"
-          class="shrink-0"
+          class="shrink-0 max-lg:ms-auto"
+          :class="pinned.length ? 'max-lg:hidden' : ''"
         />
       </div>
 
@@ -209,57 +283,67 @@ onUnmounted(() => {
           A timer left running on another step. Amber while it counts, solid
           when it goes off, and pressing it takes you back to the pan.
         -->
-        <button
+        <UButton
           v-for="timer in pinned"
           :key="timer.id"
-          type="button"
           data-cook-pinned
-          class="flex h-[34px] items-center gap-2.5 rounded-full px-3.5 transition-opacity duration-[80ms] active:opacity-85"
-          :class="timer.done ? 'bg-primary text-inverted' : 'bg-primary/10 text-primary ring ring-primary/25'"
+          color="primary"
+          :variant="timer.done ? 'solid' : 'subtle'"
+          size="lg"
+          class="gap-2.5 rounded-full"
           @click="goTo(timer.index)"
         >
           <span class="size-2 shrink-0 rounded-full bg-current" />
           <span class="text-sm font-medium">{{ timer.name }}</span>
           <span class="font-mono text-sm tabular-nums">{{ formatCountdown(timer.left) }}</span>
-        </button>
+        </UButton>
 
-        <span class="hidden font-mono text-sm text-dimmed sm:inline">
-          <template v-if="minutes">{{ minutes }} min · </template>serves {{ recipe.base_servings }}
-        </span>
+        <!-- Both already under the recipe's name on a phone. -->
+        <span class="hidden font-mono text-sm text-dimmed lg:inline">{{ metaLine }}</span>
         <UButton
           to="/"
           color="neutral"
           variant="subtle"
           size="lg"
           label="Exit"
-          class="shrink-0"
+          class="hidden shrink-0 lg:inline-flex"
         />
       </div>
     </div>
 
+    <!-- The phone's pane switch. Absent above `lg`, which shows both. -->
+    <UTabs
+      v-model="pane"
+      :items="panes"
+      color="neutral"
+      variant="pill"
+      size="lg"
+      :ui="{ root: 'shrink-0 p-3 lg:hidden', list: 'w-full', trigger: 'flex-1' }"
+    />
+
     <!--
-      The step first on a phone and the ingredients under it; side by side with
-      room to spare on a wide screen. Cooking is the step — the ingredients are
-      what you glance back at — and on a narrow screen whichever comes first is
-      the one you are looking at.
+      Side by side on a wide screen, one at a time on a phone. Cooking is the
+      step; the ingredients are what you glance back at.
+
+      Nothing here scrolls at any width — each pane does its own, so the step's
+      footer stays under your thumb rather than being chased down a long method.
     -->
-    <!--
-      Scrolls on a phone, where the two cards are stacked and a long method is
-      taller than the screen. On a wide screen the panes are side by side and do
-      their own scrolling, so the region itself must not.
-    -->
-    <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 lg:grid lg:grid-cols-[1fr_1.9fr] lg:gap-4 lg:overflow-hidden lg:p-6">
+    <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-0 lg:grid-cols-[1fr_1.9fr] lg:p-6">
       <UCard
         variant="outline"
         :ui="{
-          root: 'order-2 flex min-h-0 flex-col overflow-hidden rounded-lg bg-elevated lg:order-1',
-          header: 'px-5 py-4 sm:px-5',
+          root: `flex min-h-0 flex-col overflow-hidden bg-elevated
+                 max-lg:rounded-none max-lg:bg-default max-lg:ring-0
+                 ${pane === 'ingredients' ? '' : 'max-lg:hidden'}`,
+          // The recipe's name is in the top bar on a phone and the tab above
+          // says what this list is, so the header has nothing left to add.
+          header: 'px-5 py-4 max-lg:hidden sm:px-5',
           body: 'flex min-h-0 flex-1 flex-col p-0 sm:p-0',
           footer: 'flex flex-none items-center justify-between px-5 py-3.5 sm:px-5'
         }"
       >
         <template #header>
-          <h3 class="font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
+          <h3 class="text-xs font-medium uppercase tracking-wide text-dimmed">
             Ingredients
           </h3>
           <h2 class="mt-1.5 truncate text-xl font-semibold tracking-[-0.02em] text-highlighted">
@@ -323,20 +407,29 @@ onUnmounted(() => {
       <UCard
         variant="outline"
         :ui="{
-          root: 'order-1 flex min-h-0 flex-col overflow-hidden rounded-lg bg-elevated lg:order-2',
-          header: 'flex items-center gap-6 px-5 py-4 sm:px-6',
-          body: 'flex min-h-0 flex-1 flex-col gap-6 px-5 py-5 sm:p-0 sm:px-6 sm:py-6',
-          footer: 'flex flex-none items-center justify-between gap-4 px-5 py-4 sm:px-6'
+          root: `flex min-h-0 flex-col overflow-hidden bg-elevated
+                 max-lg:rounded-none max-lg:bg-default max-lg:ring-0
+                 ${pane === 'steps' ? '' : 'max-lg:hidden'}`,
+          header: 'flex items-center gap-4 px-5 py-4 sm:px-6 lg:gap-6',
+          // Scrolls itself, so a nine-line step on a phone never pushes Next
+          // step off the bottom of the screen.
+          body: 'flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-5 py-5 sm:p-0 sm:px-6 sm:py-6',
+          footer: 'flex flex-none items-center justify-between gap-3 px-5 py-4 sm:px-6 lg:gap-4'
         }"
       >
         <template #header>
-          <h3 class="shrink-0 font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
+          <h3 class="shrink-0 text-xs font-medium uppercase tracking-wide text-dimmed">
             Step {{ steps.length ? stepIndex + 1 : 0 }} of {{ steps.length }}
           </h3>
           <!--
             The bar fills as you go rather than lighting only the current
             segment: at step seven of nine you want to see that you are nearly
             done, not one lit stripe adrift in the grey.
+
+            Custom, replacing UProgress: that draws one value against one track,
+            and this is n discrete segments where n is the number of steps —
+            the count is the information, because it is also how far there is
+            left to go.
           -->
           <div
             v-if="steps.length"
@@ -352,18 +445,28 @@ onUnmounted(() => {
         </template>
 
         <template v-if="content">
-          <p class="text-pretty text-2xl font-semibold leading-[1.15] tracking-[-0.02em] text-highlighted lg:text-4xl">
+          <!--
+            The one serif thing on the screen. Everything around it — the
+            ingredients, the timer, the tip — is interface, and interface is
+            Public Sans; this is the sentence you are actually reading.
+
+            No negative tracking, unlike every other heading here. That was
+            compensating for a sans set large, and Source Serif 4 is drawn with
+            its own fit — tightening it closes the counters at exactly the size
+            they have to survive being read from across a kitchen.
+          -->
+          <p class="text-pretty font-serif text-3xl leading-[1.15] text-highlighted lg:text-4xl">
             {{ content.main }}
           </p>
 
           <!-- No time in the prose, no timer. A guess is not worth a button. -->
           <div v-if="duration">
-            <div class="flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-3 lg:flex-wrap">
               <UButton
                 color="primary"
                 :variant="timerPhase === 'finished' ? 'solid' : 'subtle'"
                 size="xl"
-                class="h-14 gap-4 lg:h-16 lg:gap-5 lg:px-6"
+                class="h-14 gap-2.5 max-lg:flex-1 max-lg:justify-center lg:h-16 lg:gap-5 lg:px-6"
                 @click="startTimer()"
               >
                 <span class="size-2.5 shrink-0 rounded-full bg-current" />
@@ -372,13 +475,18 @@ onUnmounted(() => {
                   once it is running — at that point the number beside it is
                   the sentence, and repeating how long it was is noise.
                 -->
-                <span class="text-base font-medium lg:text-lg">
+                <!--
+                  One line, always. "Start soak 20 min" broken over two is the
+                  button changing height between steps, which is the one thing
+                  a control you aim at with the back of a wrist must not do.
+                -->
+                <span class="whitespace-nowrap text-base font-medium lg:text-lg">
                   {{ timerPhase === 'idle'
                     ? `Start ${duration.name ? `${duration.name.toLowerCase()} ` : ''}${duration.label}`
                     : timerPhase === 'running' ? (duration.name ?? 'Timer') : `${duration.name ?? 'Timer'} done` }}
                 </span>
                 <span class="h-7 w-px shrink-0 bg-current opacity-25" />
-                <span class="font-mono text-xl tabular-nums lg:text-2xl">{{ formatCountdown(remaining) }}</span>
+                <span class="font-mono text-lg tabular-nums lg:text-2xl">{{ formatCountdown(remaining) }}</span>
               </UButton>
 
               <UButton
@@ -428,6 +536,15 @@ onUnmounted(() => {
           v-if="steps.length"
           #footer
         >
+          <!--
+            Back is an arrow on a phone and a labelled button on a laptop. It is
+            the one you press by mistake, and the width it gives up goes to the
+            one you meant — which on a phone runs the rest of the row, because a
+            wet hand aiming at it should not have to aim.
+
+            `sr-only` rather than hidden: the label is still the button's name
+            for anything reading the screen out.
+          -->
           <UButton
             icon="i-lucide-arrow-left"
             color="neutral"
@@ -435,7 +552,8 @@ onUnmounted(() => {
             size="xl"
             label="Previous"
             :disabled="stepIndex === 0"
-            class="h-14"
+            class="h-14 shrink-0"
+            :ui="{ label: 'sr-only lg:not-sr-only' }"
             @click="goTo(stepIndex - 1)"
           />
           <UButton
@@ -446,7 +564,7 @@ onUnmounted(() => {
             size="xl"
             label="Finish"
             trailing-icon="i-lucide-check"
-            class="h-14 font-semibold"
+            class="h-14 font-semibold max-lg:flex-1 max-lg:justify-center"
           />
           <UButton
             v-else
@@ -455,7 +573,7 @@ onUnmounted(() => {
             size="xl"
             label="Next step"
             trailing-icon="i-lucide-arrow-right"
-            class="h-14"
+            class="h-14 max-lg:flex-1 max-lg:justify-center"
             @click="goTo(stepIndex + 1)"
           />
         </template>

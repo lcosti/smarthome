@@ -9,10 +9,15 @@
  * half-written recipe.
  */
 
+import { NUTRITION_FIELDS, type NutritionKey } from './nutrition'
+
 export interface ExtractedIngredient {
   name: string
   quantity: string | null
 }
+
+/** Per serving, as the source printed it. The keys are the recipes columns. */
+export type ExtractedNutrition = Record<NutritionKey, number | null>
 
 export interface ExtractedRecipe {
   name: string
@@ -22,6 +27,8 @@ export interface ExtractedRecipe {
   /** In cooking order. Empty when the source had no method to read. */
   steps: string[]
   ingredients: ExtractedIngredient[]
+  /** The source's per-serving nutrition panel, or null when it had none. */
+  nutrition: ExtractedNutrition | null
   /** The picture the source page published, or null. Always an absolute address. */
   image_url: string | null
 }
@@ -54,6 +61,28 @@ export function splitMethodIntoSteps(method: string): string[] {
     .split(/\n\s*\n/)
     .map(step => step.trim())
     .filter(Boolean)
+}
+
+/**
+ * A nutrition panel a function answered with, reduced to what is storable:
+ * finite non-negative numbers per known field, anything else null. Null overall
+ * when nothing survives — including everything an undeployed function answers,
+ * which is nothing. Exported because the estimator's answer crosses the same
+ * boundary as the importers' and gets the same treatment.
+ */
+export function asNutrition(value: unknown): ExtractedNutrition | null {
+  if (typeof value !== 'object' || value === null) return null
+  const raw = value as Record<string, unknown>
+
+  const panel = {} as ExtractedNutrition
+  let anything = false
+  for (const { key } of NUTRITION_FIELDS) {
+    const entry = raw[key]
+    const usable = typeof entry === 'number' && Number.isFinite(entry) && entry >= 0
+    panel[key] = usable ? entry : null
+    if (usable) anything = true
+  }
+  return anything ? panel : null
 }
 
 /**
@@ -159,6 +188,7 @@ export function coerceExtractedRecipe(input: unknown): ExtractedRecipe | null {
     cook_minutes: asMinutes(raw.cook_minutes),
     steps,
     ingredients,
+    nutrition: asNutrition(raw.nutrition),
     image_url: asImageUrl(raw.image_url)
   }
 }

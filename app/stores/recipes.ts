@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
+import { guessAisleId } from '../utils/aisles'
 import type { RecipeIngredientRow, RecipeRow, RecipeStepRow } from '../utils/db'
+import { shoppingName } from '../utils/shopping-name'
 import { plainCopy } from '../utils/sync'
 import { useListStore } from './list'
 import { nowIso, useSyncStore } from './sync'
@@ -66,7 +68,13 @@ export const useRecipesStore = defineStore('recipes', () => {
       if (!row.aisle_id || row.deleted_at || normaliseName(row.name) !== key) continue
       if (!best || row.updated_at > best.updated_at) best = row
     }
-    return best?.aisle_id ?? null
+    if (best) return best.aisle_id
+
+    // Nothing to remember, which is every line of the first recipe imported into
+    // an empty library. Guessed from the built-in list against the household's
+    // own aisles, on the tidied name so "garlic cloves finely chopped" is looked
+    // up as garlic. Anything learned above outranks this.
+    return guessAisleId(shoppingName(name), list.aisles.values())
   }
 
   async function addRecipe(input: {
@@ -88,6 +96,16 @@ export const useRecipesStore = defineStore('recipes', () => {
       cook_minutes: null,
       method: null,
       image_url: input.image_url ?? null,
+      photo: null,
+      kcal: null,
+      fat_g: null,
+      saturates_g: null,
+      carbs_g: null,
+      sugars_g: null,
+      fibre_g: null,
+      protein_g: null,
+      salt_g: null,
+      shortlisted_at: null,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp
@@ -95,12 +113,40 @@ export const useRecipesStore = defineStore('recipes', () => {
   }
 
   type RecipePatch = Partial<Pick<RecipeRow,
-    'name' | 'source_url' | 'base_servings' | 'prep_minutes' | 'cook_minutes' | 'method' | 'image_url'>>
+    'name' | 'source_url' | 'base_servings' | 'prep_minutes' | 'cook_minutes' | 'method' | 'image_url' | 'photo'
+    | 'kcal' | 'fat_g' | 'saturates_g' | 'carbs_g' | 'sugars_g' | 'fibre_g' | 'protein_g' | 'salt_g'>>
 
   async function updateRecipe(id: string, patch: RecipePatch) {
     const current = all.value.get(id)
     if (!current) return
     await sync.commit('recipes', { ...plainCopy(current), ...patch })
+  }
+
+  /** What the household fancies soon, most recently added first. */
+  const shortlisted = computed(() =>
+    recipes.value
+      .filter(recipe => recipe.shortlisted_at)
+      .sort((a, b) => b.shortlisted_at!.localeCompare(a.shortlisted_at!))
+  )
+
+  /**
+   * Put a recipe on the shortlist, or take it off.
+   *
+   * A timestamp rather than a flag, so the list has an order without a second
+   * column, and a full-row upsert like everything else — two phones shortlisting
+   * the same recipe converge, and doing it in airplane mode queues.
+   *
+   * The generator reads this as its largest bonus (WEIGHTS.shortlistBonus), which
+   * is the whole point: it is how somebody says "this week, please" without
+   * having to pick the night themselves.
+   */
+  async function toggleShortlist(id: string) {
+    const current = all.value.get(id)
+    if (!current) return
+    await sync.commit('recipes', {
+      ...plainCopy(current),
+      shortlisted_at: current.shortlisted_at ? null : nowIso()
+    })
   }
 
   /**
@@ -224,6 +270,7 @@ export const useRecipesStore = defineStore('recipes', () => {
     /** Every recipe line, for the one-press catch-up on /ingredients. */
     allLines,
     recipes,
+    shortlisted,
     recipeById,
     ingredientsFor,
     ingredientById,
@@ -232,6 +279,7 @@ export const useRecipesStore = defineStore('recipes', () => {
     rememberedAisle,
     addRecipe,
     updateRecipe,
+    toggleShortlist,
     deleteRecipe,
     addIngredient,
     updateIngredient,

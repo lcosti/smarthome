@@ -7,13 +7,58 @@ import type { ItemRow } from '../utils/db'
 const store = useListStore()
 const sync = useSyncStore()
 const toast = useToast()
+const isWide = useWide()
 
 const draft = ref('')
 const editingId = ref<string | null>(null)
 const editorOpen = ref(false)
 const groupEntry = ref<ListEntry<ItemRow> | null>(null)
 const groupOpen = ref(false)
-const showDone = ref(false)
+const showChecked = ref(true)
+
+/**
+ * Which aisles are being shopped right now. Empty means all of them — there is
+ * no "All" chip, because switching every chip off and meaning "show me nothing"
+ * is not a thing anybody wants, and an unfiltered list is the resting state.
+ */
+const activeAisles = ref<string[]>([])
+
+const filterItems = computed(() =>
+  store.sections.map(section => ({ label: section.name, value: section.id }))
+)
+
+const visibleSections = computed(() => {
+  const chosen = activeAisles.value.length
+    ? store.sections.filter(section => activeAisles.value.includes(section.id))
+    : store.sections
+
+  // A cleared aisle with its ticked rows hidden is a header over nothing. The
+  // card earns its space by having something left in it, so it goes until either
+  // the checked rows come back or something new is filed there.
+  return showChecked.value
+    ? chosen
+    : chosen.filter(section => section.entries.length > 0)
+})
+
+/**
+ * An aisle emptied while it was filtered on would otherwise leave the page
+ * showing nothing, with the only way back a chip that is no longer there.
+ */
+watch(filterItems, (items) => {
+  const live = new Set(items.map(item => item.value))
+  activeAisles.value = activeAisles.value.filter(id => live.has(id))
+})
+
+/**
+ * Where a newly typed item gets filed.
+ *
+ * One chip on is somebody saying where they are standing, and what they type
+ * belongs there. Two chips on says nothing about which of them, so the
+ * household's usual guess is still the better answer.
+ */
+const filingAisle = computed(() =>
+  activeAisles.value.length === 1 ? activeAisles.value[0]! : null
+)
 
 async function add() {
   const name = draft.value.trim()
@@ -21,7 +66,15 @@ async function add() {
   // Clear first: the input has to be ready for the next item immediately, and the
   // write is optimistic anyway — offline is not a failure here, it queues.
   draft.value = ''
-  const added = await store.addItem(name)
+  // Filed into the aisle being filtered on, or it lands somewhere the filter is
+  // hiding. `other` is the bucket for no aisle at all, which is an explicit null
+  // rather than an id — see addItem.
+  const added = await store.addItem(
+    name,
+    filingAisle.value === null
+      ? {}
+      : { aisleId: filingAisle.value === 'other' ? null : filingAisle.value }
+  )
   if (added) return
 
   // It genuinely did not go anywhere. Give the typing back rather than swallowing
@@ -53,135 +106,188 @@ function openEntry(entry: ListEntry<ItemRow>) {
   groupOpen.value = true
 }
 
-function aisleNameFor(id: string | null) {
-  return id ? store.aisles.get(id)?.name ?? null : null
-}
+const isEmpty = computed(() => store.sections.length === 0)
 
-const isEmpty = computed(() => store.groups.length === 0 && store.checkedItems.length === 0)
+const countLabel = computed(() => {
+  const items = store.progress.total
+  const aisles = store.sections.length
+  return `${items} ${items === 1 ? 'item' : 'items'} · ${aisles} ${aisles === 1 ? 'aisle' : 'aisles'}`
+})
+
+const checkedCount = computed(() => store.progress.done)
 </script>
 
 <template>
   <div class="flex h-full flex-col">
+    <!--
+      Phone only. On a wide screen the app header already says where you are, and
+      two bars stacked on top of each other say it twice — the same call plan.vue
+      makes.
+    -->
     <AppPageHeader
+      v-if="!isWide"
       title="Shopping"
-      content-class="max-w-xl lg:max-w-5xl"
+      content-class="max-w-xl"
     >
-      <UForm
-        :state="{ draft }"
-        class="flex gap-2"
-        @submit="add"
-      >
-        <UInput
-          v-model="draft"
-          size="xl"
-          placeholder="Add an item"
-          autocapitalize="sentences"
-          enterkeyhint="done"
-          class="flex-1"
+      <template #actions>
+        <UButton
+          v-if="checkedCount"
+          :icon="showChecked ? 'i-lucide-eye-off' : 'i-lucide-eye'"
+          color="neutral"
+          variant="ghost"
+          :aria-label="showChecked ? 'Hide checked' : 'Show checked'"
+          @click="showChecked = !showChecked"
         />
         <UButton
-          type="submit"
-          size="xl"
-          icon="i-lucide-plus"
-          :disabled="!draft.trim()"
-          aria-label="Add"
+          v-if="checkedCount"
+          icon="i-lucide-trash-2"
+          color="neutral"
+          variant="ghost"
+          aria-label="Clear checked"
+          @click="store.clearChecked()"
         />
-      </UForm>
+      </template>
+
+      <ShoppingAddForm
+        v-model="draft"
+        @submit="add"
+      />
     </AppPageHeader>
 
-    <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 pb-6 lg:max-w-5xl lg:px-6 lg:pb-12">
-      <LoadingState v-if="!sync.hydrated" />
-
+    <main class="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
       <!--
-        The redirect in useSync handles this when it can. This is the fallback for
-        when it cannot — no signal, or mid-load — so nobody is ever left staring at
-        an input that quietly does nothing.
+        The wide stack is deliberately tighter than the phone's: title, add form
+        and aisle chips are one block of controls above the list, and the list is
+        the thing worth the vertical space.
       -->
-      <UEmpty
-        v-else-if="!sync.householdId"
-        icon="i-lucide-home"
-        title="This device isn't set up yet."
-        description="Create a household, or join the one you already have."
-        :actions="[{ label: 'Set up', to: '/welcome', size: 'lg' }]"
-      />
-
-      <UEmpty
-        v-else-if="isEmpty"
-        icon="i-lucide-shopping-cart"
-        title="Nothing on the list."
-        description="Type above to add the first thing."
-      />
-
-      <template v-else>
-        <!--
-          One column on a phone, walked top to bottom in aisle order. Three on a
-          wide screen, where the whole shop fits on one screen and reading order
-          matters less than seeing all of it at once. `items-start` so a short
-          aisle does not stretch to the height of the longest one beside it.
-        -->
-        <div class="lg:grid lg:grid-cols-3 lg:items-start lg:gap-x-4">
-          <section
-            v-for="group in store.groups"
-            :key="group.id"
-            class="mt-5 first:mt-3 lg:mt-4 lg:first:mt-4"
+      <div class="mx-auto flex h-full min-h-0 w-full max-w-xl flex-col gap-3 px-3 pb-6 lg:max-w-none lg:gap-2.5 lg:px-6 lg:py-3">
+        <!-- The header the wide layout does not get from AppPageHeader. -->
+        <div
+          v-if="isWide"
+          class="flex shrink-0 items-center gap-3"
+        >
+          <h1 class="text-2xl font-semibold tracking-[-0.025em] text-highlighted">
+            Shopping
+          </h1>
+          <p
+            v-if="!isEmpty"
+            class="text-sm text-dimmed"
           >
-            <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
-              {{ group.name }}
-            </h2>
-            <ul class="rounded-lg border border-default bg-elevated/30">
-              <ListEntryRow
-                v-for="entry in group.entries"
-                :key="entry.key"
-                :entry="entry"
-                :source-label="store.sourceLabelForEntry(entry)"
-                @toggle="store.toggleEntry(entry)"
-                @edit="openEntry(entry)"
-              />
-            </ul>
-          </section>
+            {{ countLabel }}
+          </p>
+
+          <div class="ml-auto flex items-center gap-2">
+            <UButton
+              v-if="checkedCount"
+              color="neutral"
+              variant="outline"
+              :icon="showChecked ? 'i-lucide-eye-off' : 'i-lucide-eye'"
+              :label="showChecked ? 'Hide checked' : 'Show checked'"
+              @click="showChecked = !showChecked"
+            />
+            <!--
+              No confirmation: clearing is a soft delete of things already in the
+              trolley, and ConfirmModal is deliberately reserved for the three
+              actions that cannot be undone. The board clears the same way.
+            -->
+            <UButton
+              v-if="checkedCount"
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-trash-2"
+              label="Clear checked"
+              @click="store.clearChecked()"
+            />
+          </div>
         </div>
 
-        <section
-          v-if="store.checkedItems.length"
-          class="mt-8"
-        >
-          <div class="mb-1 flex items-center gap-2">
-            <UButton
-              color="neutral"
-              variant="link"
-              size="xs"
-              :icon="showDone ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
-              :label="`Done (${store.checkedItems.length})`"
-              :aria-expanded="showDone"
-              class="flex-1 justify-start p-0 uppercase tracking-wide text-dimmed"
-              @click="showDone = !showDone"
-            />
-            <UButton
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              @click="store.clearChecked()"
-            >
-              Clear
-            </UButton>
-          </div>
+        <ShoppingAddForm
+          v-if="isWide"
+          v-model="draft"
+          submit-label="Add item"
+          class="shrink-0"
+          @submit="add"
+        />
 
-          <ul
-            v-if="showDone"
-            class="rounded-lg border border-default bg-elevated/30"
-          >
-            <ItemRow
-              v-for="item in store.checkedItems"
-              :key="item.id"
-              :item="item"
-              :aisle-name="aisleNameFor(item.aisle_id)"
-              :source-label="store.sourceLabelFor(item)"
-              @toggle="store.toggleItem(item.id)"
-              @edit="edit(item.id)"
+        <LoadingState v-if="!sync.hydrated" />
+
+        <!--
+          The redirect in useSync handles this when it can. This is the fallback for
+          when it cannot — no signal, or mid-load — so nobody is ever left staring at
+          an input that quietly does nothing.
+        -->
+        <UEmpty
+          v-else-if="!sync.householdId"
+          icon="i-lucide-home"
+          title="This device isn't set up yet."
+          description="Create a household, or join the one you already have."
+          :actions="[{ label: 'Set up', to: '/welcome', size: 'lg' }]"
+          class="flex-1"
+        />
+
+        <UEmpty
+          v-else-if="isEmpty"
+          icon="i-lucide-shopping-cart"
+          title="Nothing on the list."
+          description="Type above to add the first thing."
+          class="flex-1"
+        />
+
+        <template v-else>
+          <!--
+            A filter rather than a jump: on a phone it is "I am standing in
+            Chilled and Bakery, show me those", and one chip on doubles as where
+            the next thing typed gets filed.
+
+            Toggle chips are a checkbox group, not a row of buttons (CLAUDE.md
+            rule 6): several can be on at once, which is exactly what a checkbox
+            models, and it brings the roles and the keyboard handling with it.
+            `card` with the indicator hidden is the theme's own chip — the
+            selected border comes from the variant, not from us. What a chip
+            overrides on top of that lives in `app.config.ts`, under sm + card,
+            and is shared with the recipe library's facets.
+
+            `horizontal` is load-bearing: the group defaults to vertical, and a
+            column flex stretches its items to full width and ignores the
+            flex-wrap below. The row axis is what makes these read as chips.
+          -->
+          <UCheckboxGroup
+            v-model="activeAisles"
+            :items="filterItems"
+            variant="card"
+            indicator="hidden"
+            orientation="horizontal"
+            size="sm"
+            color="primary"
+            class="shrink-0"
+            :ui="{ fieldset: 'flex-wrap gap-1.5' }"
+          />
+
+          <!--
+            CSS columns rather than a grid: aisles are wildly different
+            lengths — two things in Bakery, nine in Cupboard — and a grid row
+            is as tall as its tallest cell, so a long aisle leaves a column of
+            dead space beside it. Masonry packs them, which is what makes the
+            whole shop fit on one screen.
+
+            The trade is reading order: columns flow top-to-bottom then across,
+            so aisle order runs down each column rather than across the page.
+            That is the right way round anyway — a column is walked, and on a
+            phone there is only one of them.
+          -->
+          <div class="min-h-0 flex-1 columns-1 gap-3 lg:columns-2 lg:overflow-y-auto lg:pr-1 2xl:columns-3">
+            <ShoppingAisleCard
+              v-for="section in visibleSections"
+              :key="section.id"
+              :section="section"
+              :show-checked="showChecked"
+              class="mb-3 break-inside-avoid"
+              @edit-entry="openEntry"
+              @edit-item="edit"
             />
-          </ul>
-        </section>
-      </template>
+          </div>
+        </template>
+      </div>
     </main>
 
     <ItemEditor

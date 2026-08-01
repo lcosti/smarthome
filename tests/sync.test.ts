@@ -233,10 +233,22 @@ describe('isPermanentSyncError', () => {
   it('treats a coded PostgREST rejection as permanent', () => {
     // 42501 stays permanent on purpose. A retryable error halts the whole queue,
     // so a row that genuinely fails its RLS check would sit at the head of it
-    // blocking every write behind it forever.
+    // blocking every write behind it forever. 23503 is permanent for the same
+    // reason: a foreign key pointing at nothing is that row's own fault.
     expect(isPermanentSyncError(rlsError)).toBe(true)
-    expect(isPermanentSyncError({ code: 'PGRST204' })).toBe(true)
     expect(isPermanentSyncError({ code: '23503' })).toBe(true)
+  })
+
+  // PGRST204 used to be asserted permanent here, as an incidental example of
+  // "coded, therefore permanent". It is the opposite: a bundle deployed ahead of
+  // its migrations writes a column the database has not got yet, and dropping the
+  // write costs a recipe over a database that is merely behind. Applying the
+  // migration cures it, so it waits.
+  it('treats a schema the database has not caught up to as retryable', () => {
+    expect(isPermanentSyncError({ code: 'PGRST204', message: 'Could not find the \'kcal\' column' })).toBe(false)
+    expect(isPermanentSyncError({ code: 'PGRST205' })).toBe(false)
+    expect(isPermanentSyncError({ code: '42703' })).toBe(false)
+    expect(isPermanentSyncError({ code: '42P01' })).toBe(false)
   })
 
   // An expired token fails identically every time right up until it refreshes,
@@ -418,6 +430,45 @@ describe('drainQueue', () => {
       expect(server.rows.has('unauthenticated')).toBe(true)
       await db.mutations.clear()
     }
+  })
+
+  /**
+   * The bug this guards against, from the day it happened: the local database was
+   * six migrations behind the bundle, so every recipe upsert came back PGRST204
+   * naming a nutrition column that did not exist there yet. Coded, so permanent,
+   * so an imported recipe was deleted about two minutes later — the mutation
+   * dropped and the local row with it — and its ingredients followed on 23503 for
+   * a parent that never landed.
+   *
+   * Both halves are asserted: nothing is dropped however long the drift lasts, and
+   * the halt keeps the drain from ever reaching the children whose foreign key is
+   * only failing as a symptom.
+   */
+  it('keeps a recipe and its ingredients when the database is behind the bundle', async () => {
+    const server = fakeServer()
+    const driftError = { code: 'PGRST204', message: 'Could not find the \'kcal\' column of \'recipes\' in the schema cache' }
+    server.fail(driftError)
+    const onDropped = vi.fn()
+
+    await enqueueMutation(db, 'recipes', recipe({ id: 'risotto', name: 'Mushroom risotto' }))
+    await enqueueMutation(db, 'recipe_ingredients', line({ id: 'rice', recipe_id: 'risotto' }))
+
+    // Well past MAX_SYNC_ATTEMPTS: a database that is behind never consumes a write.
+    for (let pass = 0; pass < MAX_SYNC_ATTEMPTS + 2; pass++) {
+      expect(await drainQueue(db, server.upsert, { onDropped }))
+        .toEqual({ synced: 0, dropped: 0, halted: true })
+    }
+
+    expect(onDropped).not.toHaveBeenCalled()
+    expect(await db.mutations.count()).toBe(2)
+    // The ingredient was never attempted, so its FK failure never accrued attempts.
+    expect(server.calls.every(c => c.id === 'risotto')).toBe(true)
+
+    // And the whole recipe lands once the migration has been applied.
+    server.fail(null)
+    expect(await drainQueue(db, server.upsert)).toEqual({ synced: 2, dropped: 0, halted: false })
+    expect((server.rows.get('risotto') as RecipeRow).name).toBe('Mushroom risotto')
+    expect(server.rows.has('rice')).toBe(true)
   })
 
   it('does not let a rejected write hold up the writes behind it', async () => {

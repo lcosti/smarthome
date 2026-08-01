@@ -20,8 +20,9 @@
 
 import Anthropic from 'npm:@anthropic-ai/sdk'
 import { guardMethod, json } from '../_shared/http.ts'
-import { extractRecipeJsonLd, openGraphImage } from '../_shared/jsonld.ts'
+import { extractRecipeJsonLd, pageImage } from '../_shared/jsonld.ts'
 import { rejectNonMember } from '../_shared/member.ts'
+import { MODEL_REQUEST, objectMember, readJsonOutput } from '../_shared/model.ts'
 import { RECIPE_SCHEMA } from '../_shared/recipe-schema.ts'
 
 /** Long enough for a slow site, short enough that the client is still waiting. */
@@ -36,8 +37,10 @@ navigation, comments and other clutter. Extract the recipe exactly as written: i
 prep and cook times in minutes, the method as one array entry per step in cooking order, and one
 ingredient per line with its quantity exactly as written (e.g. "400g", "2 tbsp", "1 tin"). Keep each
 step whole — split where the page starts a new numbered step or paragraph, never mid-instruction, and
-do not merge two steps into one entry. Use an empty array if the page states no method, and null for
-anything else it does not state. Do not invent, convert, or normalise anything.
+do not merge two steps into one entry. If the page states per-serving nutrition, transcribe its
+figures into nutrition (kcal and grams, exactly as stated); if it states none or it is not per
+serving, set nutrition to null — never estimate one. Use an empty array if the page states no
+method, and null for anything else it does not state. Do not invent, convert, or normalise anything.
 If the page does not contain a recipe, set is_recipe to false and recipe to null.`
 
 /**
@@ -121,7 +124,7 @@ Deno.serve(async (req) => {
   const published = extractRecipeJsonLd(html)
   if (published && published.ingredients.length) {
     return json(200, {
-      recipe: { ...published, image_url: published.image_url ?? openGraphImage(html) },
+      recipe: { ...published, image_url: published.image_url ?? pageImage(html) },
       source: 'json-ld'
     })
   }
@@ -137,9 +140,12 @@ Deno.serve(async (req) => {
   let response
   try {
     response = await client.messages.create({
-      model: 'claude-sonnet-5',
-      max_tokens: 8000,
-      output_config: { format: { type: 'json_schema', schema: RECIPE_SCHEMA } },
+      model: MODEL_REQUEST.model,
+      max_tokens: MODEL_REQUEST.max_tokens,
+      output_config: {
+        effort: MODEL_REQUEST.effort,
+        format: { type: 'json_schema', schema: RECIPE_SCHEMA }
+      },
       messages: [{
         role: 'user',
         content: [{ type: 'text' as const, text: `${pageText}\n\n---\n\n${EXTRACTION_PROMPT}` }]
@@ -150,27 +156,28 @@ Deno.serve(async (req) => {
     return json(502, { error: 'Could not reach the extraction service' })
   }
 
-  if (response.stop_reason === 'refusal') {
-    return json(422, { error: 'That page could not be read as a recipe' })
+  const output = readJsonOutput(response)
+  if (!output.ok) {
+    if (output.reason === 'refusal') {
+      return json(422, { error: 'That page could not be read as a recipe' })
+    }
+    console.error('import-recipe-url could not read the answer', output.reason, response.stop_reason)
+    return json(502, {
+      error: output.reason === 'truncated'
+        ? 'That page ran long and came back unfinished — try again.'
+        : 'The extraction service returned something unexpected'
+    })
   }
 
-  const text = response.content.find(block => block.type === 'text')?.text
-  let extracted
-  try {
-    extracted = JSON.parse(text ?? '')
-  } catch {
-    console.error('unparseable model output', text)
-    return json(502, { error: 'The extraction service returned something unexpected' })
-  }
-
-  if (!extracted.is_recipe || !extracted.recipe) {
+  const extracted = objectMember(output.value, 'recipe')
+  if (!output.value.is_recipe || !extracted) {
     return json(422, { error: "That page didn't have a recipe on it" })
   }
 
   // The model read the page as text with every tag stripped, so it never saw an
   // image address and was not asked for one. The markup still has it.
   return json(200, {
-    recipe: { ...extracted.recipe, image_url: openGraphImage(html) },
+    recipe: { ...extracted, image_url: pageImage(html) },
     source: 'llm'
   })
 })

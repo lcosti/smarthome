@@ -103,6 +103,7 @@ const NuxtLink = resolveComponent('NuxtLink')
               <span>·</span>
               <BoardAvatar
                 :initial="hero.cook.initial"
+                :src="hero.cook.avatar"
                 :hue="hero.cook.hue"
                 :size="16"
                 chip

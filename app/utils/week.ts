@@ -39,6 +39,29 @@ export function weekDates(monday: Date): string[] {
   return Array.from({ length: 7 }, (_, i) => isoDate(addDays(monday, i)))
 }
 
+/**
+ * A week split into what has been cooked and what is still to decide.
+ *
+ * A week is read forwards. The nights that have gone are a record — worth
+ * keeping, worth opening, not worth half the screen — and the ones still ahead
+ * are the decisions. Both shapes of the plan show the first as a strip of one
+ * line each and the second as cards, so the split lives here rather than twice.
+ *
+ * A week entirely in the past has nothing ahead of it, and collapsing all seven
+ * of its nights into a strip would leave the page empty. That week is all cards
+ * and no strip: it is a record being read, and a record is worth the space when
+ * it is the thing somebody went looking for.
+ */
+export function splitWeek<T extends { date: string }>(
+  nights: T[],
+  today: string
+): { strip: T[], cards: T[] } {
+  const ahead = nights.filter(night => night.date >= today)
+  return ahead.length
+    ? { strip: nights.filter(night => night.date < today), cards: ahead }
+    : { strip: [], cards: nights }
+}
+
 /** "Mon 4 Aug" — the day of the week matters more than the number, so it leads. */
 export function dayLabel(iso: string): string {
   const [year, month, day] = iso.split('-').map(Number)

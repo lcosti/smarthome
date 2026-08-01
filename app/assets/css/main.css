@@ -10,6 +10,14 @@
     with no network at all.
   */
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /*
+    The cook-mode step, and nothing else. A step read from a metre away with
+    your hands full is prose, and prose set at 36px wants a face drawn for it;
+    Public Sans that big is a label that got big. Self-hosted and precached the
+    same way as the other two, because the kitchen tablet has to set the step
+    with no network at all.
+  */
+  --font-serif: 'Source Serif 4', ui-serif, Georgia, serif;
 
   /* Nuxt's brand green. No longer the primary colour, but still what `success`
      resolves to — the shopping list's one reward colour. */

@@ -2,6 +2,7 @@ import { useAttendanceStore } from '../stores/attendance'
 import { dishLabel, usePlanStore } from '../stores/plan'
 import type { BoardNight } from '../utils/board'
 import { LEFTOVER_REHEAT_MINUTES } from '../utils/board'
+import { pictureOf } from '../utils/photo'
 import { addDays, isoDate } from '../utils/week'
 
 /**
@@ -41,7 +42,7 @@ export function useBoardNights(now: Ref<Date>, count = 8) {
           entryId: entry.id,
           recipeId: entry.recipe_id,
           dish: dishLabel(planned),
-          image: recipe?.image_url ?? null,
+          image: pictureOf(recipe),
           minutes: planned.leftover
             ? LEFTOVER_REHEAT_MINUTES
             : (recipe?.prep_minutes ?? 0) + (recipe?.cook_minutes ?? 0) || null,

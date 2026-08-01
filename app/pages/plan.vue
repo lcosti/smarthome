@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { usePlanStore } from '../stores/plan'
+import { usePlanStore, type PlannedNight } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
 import { useSyncStore } from '../stores/sync'
 import { useToday } from '../composables/useToday'
@@ -10,10 +10,10 @@ const recipes = useRecipesStore()
 const sync = useSyncStore()
 const toast = useToast()
 
-// The two shapes are seven rows and seven columns. Everything else — which week
-// is on screen, filling it, deriving the list, the night editor — is the same
-// either way and stays here, so neither shape can grow an opinion the other
-// does not have.
+// The two shapes are a column of cards and a grid beside an aside. Everything
+// else — which week is on screen, what is in it, filling it, deriving the list,
+// the night editor — is the same either way and stays here, so neither shape can
+// grow an opinion the other does not have.
 const isWide = useWide()
 
 // Week offset rather than a route param: deep-linking a week is not a real use
@@ -26,12 +26,11 @@ const filling = ref(false)
 
 const monday = computed(() => addDays(mondayOf(new Date()), weekOffset.value * 7))
 const weekStart = computed(() => isoDate(monday.value))
-const nights = computed(() => plan.week(weekStart.value))
 const today = useToday()
 
-// Stays enabled after the last night comes off, because that is exactly when the
-// list still holds ingredients nobody is going to cook.
-const canDerive = computed(() => plan.hasWorkFor(weekStart.value))
+const { nights, strip, cards, target, suggestions, canDerive, deriveLabel, removeNight }
+  = usePlanWeek(weekStart, today)
+
 const canFill = computed(() => plan.hasGapsFor(weekStart.value) && recipes.recipes.length > 0)
 
 async function fill() {
@@ -66,6 +65,21 @@ function openNight(date: string) {
   editorOpen.value = true
 }
 
+async function pick(recipeId: string) {
+  if (!target.value) return
+  const row = await plan.setNight(target.value, recipeId)
+  if (!row) return
+  toast.add({
+    title: `${plan.plannedEntry(row).recipe?.name ?? 'Dinner'} planned`,
+    icon: 'i-lucide-check',
+    color: 'success'
+  })
+}
+
+async function remove(night: PlannedNight) {
+  await removeNight(night)
+}
+
 async function derive() {
   if (deriving.value) return
   deriving.value = true
@@ -96,117 +110,165 @@ async function derive() {
     -->
     <AppPageHeader
       v-if="!isWide"
-      title="Plan"
       content-class="max-w-xl"
     >
-      <div class="flex items-center gap-1 lg:max-w-md">
+      <template #title>
+        <div class="flex min-w-0 flex-1 items-center gap-2">
+          <h1 class="text-lg font-semibold">
+            Plan
+          </h1>
+          <!-- The same badge the wide header carries, minus the word above it. -->
+          <AppPlanBadge short />
+        </div>
+      </template>
+
+      <template #actions>
+        <!--
+          An icon rather than the wide screen's labelled button: filling is the
+          less common of the two actions and the bar is a phone's worth of width,
+          so the one that has to be unmissable is the one along the bottom.
+        -->
+        <UButton
+          v-if="canFill"
+          icon="i-lucide-wand-sparkles"
+          color="neutral"
+          variant="ghost"
+          aria-label="Fill empty nights"
+          :loading="filling"
+          @click="fill"
+        />
+      </template>
+
+      <!-- The same field group the wide shape uses, stretched to the bar. -->
+      <UFieldGroup class="flex w-full">
         <UButton
           icon="i-lucide-chevron-left"
           color="neutral"
-          variant="ghost"
+          variant="outline"
           aria-label="Previous week"
           @click="weekOffset--"
         />
         <UButton
           color="neutral"
-          variant="ghost"
-          block
-          class="flex-1"
+          variant="outline"
+          class="flex-1 justify-center"
           @click="weekOffset = 0"
         >
           {{ weekLabel(monday) }}
           <span
             v-if="weekOffset !== 0"
-            class="ml-1 text-dimmed"
+            class="text-dimmed"
           >· this week</span>
         </UButton>
         <UButton
           icon="i-lucide-chevron-right"
           color="neutral"
-          variant="ghost"
+          variant="outline"
           aria-label="Next week"
           @click="weekOffset++"
         />
-      </div>
+      </UFieldGroup>
     </AppPageHeader>
 
     <!-- The wide shape is a screenful of its own and owns its margins. -->
     <PlanWeekWide
       v-if="isWide && sync.hydrated"
       :nights="nights"
+      :strip="strip"
+      :cards="cards"
       :today="today"
       :week-start="weekStart"
+      :suggestions="suggestions"
+      :target="target"
       :can-fill="canFill"
       :can-derive="canDerive"
+      :derive-label="deriveLabel"
       :filling="filling"
       :deriving="deriving"
       @open="openNight"
+      @remove="remove"
+      @pick="pick"
       @fill="fill"
       @derive="derive"
       @step="weekOffset += $event"
       @reset="weekOffset = 0"
     />
 
-    <main
-      v-else
-      class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 pb-6"
-    >
-      <LoadingState v-if="!sync.hydrated" />
+    <template v-else>
+      <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 pb-4">
+        <LoadingState v-if="!sync.hydrated" />
 
-      <template v-else>
-        <!-- All seven nights always render: an empty one is the invitation. -->
-        <ul class="mt-3 rounded-lg border border-default bg-elevated/30">
-          <PlanNightRow
-            v-for="night in nights"
+        <div
+          v-else
+          class="flex flex-col gap-3 pt-3"
+        >
+          <PlanEarlierStrip
+            v-if="strip.length"
+            :nights="strip"
+            @open="openNight"
+          />
+
+          <USeparator v-if="strip.length" />
+
+          <!--
+            The nights still ahead, one card each and the whole column. The same
+            card the wide screen uses, without the table along the bottom: seven
+            copies of the same four faces down a phone is a roll-call nobody
+            reads, so only a night somebody is missing says anything.
+          -->
+          <PlanNightCard
+            v-for="night in cards"
             :key="night.date"
             :night="night"
             :today="night.date === today"
             :past="night.date < today"
+            :table="false"
+            class="min-h-36"
             @open="openNight(night.date)"
+            @remove="remove(night)"
           />
-        </ul>
 
-        <!--
-          Fill is above derive because it comes first in the week: suggest,
-          adjust what you don't fancy, then shop. Stacked full-width, because
-          they are the bottom of a column and a thumb is the pointer.
-        -->
-        <div class="mt-4 flex flex-col gap-3">
+          <USeparator />
+
+          <PlanSuggestions
+            :suggestions="suggestions"
+            :nights="nights"
+            :target="target"
+            @pick="pick"
+          />
+        </div>
+      </main>
+
+      <!--
+        The one thing a phone is holding this page open to do, parked above the
+        tab bar where a thumb already is. Filling the week is a suggestion and
+        lives in the header; putting the week on the list is the errand.
+      -->
+      <div
+        v-if="sync.hydrated"
+        class="shrink-0 border-t border-default bg-default/85 px-3 py-3 backdrop-blur"
+      >
+        <div class="mx-auto max-w-xl">
           <UButton
-            v-if="canFill"
-            class="justify-center"
-            size="xl"
-            color="neutral"
+            color="primary"
             variant="subtle"
-            block
-            icon="i-lucide-wand-sparkles"
-            :loading="filling"
-            @click="fill"
-          >
-            Fill the empty nights
-          </UButton>
-
-          <UButton
-            class="justify-center"
             size="xl"
             block
             icon="i-lucide-shopping-cart"
+            :label="deriveLabel"
             :disabled="!canDerive"
             :loading="deriving"
             @click="derive"
+          />
+          <p
+            v-if="!canDerive"
+            class="mt-2 text-center text-xs text-dimmed"
           >
-            Add to shopping list
-          </UButton>
+            Plan a night first, then this puts its ingredients on the list.
+          </p>
         </div>
-
-        <p
-          v-if="!canDerive"
-          class="mt-2 text-center text-sm text-dimmed"
-        >
-          Plan a night first, then this puts its ingredients on the list.
-        </p>
-      </template>
-    </main>
+      </div>
+    </template>
 
     <PlanNightEditor
       v-model:open="editorOpen"

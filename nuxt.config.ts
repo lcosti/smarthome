@@ -23,6 +23,8 @@ export default defineNuxtConfig({
       title: 'Shopping List',
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+        // Both: iOS reads only the Apple-prefixed one, Chrome deprecated it.
+        { name: 'mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'default' },
         { name: 'apple-mobile-web-app-title', content: 'Shopping' }
@@ -97,8 +99,6 @@ export default defineNuxtConfig({
         'lucide:lightbulb',
         'lucide:copy',
         'lucide:copy-check',
-        // Chosen at runtime by ChecklistRow, from the state of the line.
-        'lucide:circle',
         'lucide:package-check',
         'lucide:sun',
         'lucide:moon',
@@ -114,7 +114,27 @@ export default defineNuxtConfig({
         'lucide:check',
         'lucide:arrow-right',
         'lucide:arrow-left',
-        'lucide:book-open'
+        'lucide:book-open',
+        // Chosen by a ternary on the library pane's shortlist button.
+        'lucide:bookmark-plus',
+        // Chosen by a ternary on the week aside's "nothing to suggest" empty state.
+        'lucide:search-x',
+        // Named in a toast when a chosen photo will not decode.
+        'lucide:image-off',
+        // Built in a computed on the plan's night cards, where the scanner does
+        // not look: what a dish costs in time and in things to buy.
+        'lucide:clock',
+        'lucide:utensils',
+        'lucide:refrigerator',
+        // Chosen at runtime by aisleIcon(), from the aisle's name.
+        'lucide:carrot',
+        'lucide:croissant',
+        'lucide:milk',
+        'lucide:beef',
+        'lucide:package',
+        'lucide:spray-can',
+        'lucide:cup-soda',
+        'lucide:shopping-basket'
       ]
     }
   },

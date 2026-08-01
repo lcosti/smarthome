@@ -1,23 +1,19 @@
 <script setup lang="ts">
 import { useAttendanceStore } from '../stores/attendance'
 import { usePeopleStore } from '../stores/people'
-import { usePlanStore, type PlannedNight } from '../stores/plan'
-import { useRecipesStore } from '../stores/recipes'
-import { suggestionReason, type RankedCandidate } from '../utils/generator'
-import { initialOf, personColors, personHue } from '../utils/person-colors'
+import type { PlannedNight } from '../stores/plan'
+import type { RankedCandidate } from '../utils/generator'
+import { initialOf } from '../utils/person-colors'
 
 /**
- * The two questions the grid cannot answer without being read across.
+ * What the grid cannot answer without being read across: the week in numbers,
+ * who is at the table for it, and what to put on the nights still open.
  *
- * Who is eating is a column-by-column fact laid out sideways: seven cards each
- * showing four faces is a roll-call you have to perform yourself. As one bar per
- * person it is a shape — a short bar is somebody the week has quietly stopped
- * catering for.
- *
- * And it is where the roster gets edited, because the bar and the popover that
- * changes it should be the same object. Marking Tuesday away used to mean opening
- * a night, which is the wrong unit: absence is a fact about a person across a
- * week, not about a night.
+ * Who is eating is a column-by-column fact laid out sideways — seven cards each
+ * showing four faces is a roll-call you have to perform yourself. One row per
+ * person answers it in a glance: a count of the nights they are in for, and a
+ * chip saying whether they are missing any of them — which is also what opens
+ * the menu that changes it.
  */
 const { nights, suggestions, target } = defineProps<{
   nights: PlannedNight[]
@@ -31,31 +27,28 @@ const emit = defineEmits<{ pick: [recipeId: string] }>()
 
 const people = usePeopleStore()
 const attendance = useAttendanceStore()
-const plan = usePlanStore()
-const recipes = useRecipesStore()
-const pantryCovers = usePantryCovers()
 
-/** Nights with a meal on them — the denominator: "how much of this week are you here for". */
-const plannedNights = computed(() => nights.filter(night => night.entries.length))
-
+/**
+ * Attendance across the whole week, not across the nights that happen to have a
+ * meal on them.
+ *
+ * The denominator used to be the planned nights, which made an unplanned week
+ * read "0 of 0 nights" for everybody — including somebody who is in on two of
+ * them — and made the number move every time a dinner was chosen. Whether Luke
+ * is eating here on Saturday is a fact about Saturday; it does not wait for
+ * anyone to decide what is being cooked.
+ */
 const roster = computed(() =>
   people.people.map((person) => {
-    const hue = personHue(person.id, people.people)
-    const present = plannedNights.value.filter(night =>
-      attendance.isPresent(person.id, night.date)
-    ).length
-    const total = plannedNights.value.length
+    const present = attendance.nightsPresent(person.id, nights.map(night => night.date))
+    const total = nights.length
     return {
       id: person.id,
       name: person.name,
       initial: initialOf(person.name),
-      hue,
-      colors: personColors(hue),
+      avatar: person.avatar,
       present,
       total,
-      // A week with nothing planned yet gets full bars rather than none: nobody
-      // has been left out of anything, and empty bars would read as an alarm.
-      fraction: total ? present / total : 1,
       away: total > 0 && present < total,
       nights: nights.map(night => ({
         date: night.date,
@@ -89,163 +82,92 @@ function nightItems(person: { id: string, name: string, nights: { date: string, 
     }))
   ]
 }
-
-const dayName = computed(() => {
-  if (!target) return null
-  const [year, month, day] = target.split('-').map(Number)
-  return new Date(year!, month! - 1, day!).toLocaleDateString(undefined, { weekday: 'short' })
-})
-
-/** Every recipe already on this week, so a suggestion can admit it is spoken for. */
-const onPlan = computed(() =>
-  new Set(nights.flatMap(night => night.entries.map(planned => planned.entry.recipe_id)))
-)
-
-/**
- * The reason line, with the one fact the scorer cannot know folded in: whether
- * the cupboard already covers it. Nothing to buy beats every other argument for
- * cooking something tonight.
- */
-function reasonFor(candidate: RankedCandidate): string {
-  const lines = recipes.ingredientsFor(candidate.recipe.id)
-  const allPantry = lines.length > 0 && lines.every(line => pantryCovers.value(line))
-  return suggestionReason(candidate, {
-    allPantry,
-    cookedTimes: plan.timesCooked(candidate.recipe.id, nights[0]?.date ?? '')
-  })
-}
 </script>
 
 <template>
-  <UCard
-    variant="outline"
-    :ui="{
-      root: 'flex min-h-0 flex-col overflow-hidden rounded-lg bg-elevated',
-      body: 'flex min-h-0 flex-1 flex-col gap-6 p-0 sm:p-0'
-    }"
-  >
-    <!--
-      shrink-0 on every block is load-bearing, exactly as in the recipe pane: this
-      is a fixed-height flex column, and without it the roster is squashed below
-      its own content to make room and overflows onto what follows.
-    -->
-    <div class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-5 py-4">
-      <div class="shrink-0">
-        <h3 class="font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
-          Who is eating
-        </h3>
+  <!--
+    A column beside the week rather than a panel on top of it: the rule down its
+    left edge is the only frame it needs, and the cards inside are the objects.
+    shrink-0 on every block is load-bearing, exactly as in the recipe pane —
+    without it the roster is squashed below its own content to make room for
+    what follows and overflows onto it.
+  -->
+  <div class="flex min-h-0 flex-col gap-5 overflow-y-auto border-l border-default px-5 py-4">
+    <PlanWeekStats
+      :nights="nights"
+      class="shrink-0"
+    />
 
-        <ul class="mt-3 flex flex-col gap-3.5">
-          <li
-            v-for="person in roster"
-            :key="person.id"
+    <div class="shrink-0">
+      <h3 class="text-xs text-dimmed">
+        Who is eating
+      </h3>
+
+      <ul class="mt-2 flex flex-col gap-2">
+        <li
+          v-for="person in roster"
+          :key="person.id"
+        >
+          <UCard
+            variant="soft"
+            :ui="{ body: 'flex items-center gap-2.5 px-3 py-2.5 sm:p-3' }"
           >
-            <div class="flex items-center gap-2.5">
-              <BoardAvatar
-                :initial="person.initial"
-                :hue="person.hue"
-                :size="28"
-              />
-              <span class="min-w-0 flex-1 truncate text-sm font-medium text-highlighted">
-                {{ person.name }}
-              </span>
-              <span class="shrink-0 font-mono text-xs text-dimmed">
-                {{ person.present }}/{{ person.total }}
-              </span>
-
-              <!--
-                A checkbox menu rather than a popover full of buttons: seven
-                nights each independently on or off is exactly what it models,
-                and it brings the keyboard handling and the roles with it.
-              -->
-              <UDropdownMenu
-                :items="nightItems(person)"
-                :ui="{ content: 'p-1.5' }"
-              >
-                <UButton
-                  color="neutral"
-                  :variant="person.away ? 'subtle' : 'ghost'"
-                  size="sm"
-                  label="Away"
-                  class="shrink-0 rounded-md px-2 py-1 text-xs"
-                  :class="person.away ? 'text-default' : 'text-dimmed'"
-                />
-              </UDropdownMenu>
-            </div>
+            <UAvatar
+              :src="person.avatar ?? undefined"
+              :alt="person.name"
+              :text="person.initial"
+              size="sm"
+            />
+            <span class="min-w-0 flex-1 truncate text-sm font-medium text-highlighted">
+              {{ person.name }}
+            </span>
+            <span class="shrink-0 text-xs text-dimmed tabular-nums">
+              {{ person.present }} of {{ person.total }} nights
+            </span>
 
             <!--
-              The bar carries the person's own colour rather than the accent, so
-              a short one is read as "Ada" before it is read as "a warning".
+              What it says and what changes it are the same object: marking
+              Tuesday away used to mean opening a night, which is the wrong unit,
+              because absence is a fact about a person across a week. A button
+              rather than a badge, chip-shaped though it is — it opens a menu,
+              and that is what a button is for. A checkbox menu rather than a
+              popover full of buttons: seven nights each independently on or off
+              is exactly what it models, and it brings the keyboard handling and
+              the roles with it.
             -->
-            <div class="mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-accented/60">
-              <div
-                class="h-full rounded-full transition-[width] duration-200"
-                :style="{
-                  width: `${Math.round(person.fraction * 100)}%`,
-                  background: person.colors.ring
-                }"
+            <UDropdownMenu
+              :items="nightItems(person)"
+              :ui="{ content: 'p-1.5' }"
+            >
+              <UButton
+                :color="person.away ? 'neutral' : 'primary'"
+                variant="subtle"
+                size="xs"
+                class="shrink-0"
+                :label="person.away ? `Away ${person.total - person.present}` : 'Eating in'"
               />
-            </div>
-          </li>
-        </ul>
+            </UDropdownMenu>
+          </UCard>
+        </li>
+      </ul>
 
-        <p
-          v-if="!roster.length"
-          class="mt-3 text-sm text-dimmed"
-        >
-          Nobody in the household yet. Add people in Settings and the week starts catering for them.
-        </p>
-      </div>
-
-      <div class="shrink-0">
-        <h3 class="font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
-          Recommended meals
-        </h3>
-
-        <ul
-          v-if="suggestions.length"
-          class="mt-3 flex flex-col gap-4"
-        >
-          <li
-            v-for="candidate in suggestions"
-            :key="candidate.recipe.id"
-          >
-            <p class="text-pretty text-sm font-medium leading-tight text-highlighted">
-              {{ candidate.recipe.name }}
-            </p>
-            <p class="mt-1 text-xs text-muted">
-              {{ reasonFor(candidate) }}
-            </p>
-            <UButton
-              v-if="onPlan.has(candidate.recipe.id)"
-              color="neutral"
-              variant="subtle"
-              size="sm"
-              label="On plan"
-              disabled
-              class="mt-2 rounded-md px-2.5 py-1 text-xs"
-            />
-            <UButton
-              v-else
-              color="primary"
-              variant="soft"
-              size="sm"
-              :label="`Use ${dayName}`"
-              class="mt-2 rounded-md px-2.5 py-1 text-xs"
-              @click="emit('pick', candidate.recipe.id)"
-            />
-          </li>
-        </ul>
-
-        <p
-          v-else
-          class="mt-3 text-sm text-dimmed"
-        >
-          {{ target
-            ? 'Nothing left to suggest — every recipe is already on this week or ruled out by an allergy.'
-            : 'Nothing left to plan this week.' }}
-        </p>
-      </div>
+      <UEmpty
+        v-if="!roster.length"
+        variant="naked"
+        size="sm"
+        icon="i-lucide-users"
+        title="Nobody in the household yet"
+        description="Add people in Settings and the week starts catering for them."
+        :ui="{ root: 'mt-2 p-0 sm:p-0' }"
+      />
     </div>
-  </UCard>
+
+    <PlanSuggestions
+      :suggestions="suggestions"
+      :nights="nights"
+      :target="target"
+      class="shrink-0"
+      @pick="emit('pick', $event)"
+    />
+  </div>
 </template>
