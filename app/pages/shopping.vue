@@ -160,7 +160,7 @@ const checkedCount = computed(() => store.progress.done)
         and aisle chips are one block of controls above the list, and the list is
         the thing worth the vertical space.
       -->
-      <div class="mx-auto flex h-full min-h-0 w-full max-w-xl flex-col gap-3 px-3 pb-6 lg:max-w-none lg:gap-2.5 lg:px-6 lg:py-3">
+      <div class="mx-auto flex min-h-full w-full max-w-xl flex-col gap-3 px-3 pb-6 lg:h-full lg:max-w-none lg:gap-2.5 lg:px-6 lg:py-3">
         <!-- The header the wide layout does not get from AppPageHeader. -->
         <div
           v-if="isWide"
@@ -274,8 +274,17 @@ const checkedCount = computed(() => store.progress.done)
             so aisle order runs down each column rather than across the page.
             That is the right way round anyway — a column is walked, and on a
             phone there is only one of them.
+
+            The height constraint is lg-only, and that is load-bearing: per
+            spec, multicol with a definite height fragments at that height and
+            puts what is left into overflow columns off-screen to the right —
+            one aisle visible, nothing to scroll. Older Chromium overflowed
+            downward instead, which is how a pinned height ever looked fine on
+            a phone. On a phone the block must size to its content so <main>
+            scrolls; only the wide layout, where this div is its own scroll
+            region, may pin it.
           -->
-          <div class="min-h-0 flex-1 columns-1 gap-3 lg:columns-2 lg:overflow-y-auto lg:pr-1 2xl:columns-3">
+          <div class="columns-1 gap-3 lg:min-h-0 lg:flex-1 lg:columns-2 lg:overflow-y-auto lg:pr-1 2xl:columns-3">
             <ShoppingAisleCard
               v-for="section in visibleSections"
               :key="section.id"
