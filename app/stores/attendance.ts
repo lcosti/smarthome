@@ -3,6 +3,7 @@ import {
   attendanceId,
   awayPeople,
   isPresent as isPresentIn,
+  nightsPresent as nightsPresentIn,
   presentPeople
 } from '../utils/attendance'
 import type { AttendanceRow, PersonRow } from '../utils/db'
@@ -22,6 +23,15 @@ export const useAttendanceStore = defineStore('attendance', () => {
 
   function isPresent(personId: string, date: string, meal: string = DEFAULT_MEAL): boolean {
     return isPresentIn(personId, date, meal, rows.value)
+  }
+
+  /** How many of a week's nights somebody is eating here — the roster's count. */
+  function nightsPresent(
+    personId: string,
+    dates: Iterable<string>,
+    meal: string = DEFAULT_MEAL
+  ): number {
+    return nightsPresentIn(personId, dates, meal, rows.value)
   }
 
   /** Everybody eating that night — the generator's input, and the editor's chips. */
@@ -76,6 +86,7 @@ export const useAttendanceStore = defineStore('attendance', () => {
 
   return {
     isPresent,
+    nightsPresent,
     presentOn,
     awayOn,
     setPresence,

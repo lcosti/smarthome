@@ -92,6 +92,29 @@ export function isPresent(
 }
 
 /**
+ * How many of these dates a person is eating here.
+ *
+ * The week's nights, not the nights somebody has already chosen a dinner for.
+ * The roster's "2 of 7 nights" is a fact about the household's diary and must
+ * not move when a meal is planned — counting only planned nights made an
+ * unplanned week say "0 of 0" to everybody, including the person who is in for
+ * two of them.
+ */
+export function nightsPresent(
+  personId: string,
+  dates: Iterable<string>,
+  meal: string,
+  rows: Iterable<AttendanceLike>
+): number {
+  const all = [...rows]
+  let count = 0
+  for (const date of dates) {
+    if (isPresent(personId, date, meal, all)) count++
+  }
+  return count
+}
+
+/**
  * Everybody eating at a given meal, in the order they were given.
  *
  * This is the generator's entry point: hard-filter the library against these

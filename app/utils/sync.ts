@@ -33,13 +33,50 @@ export function plainCopy<T extends object>(row: T): T {
 }
 
 /**
+ * An expired or missing token. PostgREST reports these with a code like anything
+ * else, but they are the one code-bearing class that a retry genuinely fixes:
+ * the answer changes the moment the session refreshes.
+ */
+const RETRYABLE_CODES = new Set(['PGRST301', 'PGRST302'])
+
+/**
+ * The database does not have the shape this bundle expects: a column or table the
+ * client writes does not exist there yet. PGRST204 and PGRST205 are PostgREST
+ * failing to find one in its schema cache; 42703 and 42P01 are Postgres saying the
+ * same thing outright.
+ *
+ * This is a client deployed ahead of its migrations, and applying the migration
+ * cures it — so the write has to wait, not be discarded. Unlike an RLS rejection it
+ * is never one row's fault: every row of that table fails identically, so halting
+ * cannot strand a good write behind a bad one. There is nothing here to blame and
+ * nothing to drop.
+ */
+const SCHEMA_DRIFT_CODES = new Set(['PGRST204', 'PGRST205', '42703', '42P01'])
+
+/**
  * PostgREST rejections carry a code (a Postgres SQLSTATE, or a PGRST* code) and
  * will fail again identically no matter how often they are retried. A transport
  * failure carries no code, so it is treated as retryable — an unrecognised
  * failure must never cost someone their write.
+ *
+ * Two classes of coded failure are exempt, because a code is not on its own proof
+ * of permanence. An expired token fails every attempt until it is refreshed and
+ * then succeeds, so retrying it is the whole point; schema drift fails every
+ * attempt until the migration lands, and dropping the write throws away a recipe
+ * over a database that is merely behind.
+ *
+ * Note what is deliberately absent — 42501, permission denied, stays permanent. A
+ * retryable error halts the entire queue, and a row that genuinely fails its RLS
+ * check would sit at the head of it blocking every write behind it forever. The
+ * unauthenticated 42501 that used to reach here is now stopped at the upsert
+ * instead, where a missing session is reported code-less; what is left is a real
+ * authorisation bug worth dropping. 23503 stays permanent for the same reason: a
+ * foreign key pointing at nothing is that row's own fault. When it is only a
+ * symptom — the parent blocked by drift — the drain has already halted above it.
  */
 export function isPermanentSyncError(error: SyncError | null): boolean {
-  return typeof error?.code === 'string' && error.code.length > 0
+  if (typeof error?.code !== 'string' || error.code.length === 0) return false
+  return !RETRYABLE_CODES.has(error.code) && !SCHEMA_DRIFT_CODES.has(error.code)
 }
 
 /**
@@ -85,12 +122,38 @@ export async function queuedRowIds(db: AppDatabase): Promise<Set<string>> {
 }
 
 /**
+ * Local rows a completed pull did not bring back, and which nothing is waiting to
+ * push — writes that were dropped while their row stayed in the cache. They look
+ * like ordinary rows and are handed out as foreign keys, so until they are pushed
+ * again everything pointing at them is rejected too.
+ *
+ * Safe only because every delete in this app is soft: a delete commits
+ * `deleted_at` and the row is still returned by a pull. A row the server has
+ * never heard of was therefore never inserted, not deliberately removed. **If a
+ * hard delete is ever added, this turns into a resurrection bug** — the deleted
+ * row would come back on the next boot of every device that still had it.
+ */
+export function rowsNeedingRequeue<T extends { id: string }>(
+  local: Iterable<T>,
+  serverIds: ReadonlySet<string>,
+  queued: ReadonlySet<string>
+): T[] {
+  const missing: T[] = []
+  for (const row of local) {
+    if (serverIds.has(row.id) || queued.has(row.id)) continue
+    missing.push(row)
+  }
+  return missing
+}
+
+/**
  * Push queued writes to the server in the order they were made.
  *
- * On an unreachable server the queue is left completely intact and the drain
- * stops; the caller's triggers (reconnect, app focus, interval) are the retry
- * policy. A rejected write is counted and skipped rather than halting the queue,
- * so one bad row can never hold up the milk behind it.
+ * On an unreachable server — or one whose schema is behind this bundle — the queue
+ * is left completely intact and the drain stops; the caller's triggers (reconnect,
+ * app focus, interval) are the retry policy. A rejected write is counted and
+ * skipped rather than halting the queue, so one bad row can never hold up the milk
+ * behind it.
  */
 export async function drainQueue(db: AppDatabase, upsert: UpsertFn, hooks: DrainHooks = {}): Promise<DrainResult> {
   const result: DrainResult = { synced: 0, dropped: 0, halted: false }

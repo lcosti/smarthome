@@ -1,21 +1,13 @@
 import { useIngredientsStore } from '../stores/ingredients'
 import { useRecipesStore } from '../stores/recipes'
 import { compressToJpeg } from '../utils/photo'
-import { coerceExtractedRecipe, importFailureMessage, type ExtractedRecipe } from '../utils/recipe-import'
+import { coerceExtractedRecipe, type ExtractedRecipe } from '../utils/recipe-import'
+import { offline, useEdgeFunction } from './useEdgeFunction'
 
 /** More photos than a recipe spans; matches the Edge Function's cap. */
 const MAX_PHOTOS = 4
-/** Long enough for a slow model on poor signal, short enough to feel like an answer. */
-const TIMEOUT_MS = 60_000
 
 type Status = 'idle' | 'compressing' | 'extracting' | 'saving'
-
-const PROGRESS: Record<string, string> = {
-  'compressing': 'Reading recipe… this can take up to 30 seconds.',
-  'extracting:photo': 'Reading recipe… this can take up to 30 seconds.',
-  'extracting:url': 'Reading the page… this can take up to 30 seconds.',
-  'saving': 'Saving…'
-}
 
 /**
  * Getting a recipe into the library without typing it: photograph it, or paste
@@ -28,45 +20,14 @@ const PROGRESS: Record<string, string> = {
  * identical, and that saving path is the part with the sharp edge in it.
  */
 export function useRecipeImport() {
-  const supabase = useSupabaseClient()
   const recipes = useRecipesStore()
   const ingredients = useIngredientsStore()
+  const { invoke } = useEdgeFunction()
 
   const status = ref<Status>('idle')
-  const kind = ref<'photo' | 'url'>('photo')
   const error = ref<string | null>(null)
 
   const busy = computed(() => status.value !== 'idle')
-  const progress = computed(() =>
-    busy.value ? PROGRESS[`${status.value}:${kind.value}`] ?? PROGRESS[status.value] ?? null : null
-  )
-
-  /** Call the function, unwrapping its JSON error body into a human message. */
-  async function invoke(name: string, body: Record<string, unknown>, fallbackMessage: string) {
-    // An aborted request, not a raced promise: giving up must also cancel the
-    // call, or the extraction keeps running for an answer nobody is waiting on.
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-    let data, invokeError
-    try {
-      ({ data, error: invokeError } = await supabase.functions.invoke(name, {
-        body,
-        signal: controller.signal
-      }))
-    } finally {
-      clearTimeout(timer)
-    }
-    if (controller.signal.aborted) throw new Error(fallbackMessage)
-
-    if (invokeError) {
-      // The message a person reads is deliberately short; the whole error is
-      // what tells you which of the many ways this can fail actually happened.
-      console.error('edge function invoke failed', name, invokeError)
-      throw new Error(await importFailureMessage(invokeError, fallbackMessage))
-    }
-
-    return data
-  }
 
   /** Commit an extraction as a recipe, exactly as if it had been typed in. */
   async function save(recipe: ExtractedRecipe, sourceUrl: string | null) {
@@ -81,7 +42,8 @@ export function useRecipeImport() {
 
     await recipes.updateRecipe(created.id, {
       prep_minutes: recipe.prep_minutes,
-      cook_minutes: recipe.cook_minutes
+      cook_minutes: recipe.cook_minutes,
+      ...(recipe.nutrition ?? {})
     })
 
     // Sequential for the same reason as the lines below: addStep reads back the
@@ -109,7 +71,6 @@ export function useRecipeImport() {
   async function importPhotos(files: File[]): Promise<string | null> {
     if (busy.value || !files.length) return null
     error.value = null
-    kind.value = 'photo'
 
     if (files.length > MAX_PHOTOS) {
       error.value = `That's a lot of pages — send at most ${MAX_PHOTOS} photos.`
@@ -153,7 +114,6 @@ export function useRecipeImport() {
   async function importUrl(url: string): Promise<string | null> {
     if (busy.value) return null
     error.value = null
-    kind.value = 'url'
 
     const address = url.trim()
     if (!address) return null
@@ -183,9 +143,5 @@ export function useRecipeImport() {
     }
   }
 
-  return { status, busy, progress, error, importPhotos, importUrl }
-}
-
-function offline() {
-  return typeof navigator !== 'undefined' && navigator.onLine === false
+  return { status, busy, error, importPhotos, importUrl }
 }

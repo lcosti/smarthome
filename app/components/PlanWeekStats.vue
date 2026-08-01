@@ -3,11 +3,16 @@ import { useListStore } from '../stores/list'
 import type { PlannedNight } from '../stores/plan'
 
 /**
- * The week in four numbers, in the eighth cell of a seven-night grid.
+ * The week in five numbers, at the top of the aside.
  *
- * Not a dashboard — four answers to questions a plan raises and cannot answer
- * from any single night: is it finished, how much cooking did I just sign up
- * for, is one night going to ambush me, and what does it cost at the shop.
+ * Not a dashboard — answers to questions a plan raises and cannot answer from
+ * any single night: is it finished, how much cooking did I just sign up for, is
+ * one night going to ambush me, and what does it cost at the shop.
+ *
+ * How full the week is leads, because it is the one the buttons above act on,
+ * and it is a bar as well as a fraction: "3 of 7" is a number to read, a bar
+ * that is half empty is a week you can see is half empty. The other four sit
+ * under it in a grid, plain label over value.
  *
  * The two counts deliberately measure different things. "To buy" is what is
  * outstanding on the list right now; the button above says what pressing it
@@ -24,34 +29,42 @@ const efforts = computed(() =>
       const planned = night.entries[0]
       if (!planned || planned.leftover) return null
       const minutes = (planned.recipe?.prep_minutes ?? 0) + (planned.recipe?.cook_minutes ?? 0)
-      return minutes > 0 ? { date: night.date, minutes } : null
+      return minutes > 0 ? { date: night.date, minutes, name: planned.recipe?.name ?? null } : null
     })
     .filter(effort => effort !== null)
 )
 
 const plannedCount = computed(() => nights.filter(night => night.entries.length).length)
 
-/** "4 hr 20 min", "45 min" — hours only once there are any. */
+/** "2h 10m", "45m" — hours only once there are any. */
 function duration(minutes: number): string {
-  if (minutes < 60) return `${minutes} min`
+  if (minutes < 60) return `${minutes}m`
   const hours = Math.floor(minutes / 60)
   const rest = minutes % 60
-  return rest ? `${hours} hr ${rest} min` : `${hours} hr`
+  return rest ? `${hours}h ${rest}m` : `${hours}h`
 }
 
 const totalMinutes = computed(() => efforts.value.reduce((sum, effort) => sum + effort.minutes, 0))
 
 const longest = computed(() =>
-  efforts.value.reduce<{ date: string, minutes: number } | null>(
+  efforts.value.reduce<{ date: string, minutes: number, name: string | null } | null>(
     (worst, effort) => (!worst || effort.minutes > worst.minutes ? effort : worst),
     null
   )
 )
 
-const longestDay = computed(() => {
-  if (!longest.value) return null
-  const [year, month, day] = longest.value.date.split('-').map(Number)
-  return new Date(year!, month! - 1, day!).toLocaleDateString(undefined, { weekday: 'long' })
+/**
+ * "Chicken · 55m" — the dish, not the day.
+ *
+ * Which night the long cook falls on is on the card; which dish it is is the
+ * thing you would change your mind about. One word of it is enough to recognise
+ * it in a column this narrow.
+ */
+const longestLabel = computed(() => {
+  if (!longest.value) return '—'
+  const name = longest.value.name?.split(' ')[0]
+  const time = duration(longest.value.minutes)
+  return name ? `${name} · ${time}` : time
 })
 
 /**
@@ -65,59 +78,66 @@ const toBuy = computed(() => {
   const entryIds = new Set(
     nights.flatMap(night => night.entries.map(planned => planned.entry.id))
   )
-  const items = list.liveItems.filter(
+  return list.liveItems.filter(
     item => !item.checked && item.plan_entry_id && entryIds.has(item.plan_entry_id)
-  )
-  return {
-    count: items.length,
-    meals: new Set(items.map(item => item.plan_entry_id)).size
-  }
+  ).length
 })
 
 const blocks = computed(() => [
   {
-    label: 'Nights planned',
-    value: `${plannedCount.value}/7`,
-    note: plannedCount.value === 7
-      ? 'the week is done'
-      : `${7 - plannedCount.value} still open`
-  },
-  {
     label: 'Time at the stove',
-    value: totalMinutes.value ? duration(totalMinutes.value) : '—',
-    note: `${efforts.value.length} cooking night${efforts.value.length === 1 ? '' : 's'}`
+    value: totalMinutes.value ? duration(totalMinutes.value) : '—'
   },
   {
     label: 'Longest cook',
-    value: longest.value ? duration(longest.value.minutes) : '—',
-    note: longestDay.value ?? 'nothing long this week'
+    value: longestLabel.value
   },
   {
     label: 'To buy',
-    value: `${toBuy.value.count}`,
-    note: toBuy.value.count
-      ? `across ${toBuy.value.meals} meal${toBuy.value.meals === 1 ? '' : 's'}`
-      : 'nothing outstanding'
+    value: toBuy.value ? `${toBuy.value} items` : 'nothing'
+  },
+  {
+    label: 'Empty nights',
+    value: `${nights.length - plannedCount.value}`
   }
 ])
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-col justify-between gap-2 overflow-hidden rounded-lg bg-elevated/50 px-3.5 py-3 ring ring-default">
-    <div
-      v-for="block in blocks"
-      :key="block.label"
-      class="min-h-0"
-    >
-      <p class="font-mono text-[10px] uppercase tracking-[0.14em] text-dimmed">
-        {{ block.label }}
-      </p>
-      <p class="mt-0.5 truncate text-xl font-semibold leading-none tracking-[-0.02em] text-primary">
-        {{ block.value }}
-      </p>
-      <p class="mt-1 truncate text-xs text-dimmed">
-        {{ block.note }}
-      </p>
+  <UCard
+    variant="subtle"
+    :ui="{ body: 'flex flex-col gap-4 px-4 py-3.5 sm:p-4' }"
+  >
+    <div>
+      <div class="flex items-baseline justify-between gap-2">
+        <h3 class="text-sm font-medium text-highlighted">
+          Nights planned
+        </h3>
+        <p class="text-sm text-dimmed tabular-nums">
+          {{ plannedCount }} of {{ nights.length }}
+        </p>
+      </div>
+      <UProgress
+        :model-value="plannedCount"
+        :max="nights.length"
+        size="sm"
+        class="mt-2.5"
+      />
     </div>
-  </div>
+
+    <dl class="grid grid-cols-2 gap-x-4 gap-y-3">
+      <div
+        v-for="block in blocks"
+        :key="block.label"
+        class="min-w-0"
+      >
+        <dt class="truncate text-xs text-dimmed">
+          {{ block.label }}
+        </dt>
+        <dd class="mt-0.5 truncate text-sm font-medium text-highlighted">
+          {{ block.value }}
+        </dd>
+      </div>
+    </dl>
+  </UCard>
 </template>

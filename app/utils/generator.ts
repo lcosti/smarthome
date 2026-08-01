@@ -28,6 +28,15 @@ export interface GeneratorRecipe {
   prep_minutes: number | null
   cook_minutes: number | null
   deleted_at: string | null
+  /**
+   * When somebody put this on the shortlist, or null.
+   *
+   * The one place a person's opinion reaches the scorer without them planning a
+   * night themselves. Optional so the fixtures and the callers that predate it
+   * still typecheck as a library with nothing shortlisted — which is exactly how
+   * this behaved before there was a shortlist.
+   */
+  shortlisted_at?: string | null
 }
 
 export interface GeneratorLine {
@@ -70,7 +79,7 @@ export interface CookedBefore {
  * `suggestionReason` below is the one place that turns these into English.
  */
 export interface RankReason {
-  kind: 'never' | 'rested' | 'quick' | 'overlap' | 'liked'
+  kind: 'never' | 'rested' | 'quick' | 'overlap' | 'liked' | 'shortlist'
   /** 'rested': whole days since it was last cooked. */
   days?: number
   /** 'quick': prep plus cook, against the night's budget. */
@@ -124,6 +133,17 @@ export const WEIGHTS = {
   recencyPenalty: 6,
   /** A meal nobody has cooked yet is worth trying. */
   neverCookedBonus: 2,
+  /**
+   * Somebody said they want this soon.
+   *
+   * The largest bonus here, and larger than every other bonus put together: at
+   * this temperature four points is roughly a fourteen-fold lean, so a
+   * shortlisted meal usually lands. Usually, not always — it is still smaller
+   * than the recency penalty, so shortlisting something cooked on Tuesday does
+   * not put it back on the table on Thursday, and it cannot argue at all with
+   * the hard filters, which are not scored.
+   */
+  shortlistBonus: 4,
   /** Per canonical ingredient shared with something else picked this week. */
   overlapBonus: 1.5,
   overlapCap: 3,
@@ -329,12 +349,23 @@ export function rankCandidates(context: GeneratorContext, night: GeneratorNight)
     let reason: RankReason | null = null
     let strongest = 0
 
+    // First, and unconditionally: this is the only component that is somebody
+    // asking rather than the app inferring, so when it applies it is almost
+    // always the truest thing to say about why the meal is here.
+    if (recipe.shortlisted_at) {
+      score += WEIGHTS.shortlistBonus
+      reason = { kind: 'shortlist' }
+      strongest = WEIGHTS.shortlistBonus
+    }
+
     const previously = context.lastCooked.get(recipe.id)
     const rested = previously ? daysBetween(previously, night.date) : null
     if (rested === null) {
       score += WEIGHTS.neverCookedBonus
-      reason = { kind: 'never' }
-      strongest = WEIGHTS.neverCookedBonus
+      if (WEIGHTS.neverCookedBonus > strongest) {
+        reason = { kind: 'never' }
+        strongest = WEIGHTS.neverCookedBonus
+      }
     } else {
       const staleness = Math.max(0, WEIGHTS.recencyWindowDays - rested) / WEIGHTS.recencyWindowDays
       score -= WEIGHTS.recencyPenalty * staleness
@@ -417,6 +448,8 @@ export function suggestionReason(
 
   const { reason } = candidate
   switch (reason.kind) {
+    case 'shortlist':
+      return 'On the shortlist'
     case 'never':
       return 'Never cooked — worth a try'
     case 'overlap':

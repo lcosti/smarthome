@@ -123,7 +123,7 @@ async function planANight(recipeName) {
 
 async function openList() {
   await page.getByRole('link', { name: 'List', exact: true }).click()
-  await page.waitForURL(`${ORIGIN}/`)
+  await page.waitForURL(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 10_000 })
 }
 
@@ -134,6 +134,7 @@ try {
   await page.getByPlaceholder('Luke').fill('Luke')
   await page.getByRole('button', { name: 'Create household' }).click()
   await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
+  await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 15_000 })
   log('signed in and created a household')
 

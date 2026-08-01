@@ -552,6 +552,55 @@ describe('rankCandidates', () => {
     expect(ranked[0]!.reason).toEqual({ kind: 'overlap', shared: 1 })
   })
 
+  it('puts a shortlisted meal top, and says so', () => {
+    const ranked = topCandidates(
+      context({
+        recipes: [recipe({ id: 'r1' }), recipe({ id: 'r2', shortlisted_at: '2026-08-01T09:00:00Z' })],
+        // Both cooked the same day long ago, so nothing but the shortlist
+        // separates them — otherwise a never-cooked bonus is doing the work.
+        history: [
+          { date: '2026-06-01', recipe_id: 'r1' },
+          { date: '2026-06-01', recipe_id: 'r2' }
+        ]
+      }),
+      monday,
+      2
+    )
+    expect(ranked[0]!.recipe.id).toBe('r2')
+    expect(ranked[0]!.reason).toEqual({ kind: 'shortlist' })
+    expect(suggestionReason(ranked[0]!)).toBe('On the shortlist')
+  })
+
+  it('does not let the shortlist override an allergy', () => {
+    // The bonus is scoring; allergies are a filter. A filter cannot be outbid.
+    const ranked = rankCandidates(
+      context({
+        recipes: [recipe({ id: 'r1' }), recipe({ id: 'satay', shortlisted_at: '2026-08-01T09:00:00Z' })],
+        lines: [line('satay', 'peanut butter')],
+        constraints: [{ person_id: ADULT.id, kind: 'allergy', tag: 'peanut', deleted_at: null }]
+      }),
+      monday
+    )
+    expect(ranked.map(c => c.recipe.id)).toEqual(['r1'])
+  })
+
+  it('still leans away from a shortlisted meal cooked yesterday', () => {
+    // A lean, not a law: the recency penalty is bigger than the bonus, so
+    // shortlisting something does not put it back on the table the next night.
+    const ranked = topCandidates(
+      context({
+        recipes: [recipe({ id: 'r1' }), recipe({ id: 'r2', shortlisted_at: '2026-08-01T09:00:00Z' })],
+        history: [
+          { date: '2026-08-02', recipe_id: 'r2' },
+          { date: '2026-06-01', recipe_id: 'r1' }
+        ]
+      }),
+      monday,
+      2
+    )
+    expect(ranked[0]!.recipe.id).toBe('r1')
+  })
+
   it('is empty when every recipe is already spoken for', () => {
     expect(rankCandidates(
       context({

@@ -5,6 +5,7 @@ import {
   constraintId,
   isHardConstraint,
   isPresent,
+  nightsPresent,
   normaliseTag,
   presentPeople,
   type AttendanceLike
@@ -141,5 +142,38 @@ describe('isHardConstraint', () => {
     expect(isHardConstraint('intolerance')).toBe(true)
     expect(isHardConstraint('dislike')).toBe(false)
     expect(isHardConstraint('preference')).toBe(false)
+  })
+})
+
+describe('nightsPresent', () => {
+  const week = [
+    '2026-07-27', '2026-07-28', '2026-07-29', '2026-07-30',
+    '2026-07-31', '2026-08-01', '2026-08-02'
+  ]
+
+  it('counts a quiet week as every night', () => {
+    // Nothing written means nobody has said they are out.
+    expect(nightsPresent(TOM, week, 'dinner', [])).toBe(7)
+  })
+
+  it('counts only the nights nobody has marked away', () => {
+    const away = week.slice(0, 5).map(date => row({ date, id: `away-${date}` }))
+    expect(nightsPresent(TOM, week, 'dinner', away)).toBe(2)
+  })
+
+  it('does not care whether a night has a meal on it', () => {
+    // The regression this exists for: the roster used to divide by the planned
+    // nights, so an unplanned week said "0 of 0" to somebody in for two of them.
+    expect(nightsPresent(TOM, week, 'dinner', [row({ date: '2026-07-27' })])).toBe(6)
+  })
+
+  it('counts each person separately', () => {
+    const rows = [row({ person_id: AMY, date: '2026-07-27' })]
+    expect(nightsPresent(TOM, week, 'dinner', rows)).toBe(7)
+    expect(nightsPresent(AMY, week, 'dinner', rows)).toBe(6)
+  })
+
+  it('ignores another meal', () => {
+    expect(nightsPresent(TOM, week, 'dinner', [row({ meal: 'lunch' })])).toBe(7)
   })
 })

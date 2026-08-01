@@ -16,7 +16,19 @@ const VALID = {
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'spaghetti', quantity: '300g' }
   ],
+  nutrition: null,
   image_url: 'https://example.com/tomato-pasta.jpg'
+}
+
+const PANEL = {
+  kcal: 480,
+  fat_g: 34,
+  saturates_g: 15,
+  carbs_g: 15,
+  sugars_g: 10,
+  fibre_g: 5,
+  protein_g: 26,
+  salt_g: 1.05
 }
 
 describe('coerceExtractedRecipe', () => {
@@ -100,6 +112,32 @@ describe('coerceExtractedRecipe', () => {
     const older = { ...VALID, image_url: undefined }
     expect(coerceExtractedRecipe(older)?.name).toBe('Tomato pasta')
     expect(coerceExtractedRecipe(older)?.image_url).toBeNull()
+  })
+
+  it('keeps a nutrition panel of storable numbers', () => {
+    expect(coerceExtractedRecipe({ ...VALID, nutrition: PANEL })?.nutrition).toEqual(PANEL)
+  })
+
+  it('nulls the nutrition figures it cannot store, keeps their neighbours', () => {
+    const result = coerceExtractedRecipe({
+      ...VALID,
+      nutrition: { ...PANEL, fat_g: '34 g', sugars_g: -1, salt_g: Number.NaN }
+    })
+    expect(result?.nutrition?.kcal).toBe(480)
+    expect(result?.nutrition?.fat_g).toBeNull()
+    expect(result?.nutrition?.sugars_g).toBeNull()
+    expect(result?.nutrition?.salt_g).toBeNull()
+  })
+
+  it('treats a panel with nothing storable as no panel', () => {
+    expect(coerceExtractedRecipe({ ...VALID, nutrition: { kcal: 'lots' } })?.nutrition).toBeNull()
+    expect(coerceExtractedRecipe({ ...VALID, nutrition: 'per serving' })?.nutrition).toBeNull()
+  })
+
+  it('imports a recipe from a function that has never heard of nutrition', () => {
+    const older = { ...VALID, nutrition: undefined }
+    expect(coerceExtractedRecipe(older)?.name).toBe('Tomato pasta')
+    expect(coerceExtractedRecipe(older)?.nutrition).toBeNull()
   })
 
   it('trims strings and drops blank steps', () => {

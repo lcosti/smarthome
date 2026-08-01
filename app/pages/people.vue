@@ -3,6 +3,7 @@ import { usePeopleStore } from '../stores/people'
 import { useSyncStore } from '../stores/sync'
 import { isHardConstraint } from '../utils/attendance'
 import { ageLabel, STAGE_LABEL } from '../utils/people'
+import { initialOf } from '../utils/person-colors'
 import { useToday } from '../composables/useToday'
 
 const store = usePeopleStore()
@@ -46,12 +47,7 @@ async function addPerson() {
     />
 
     <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 py-4 lg:max-w-3xl">
-      <div
-        v-if="!sync.hydrated"
-        class="py-16 text-center text-sm text-muted"
-      >
-        Loading…
-      </div>
+      <LoadingState v-if="!sync.hydrated" />
 
       <template v-else>
         <p class="mb-3 text-sm text-muted">
@@ -67,11 +63,19 @@ async function addPerson() {
             v-for="person in store.people"
             :key="person.id"
           >
-            <button
-              type="button"
-              class="flex w-full min-w-0 items-center gap-2 px-3 py-3 text-left min-h-12 active:bg-elevated/60"
+            <UButton
+              color="neutral"
+              variant="ghost"
+              block
+              class="min-h-12 min-w-0 gap-2 px-3 py-3 text-left font-normal"
               @click="edit(person.id)"
             >
+              <UAvatar
+                :src="person.avatar ?? undefined"
+                :alt="person.name"
+                :text="initialOf(person.name)"
+                size="md"
+              />
               <span class="min-w-0 flex-1">
                 <span class="block truncate">{{ person.name }}</span>
                 <span class="block truncate text-xs text-dimmed">
@@ -89,13 +93,14 @@ async function addPerson() {
                   {{ constraint.tag }}
                 </UBadge>
               </span>
-            </button>
+            </UButton>
           </li>
         </ul>
 
-        <form
+        <UForm
+          :state="{ newName, newDob }"
           class="mt-4 space-y-2 rounded-lg border border-default p-3"
-          @submit.prevent="addPerson"
+          @submit="addPerson"
         >
           <UInput
             v-model="newName"
@@ -123,7 +128,7 @@ async function addPerson() {
             The date of birth is optional, but without it everybody is assumed to
             be an adult.
           </p>
-        </form>
+        </UForm>
       </template>
     </main>
 

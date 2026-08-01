@@ -119,7 +119,7 @@ const boardText = async () => (await frame().innerText()).replace(/[\n\t]+/g, ' 
 const boardState = () => board().getAttribute('data-board-state')
 
 async function openBoard() {
-  await page.goto(`${ORIGIN}/today`)
+  await page.goto(`${ORIGIN}/`)
   await board().waitFor({ timeout: 20_000 })
 }
 
@@ -137,6 +137,7 @@ try {
   await page.getByPlaceholder('Luke').fill('Luke')
   await page.getByRole('button', { name: 'Create household' }).click()
   await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
+  await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 15_000 })
   log('signed in and created a household')
 
@@ -217,7 +218,7 @@ try {
   }
   log('gave it three ingredients and three steps, from the phone')
 
-  await page.goto(`${ORIGIN}/`)
+  await page.goto(`${ORIGIN}/shopping`)
   for (const item of ['Nappies', 'Bin bags']) {
     await page.getByPlaceholder('Add an item').fill(item)
     await page.keyboard.press('Enter')
@@ -287,7 +288,7 @@ try {
   // across the move rather than on either side of it.
   const headerBefore = await page.locator('body > div > header').first().innerText()
   await frame().getByRole('link', { name: 'List', exact: true }).click()
-  await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
+  await page.waitForURL(`${ORIGIN}/shopping`, { timeout: 20_000 })
   const headerAfter = await page.locator('body > div > header').first().innerText()
   assert(headerBefore === headerAfter, 'the header is unchanged by navigating')
   assert(!(await page.locator('nav a[href="/plan"]').count()),
@@ -416,9 +417,10 @@ try {
   assert((await boardText()).includes('Add the squash'), 'and shows that step')
 
   // The pan is still on the heat two steps later, which is the entire reason
-  // the timer detaches instead of scrolling away with the step that set it.
+  // that step's segment of the bar opens out into its timer instead of the
+  // timer scrolling away with the step that set it.
   const pin = frame().locator('[data-cook-pinned]')
-  assert(await pin.count() === 1, 'the running timer followed us to the top bar')
+  assert(await pin.count() === 1, 'the running timer opened out of the step bar')
   const pinText = await pin.innerText()
   assert(/Brown/.test(pinText) && /\d:\d\d/.test(pinText),
     `named and still counting, saw: ${pinText}`)
@@ -427,8 +429,8 @@ try {
   await page.waitForTimeout(300)
   assert(await atStep() === '1/3', `and pressing it goes back to the pan, got ${await atStep()}`)
   assert(!(await frame().locator('[data-cook-pinned]').count()),
-    'where it stops being pinned, because it is on screen at full size again')
-  log('a running timer follows you off the step and leads you back to it')
+    'where the segment closes again, because the timer is on screen at full size')
+  log('a running timer opens out of the step bar and leads you back to it')
 
   await frame().getByRole('button', { name: 'Next step' }).click()
   await page.waitForTimeout(300)
@@ -445,7 +447,7 @@ try {
   log('the method walks one step at a time, forwards and back')
 
   await frame().getByRole('link', { name: 'Exit' }).click()
-  await page.waitForURL(`${ORIGIN}/today`, { timeout: 20_000 })
+  await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
   await board().waitFor({ timeout: 20_000 })
   log('and leaving it puts the whole app back')
 
@@ -453,7 +455,7 @@ try {
   await page.waitForURL('**/recipes', { timeout: 20_000 })
 
   await frame().getByRole('link', { name: 'Today', exact: true }).click()
-  await page.waitForURL(`${ORIGIN}/today`, { timeout: 20_000 })
+  await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
   await board().waitFor({ timeout: 20_000 })
   log('and every view is one press from every other')
 
@@ -482,7 +484,7 @@ try {
   log('the Today card ticks items off and clears them without leaving the page')
 
   // --- emptylist: only the shopping card changes ----------------------------
-  await page.goto(`${ORIGIN}/`)
+  await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 20_000 })
   for (let guard = 0; guard < 20; guard++) {
     const left = await page.locator('main li > button').count()
@@ -544,7 +546,7 @@ try {
   assert(narrow.scrollW <= narrow.clientW + 1, `and nothing overflows sideways: ${JSON.stringify(narrow)}`)
   await shoot('phone-today')
 
-  await page.goto(`${ORIGIN}/`)
+  await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 20_000 })
   await shoot('phone-list')
   log('the same routes answer at 390x844 with the tab bar instead of the header')

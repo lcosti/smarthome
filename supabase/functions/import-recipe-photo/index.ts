@@ -18,6 +18,7 @@
 import Anthropic from 'npm:@anthropic-ai/sdk'
 import { guardMethod, json } from '../_shared/http.ts'
 import { rejectNonMember } from '../_shared/member.ts'
+import { MODEL_REQUEST, objectMember, readJsonOutput } from '../_shared/model.ts'
 import { RECIPE_SCHEMA } from '../_shared/recipe-schema.ts'
 
 const MAX_IMAGES = 4
@@ -33,8 +34,11 @@ Extract it exactly as printed: the recipe's name, servings, prep and cook times 
 the method as one array entry per step in cooking order, and one ingredient per line with
 its quantity exactly as written (e.g. "400g", "2 tbsp", "1 tin"). Keep each step whole —
 split where the page starts a new numbered step or paragraph, never mid-instruction, and do
-not merge two steps into one entry. Use an empty array if the photos show no method, and null
-for anything else not visible in them. Do not invent, convert, or normalise anything.
+not merge two steps into one entry. If the photos show a per-serving nutrition panel, transcribe
+its figures into nutrition (kcal and grams, exactly as printed); if there is no panel or it is
+not per serving, set nutrition to null — never estimate one. Use an empty array if the photos
+show no method, and null for anything else not visible in them. Do not invent, convert, or
+normalise anything.
 If the photos do not show a recipe, set is_recipe to false and recipe to null.`
 
 Deno.serve(async (req) => {
@@ -72,9 +76,12 @@ Deno.serve(async (req) => {
   let response
   try {
     response = await client.messages.create({
-      model: 'claude-sonnet-5',
-      max_tokens: 8000,
-      output_config: { format: { type: 'json_schema', schema: RECIPE_SCHEMA } },
+      model: MODEL_REQUEST.model,
+      max_tokens: MODEL_REQUEST.max_tokens,
+      output_config: {
+        effort: MODEL_REQUEST.effort,
+        format: { type: 'json_schema', schema: RECIPE_SCHEMA }
+      },
       messages: [{
         role: 'user',
         content: [
@@ -91,22 +98,23 @@ Deno.serve(async (req) => {
     return json(502, { error: 'Could not reach the extraction service' })
   }
 
-  if (response.stop_reason === 'refusal') {
-    return json(422, { error: 'The photos could not be read as a recipe' })
+  const output = readJsonOutput(response)
+  if (!output.ok) {
+    if (output.reason === 'refusal') {
+      return json(422, { error: 'The photos could not be read as a recipe' })
+    }
+    console.error('import-recipe-photo could not read the answer', output.reason, response.stop_reason)
+    return json(502, {
+      error: output.reason === 'truncated'
+        ? 'That recipe ran long and came back unfinished — try again.'
+        : 'The extraction service returned something unexpected'
+    })
   }
 
-  const text = response.content.find(block => block.type === 'text')?.text
-  let extracted
-  try {
-    extracted = JSON.parse(text ?? '')
-  } catch {
-    console.error('unparseable model output', text)
-    return json(502, { error: 'The extraction service returned something unexpected' })
-  }
-
-  if (!extracted.is_recipe || !extracted.recipe) {
+  const extracted = objectMember(output.value, 'recipe')
+  if (!output.value.is_recipe || !extracted) {
     return json(422, { error: "That didn't look like a recipe" })
   }
 
-  return json(200, { recipe: extracted.recipe })
+  return json(200, { recipe: extracted })
 })

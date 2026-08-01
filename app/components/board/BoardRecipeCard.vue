@@ -50,7 +50,7 @@ defineEmits<{ select: [] }>()
         color="primary"
         variant="solid"
         :label="card.plannedDay"
-        :ui="{ base: 'absolute right-2.5 top-2.5 rounded-md px-2 py-0.5 font-mono text-[11px] font-medium tracking-[0.06em]' }"
+        class="absolute right-2.5 top-2.5 px-2 py-0.5 font-mono text-[11px] tracking-[0.06em]"
       />
 
       <!--
@@ -64,7 +64,7 @@ defineEmits<{ select: [] }>()
         variant="solid"
         icon="i-lucide-package-check"
         label="Have it all"
-        :ui="{ base: 'absolute bottom-2.5 left-2.5 rounded-md px-2 py-0.5 font-mono text-[11px] font-medium tracking-[0.06em]' }"
+        class="absolute bottom-2.5 left-2.5 px-2 py-0.5 text-[11px]"
       />
     </div>
 
@@ -83,11 +83,14 @@ defineEmits<{ select: [] }>()
         v-if="card.chips.length"
         class="flex flex-wrap gap-1.5"
       >
-        <span
+        <UBadge
           v-for="chip in card.chips"
           :key="chip"
-          class="rounded bg-default px-2 py-0.5 text-[12px] text-muted ring ring-default"
-        >{{ chip }}</span>
+          color="neutral"
+          variant="outline"
+          :label="chip"
+          class="rounded bg-default px-2 py-0.5 text-[12px] font-normal text-muted"
+        />
       </div>
     </div>
   </button>

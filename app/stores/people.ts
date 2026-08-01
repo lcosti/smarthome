@@ -112,6 +112,7 @@ export const usePeopleStore = defineStore('people', () => {
       household_id: sync.householdId,
       name: trimmed,
       date_of_birth: dateOfBirth || null,
+      avatar: null,
       auth_user_id: null,
       deleted_at: null,
       created_at: timestamp,
@@ -121,7 +122,7 @@ export const usePeopleStore = defineStore('people', () => {
 
   async function updatePerson(
     id: string,
-    patch: Partial<Pick<PersonRow, 'name' | 'date_of_birth'>>
+    patch: Partial<Pick<PersonRow, 'name' | 'date_of_birth' | 'avatar'>>
   ) {
     const current = all.value.get(id)
     if (!current) return

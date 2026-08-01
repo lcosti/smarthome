@@ -9,6 +9,12 @@ import type { IngredientRow } from '../utils/db'
  * immediately, whether or not anything was suggested and without a selection step
  * — the suggestions are an offer, never a gate. Tapping one submits that
  * ingredient instead, which is also how the app is taught a synonym.
+ *
+ * Not a `UInputMenu`, and that was checked rather than assumed: the component
+ * calls `highlightFirstItem()` every time its items change, so an open menu owns
+ * the enter key and pressing it picks the highlighted row. That is the selection
+ * step this field exists to not have. Everything else here — the field, the
+ * icon, the colours — is stock; only the list of offers is ours.
  */
 const model = defineModel<string>({ required: true })
 

@@ -60,11 +60,6 @@ watch(open, (isOpen) => {
   aisleChosen.value = false
 })
 
-function chooseAisle(id: string | null) {
-  draftAisle.value = id
-  aisleChosen.value = true
-}
-
 /** Aggregated unchecked lines, in the order the shop is actually walked. */
 const outstanding = computed<ListEntry<ItemRow>[]>(() =>
   list.groups.flatMap(group => group.entries)
@@ -85,10 +80,10 @@ async function add() {
 
 <template>
   <UCard
-    variant="soft"
+    variant="subtle"
     data-board-card="shopping"
+    class="flex min-h-0 flex-1 flex-col"
     :ui="{
-      root: 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-elevated/50 divide-y divide-default ring ring-default',
       header: 'flex flex-none items-center justify-between gap-3 px-6 py-4 sm:px-6',
       body: 'flex min-h-0 flex-1 flex-col p-0 sm:p-0'
     }"
@@ -103,7 +98,6 @@ async function add() {
           color="neutral"
           variant="subtle"
           :label="shopping.countLabel"
-          :ui="{ base: 'rounded-md px-2 py-1 text-xs font-medium leading-none' }"
         />
       </div>
 
@@ -126,7 +120,6 @@ async function add() {
           color="neutral"
           variant="subtle"
           label="Add item"
-          :ui="{ base: 'rounded-md px-2.5 py-1 text-sm font-medium' }"
         />
 
         <template #body>
@@ -156,32 +149,10 @@ async function add() {
             </UFormField>
 
             <UFormField label="Aisle">
-              <!--
-                Chips rather than a select, as everywhere else: one tap. They
-                need `type="button"` because UButton leaves the attribute unset
-                and these sit inside a form, where the browser default is submit
-                — picking an aisle would otherwise add the item.
-              -->
-              <div class="flex flex-wrap gap-2">
-                <UButton
-                  type="button"
-                  size="sm"
-                  color="neutral"
-                  :variant="draftAisle === null ? 'solid' : 'outline'"
-                  label="Other"
-                  @click="chooseAisle(null)"
-                />
-                <UButton
-                  v-for="aisle in list.sortedAisles"
-                  :key="aisle.id"
-                  type="button"
-                  size="sm"
-                  :color="draftAisle === aisle.id ? 'primary' : 'neutral'"
-                  :variant="draftAisle === aisle.id ? 'solid' : 'outline'"
-                  :label="aisle.name"
-                  @click="chooseAisle(aisle.id)"
-                />
-              </div>
+              <AislePicker
+                v-model="draftAisle"
+                @update:model-value="aisleChosen = true"
+              />
             </UFormField>
           </UForm>
         </template>
@@ -224,49 +195,56 @@ async function add() {
     </div>
 
     <!--
-      The rows scroll inside the card rather than growing it. Without the cap a
-      forty-item list would push the week strip a screen and a half down the
-      page, and this card is a summary you can act on — the full list has its
-      own view.
+      The rows scroll inside the card rather than growing it. On a phone the page
+      itself scrolls, so the cap is what stops a forty-item list pushing the week
+      strip a screen and a half down. On a wide screen the board is fixed and the
+      row hands this card a height, so the cap comes off and the list takes
+      whatever is left.
     -->
     <div
       v-else
-      class="flex max-h-[420px] min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-4 pb-4 pt-2"
+      class="flex max-h-[420px] min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-4 pb-4 pt-2 lg:max-h-none"
     >
-      <button
+      <!--
+        Real checkboxes, unlike the list page's rows: there is no second control
+        on a board row, so nothing here needs a label wrapping a button, and the
+        board's main interaction gets to announce itself as a checklist.
+      -->
+      <UCheckbox
         v-for="entry in outstanding"
         :key="entry.key"
-        type="button"
-        class="flex items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-default/60"
-        @click="list.toggleEntry(entry)"
+        :model-value="false"
+        :ui="{ root: 'items-center rounded-md px-2 py-2.5 transition-colors hover:bg-default/60', wrapper: 'ms-3' }"
+        @update:model-value="list.toggleEntry(entry)"
       >
-        <span class="size-4 shrink-0 rounded bg-transparent ring ring-accented" />
-        <span class="min-w-0 truncate text-sm text-default">{{ entry.name }}</span>
-        <span
-          v-if="entry.quantityLabel"
-          class="ml-auto shrink-0 font-mono text-xs text-dimmed"
-        >{{ entry.quantityLabel }}</span>
-      </button>
+        <template #label>
+          <span class="flex items-center gap-3">
+            <span class="min-w-0 truncate text-sm font-normal text-default">{{ entry.name }}</span>
+            <span
+              v-if="entry.quantityLabel"
+              class="ml-auto shrink-0 font-mono text-xs text-dimmed"
+            >{{ entry.quantityLabel }}</span>
+          </span>
+        </template>
+      </UCheckbox>
 
-      <button
+      <UCheckbox
         v-for="item in list.checkedItems"
         :key="item.id"
-        type="button"
-        class="flex items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-default/60"
-        @click="list.toggleItem(item.id)"
+        :model-value="true"
+        :ui="{ root: 'items-center rounded-md px-2 py-2.5 transition-colors hover:bg-default/60', wrapper: 'ms-3' }"
+        @update:model-value="list.toggleItem(item.id)"
       >
-        <span class="flex size-4 shrink-0 items-center justify-center rounded bg-primary">
-          <UIcon
-            name="i-lucide-check"
-            class="size-3 text-inverted"
-          />
-        </span>
-        <span class="min-w-0 truncate text-sm text-dimmed line-through">{{ item.name }}</span>
-        <span
-          v-if="item.quantity"
-          class="ml-auto shrink-0 font-mono text-xs text-dimmed"
-        >{{ item.quantity }}</span>
-      </button>
+        <template #label>
+          <span class="flex items-center gap-3">
+            <span class="min-w-0 truncate text-sm font-normal text-dimmed line-through">{{ item.name }}</span>
+            <span
+              v-if="item.quantity"
+              class="ml-auto shrink-0 font-mono text-xs text-dimmed"
+            >{{ item.quantity }}</span>
+          </span>
+        </template>
+      </UCheckbox>
 
       <!--
         Inside the scroll container and pushed down by mt-auto, so on a short
@@ -278,20 +256,15 @@ async function add() {
           {{ doneCount }} done · {{ shopping.count }} to buy
         </p>
 
-        <!--
-          A plain button, not a UButton: the design calls for a 12px text link
-          and the component's own padding, label span and link variant were three
-          things to override to get there. It is also a simpler hit target, which
-          matters on a wall.
-        -->
-        <button
+        <UButton
           v-if="doneCount"
-          type="button"
-          class="text-xs font-medium text-muted transition-colors hover:text-default"
+          color="neutral"
+          variant="link"
+          size="xs"
+          label="Clear done"
+          :ui="{ base: 'p-0' }"
           @click="list.clearChecked()"
-        >
-          Clear done
-        </button>
+        />
       </div>
     </div>
   </UCard>

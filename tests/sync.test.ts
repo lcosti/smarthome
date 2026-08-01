@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AppDatabase,
   SYNC_TABLE_NAMES,
+  WRITABLE_TABLE_NAMES,
   type IngredientAliasRow,
   type IngredientRow,
   type ItemRow,
@@ -19,6 +20,7 @@ import {
   enqueueMutation,
   isPermanentSyncError,
   queuedRowIds,
+  rowsNeedingRequeue,
   shouldApplyServerRow,
   type SyncError,
   type UpsertFn
@@ -229,9 +231,63 @@ describe('isPermanentSyncError', () => {
   })
 
   it('treats a coded PostgREST rejection as permanent', () => {
+    // 42501 stays permanent on purpose. A retryable error halts the whole queue,
+    // so a row that genuinely fails its RLS check would sit at the head of it
+    // blocking every write behind it forever. 23503 is permanent for the same
+    // reason: a foreign key pointing at nothing is that row's own fault.
     expect(isPermanentSyncError(rlsError)).toBe(true)
-    expect(isPermanentSyncError({ code: 'PGRST204' })).toBe(true)
     expect(isPermanentSyncError({ code: '23503' })).toBe(true)
+  })
+
+  // PGRST204 used to be asserted permanent here, as an incidental example of
+  // "coded, therefore permanent". It is the opposite: a bundle deployed ahead of
+  // its migrations writes a column the database has not got yet, and dropping the
+  // write costs a recipe over a database that is merely behind. Applying the
+  // migration cures it, so it waits.
+  it('treats a schema the database has not caught up to as retryable', () => {
+    expect(isPermanentSyncError({ code: 'PGRST204', message: 'Could not find the \'kcal\' column' })).toBe(false)
+    expect(isPermanentSyncError({ code: 'PGRST205' })).toBe(false)
+    expect(isPermanentSyncError({ code: '42703' })).toBe(false)
+    expect(isPermanentSyncError({ code: '42P01' })).toBe(false)
+  })
+
+  // An expired token fails identically every time right up until it refreshes,
+  // which is the one code-bearing failure a retry actually cures.
+  it('treats an expired or invalid token as retryable', () => {
+    expect(isPermanentSyncError({ code: 'PGRST301', message: 'JWT expired' })).toBe(false)
+    expect(isPermanentSyncError({ code: 'PGRST302' })).toBe(false)
+  })
+})
+
+describe('rowsNeedingRequeue', () => {
+  const local = [item({ id: 'a' }), item({ id: 'b' }), item({ id: 'c' })]
+
+  it('returns the rows the server does not have', () => {
+    const missing = rowsNeedingRequeue(local, new Set(['a']), new Set())
+    expect(missing.map(r => r.id)).toEqual(['b', 'c'])
+  })
+
+  it('leaves rows the server already has alone', () => {
+    expect(rowsNeedingRequeue(local, new Set(['a', 'b', 'c']), new Set())).toEqual([])
+  })
+
+  // Already queued means it is on its way; queueing it twice would push the same
+  // row again behind itself.
+  it('skips rows with a write already waiting', () => {
+    const missing = rowsNeedingRequeue(local, new Set(), new Set(['a', 'b']))
+    expect(missing.map(r => r.id)).toEqual(['c'])
+  })
+
+  /**
+   * Re-queueing reads "the server does not have it" as "it never landed", which
+   * only holds where deletes are soft. calendar_events is the exception: the
+   * sync-calendar function prunes old events with a real delete, so a device
+   * still holding one must not offer to re-create it.
+   */
+  it('excludes server-owned tables from the writable set', () => {
+    expect(WRITABLE_TABLE_NAMES).not.toContain('calendar_events')
+    expect(WRITABLE_TABLE_NAMES).toContain('shopping_list_items')
+    expect(WRITABLE_TABLE_NAMES).toHaveLength(SYNC_TABLE_NAMES.length - 1)
   })
 })
 
@@ -342,6 +398,77 @@ describe('drainQueue', () => {
     expect(final).toEqual({ synced: 0, dropped: 1, halted: false })
     expect(await db.mutations.count()).toBe(0)
     expect(onDropped).toHaveBeenCalledOnce()
+  })
+
+  /**
+   * The bug this guards against: a phone opened after its token expired pushed
+   * with the anon key, which is granted nothing, and every row came back 42501.
+   * Coded, so permanent, so a whole boot's worth of writes was discarded after
+   * five passes. Both halves of the fix are asserted here — the composable now
+   * reports a missing session code-less, and an expired token is retryable — and
+   * either one alone is enough to keep the queue.
+   */
+  it('keeps the queue when the session is missing or expired rather than discarding it', async () => {
+    for (const failure of [{ message: 'no session' }, { code: 'PGRST301', message: 'JWT expired' }]) {
+      const server = fakeServer()
+      server.fail(failure)
+      const onDropped = vi.fn()
+      await enqueueMutation(db, 'shopping_list_items', item({ id: 'unauthenticated' }))
+
+      // Well past MAX_SYNC_ATTEMPTS: no amount of retrying may consume the write.
+      for (let pass = 0; pass < MAX_SYNC_ATTEMPTS + 2; pass++) {
+        const result = await drainQueue(db, server.upsert, { onDropped })
+        expect(result).toEqual({ synced: 0, dropped: 0, halted: true })
+      }
+
+      expect(onDropped).not.toHaveBeenCalled()
+      expect(await db.mutations.count()).toBe(1)
+
+      // And it lands once the session is back.
+      server.fail(null)
+      expect(await drainQueue(db, server.upsert)).toEqual({ synced: 1, dropped: 0, halted: false })
+      expect(server.rows.has('unauthenticated')).toBe(true)
+      await db.mutations.clear()
+    }
+  })
+
+  /**
+   * The bug this guards against, from the day it happened: the local database was
+   * six migrations behind the bundle, so every recipe upsert came back PGRST204
+   * naming a nutrition column that did not exist there yet. Coded, so permanent,
+   * so an imported recipe was deleted about two minutes later — the mutation
+   * dropped and the local row with it — and its ingredients followed on 23503 for
+   * a parent that never landed.
+   *
+   * Both halves are asserted: nothing is dropped however long the drift lasts, and
+   * the halt keeps the drain from ever reaching the children whose foreign key is
+   * only failing as a symptom.
+   */
+  it('keeps a recipe and its ingredients when the database is behind the bundle', async () => {
+    const server = fakeServer()
+    const driftError = { code: 'PGRST204', message: 'Could not find the \'kcal\' column of \'recipes\' in the schema cache' }
+    server.fail(driftError)
+    const onDropped = vi.fn()
+
+    await enqueueMutation(db, 'recipes', recipe({ id: 'risotto', name: 'Mushroom risotto' }))
+    await enqueueMutation(db, 'recipe_ingredients', line({ id: 'rice', recipe_id: 'risotto' }))
+
+    // Well past MAX_SYNC_ATTEMPTS: a database that is behind never consumes a write.
+    for (let pass = 0; pass < MAX_SYNC_ATTEMPTS + 2; pass++) {
+      expect(await drainQueue(db, server.upsert, { onDropped }))
+        .toEqual({ synced: 0, dropped: 0, halted: true })
+    }
+
+    expect(onDropped).not.toHaveBeenCalled()
+    expect(await db.mutations.count()).toBe(2)
+    // The ingredient was never attempted, so its FK failure never accrued attempts.
+    expect(server.calls.every(c => c.id === 'risotto')).toBe(true)
+
+    // And the whole recipe lands once the migration has been applied.
+    server.fail(null)
+    expect(await drainQueue(db, server.upsert)).toEqual({ synced: 2, dropped: 0, halted: false })
+    expect((server.rows.get('risotto') as RecipeRow).name).toBe('Mushroom risotto')
+    expect(server.rows.has('rice')).toBe(true)
   })
 
   it('does not let a rejected write hold up the writes behind it', async () => {

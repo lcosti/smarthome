@@ -2,17 +2,22 @@
 import { usePeopleStore } from '../stores/people'
 import type { ConstraintKind } from '../utils/attendance'
 import { ageLabel, deriveLifeStage, STAGE_LABEL } from '../utils/people'
+import { initialOf } from '../utils/person-colors'
+import { cropToAvatar } from '../utils/photo'
 import { todayIso } from '../utils/week'
 
 const open = defineModel<boolean>('open', { required: true })
 const { personId } = defineProps<{ personId: string | null }>()
 
 const store = usePeopleStore()
+const toast = useToast()
 
 const name = ref('')
 const dateOfBirth = ref('')
 const kind = ref<ConstraintKind>('allergy')
 const tag = ref('')
+const photoInput = ref<HTMLInputElement | null>(null)
+const savingPhoto = ref(false)
 
 const person = computed(() => (personId ? store.personById(personId) ?? null : null))
 const constraints = computed(() => (personId ? store.constraintsFor(personId) : []))
@@ -29,11 +34,50 @@ const preview = computed(() => {
   return age ? `${stage} · ${age}` : stage
 })
 
-const KINDS: { value: ConstraintKind, label: string, help: string }[] = [
-  { value: 'allergy', label: 'Allergy', help: 'Never planned.' },
-  { value: 'intolerance', label: 'Intolerance', help: 'Never planned.' },
-  { value: 'dislike', label: 'Dislike', help: 'Planned less often.' },
-  { value: 'preference', label: 'Preference', help: 'Planned more often.' }
+/**
+ * The picture, saved the moment it is picked rather than waiting for Save.
+ *
+ * Choosing a photograph is its own decision and reads as done as soon as the
+ * face appears — the same way adding an allergy below writes immediately. The
+ * name and the date of birth are a form; this is not.
+ *
+ * Shrunk here rather than anywhere else: a phone hands over three to twelve
+ * megabytes, the row it is going into is replicated to every device in the
+ * house, and utils/photo.ts turns it into a 192px square of about eight
+ * kilobytes before any of that happens.
+ */
+async function onPhotoPicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // Cleared straight away so picking the same file twice in a row still fires.
+  input.value = ''
+  if (!file || !personId || savingPhoto.value) return
+
+  savingPhoto.value = true
+  try {
+    await store.updatePerson(personId, { avatar: await cropToAvatar(file) })
+  } catch {
+    toast.add({
+      title: 'That photo could not be read',
+      description: 'Try another one, or take a new picture.',
+      color: 'warning',
+      icon: 'i-lucide-image-off'
+    })
+  } finally {
+    savingPhoto.value = false
+  }
+}
+
+async function removePhoto() {
+  if (!personId) return
+  await store.updatePerson(personId, { avatar: null })
+}
+
+const KINDS: { value: ConstraintKind, label: string, description: string }[] = [
+  { value: 'allergy', label: 'Allergy', description: 'Never planned.' },
+  { value: 'intolerance', label: 'Intolerance', description: 'Never planned.' },
+  { value: 'dislike', label: 'Dislike', description: 'Planned less often.' },
+  { value: 'preference', label: 'Preference', description: 'Planned more often.' }
 ]
 
 watch(open, (isOpen) => {
@@ -77,6 +121,52 @@ async function remove() {
         v-if="person"
         class="space-y-5"
       >
+        <UFormField
+          label="Photo"
+          help="Optional. Without one they are their initial, which is what every screen showed before photos existed."
+        >
+          <div class="flex items-center gap-3">
+            <UAvatar
+              :src="person.avatar ?? undefined"
+              :alt="person.name"
+              :text="initialOf(person.name)"
+              size="3xl"
+            />
+            <UButton
+              color="neutral"
+              variant="subtle"
+              size="lg"
+              icon="i-lucide-camera"
+              :label="person.avatar ? 'Change photo' : 'Add photo'"
+              :loading="savingPhoto"
+              @click="photoInput?.click()"
+            />
+            <UButton
+              v-if="person.avatar"
+              color="neutral"
+              variant="ghost"
+              size="lg"
+              label="Remove"
+              @click="removePhoto"
+            />
+            <!--
+              A bare input rather than UFileUpload, exactly as on the recipe
+              import: nothing here is visible, the control people see is the
+              button beside it, and UFileUpload brings a dropzone this has no use
+              for. No `capture`, so the phone offers the camera and the library
+              rather than forcing the camera.
+            -->
+            <input
+              ref="photoInput"
+              type="file"
+              accept="image/*"
+              class="hidden"
+              data-testid="person-photo-input"
+              @change="onPhotoPicked"
+            >
+          </div>
+        </UFormField>
+
         <UFormField label="Name">
           <UInput
             v-model="name"
@@ -124,36 +214,37 @@ async function remove() {
             >
               {{ constraint.tag }}
               <span class="ml-1 text-xs opacity-70">{{ constraint.kind }}</span>
-              <button
+              <UButton
                 type="button"
-                class="ml-1 text-dimmed"
+                icon="i-lucide-x"
+                color="neutral"
+                variant="link"
+                size="xs"
                 :aria-label="`Remove ${constraint.tag}`"
+                :ui="{ base: 'p-0 ms-1' }"
                 @click="store.removeConstraint(constraint.id)"
-              >
-                <UIcon
-                  name="i-lucide-x"
-                  class="size-3.5"
-                />
-              </button>
+              />
             </UBadge>
           </div>
 
-          <div class="flex flex-wrap gap-2">
-            <UButton
-              v-for="option in KINDS"
-              :key="option.value"
-              :color="kind === option.value ? 'primary' : 'neutral'"
-              :variant="kind === option.value ? 'solid' : 'subtle'"
-              size="lg"
-              @click="kind = option.value"
-            >
-              {{ option.label }}
-            </UButton>
-          </div>
+          <!--
+            A radio group rather than four buttons, which is what this always
+            was: one choice out of four, and the cards are where the difference
+            between an allergy and a dislike finally gets said out loud instead
+            of sitting unread in KINDS.
+          -->
+          <URadioGroup
+            v-model="kind"
+            :items="KINDS"
+            variant="card"
+            orientation="horizontal"
+            :ui="{ fieldset: 'flex-wrap gap-2', item: 'flex-1 basis-40' }"
+          />
 
-          <form
+          <UForm
+            :state="{ tag }"
             class="mt-2 flex gap-2"
-            @submit.prevent="addConstraint"
+            @submit="addConstraint"
           >
             <UInput
               v-model="tag"
@@ -169,7 +260,7 @@ async function remove() {
               :disabled="!tag.trim()"
               aria-label="Add"
             />
-          </form>
+          </UForm>
         </UFormField>
       </div>
     </template>

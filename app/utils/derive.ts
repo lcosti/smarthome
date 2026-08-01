@@ -1,4 +1,5 @@
 import type { ItemRow, PlanEntryRow, RecipeIngredientRow, RecipeRow } from './db'
+import { shoppingName } from './shopping-name'
 import { DERIVE_NAMESPACE, uuidv5 } from './uuid5'
 
 export interface DeriveInput {
@@ -170,11 +171,15 @@ export function derive(input: DeriveInput): DeriveResult {
     if (hit) {
       if (item.checked || item.deleted_at) continue
       const ingredientId = resolveIngredientId(hit.line)
+      // The list gets the shop's version of the name, not the cook's. Aisle
+      // memory is looked up under the same name it will be stored under, or the
+      // two drift and nothing is ever remembered.
+      const name = shoppingName(hit.line.name)
       const next: ItemRow = {
         ...item,
-        name: hit.line.name,
+        name,
         quantity: servingsHint(hit.line.quantity, cateringFor(hit.entry), hit.recipe.base_servings),
-        aisle_id: item.aisle_id ?? ingredientAisle(ingredientId) ?? hit.line.aisle_id ?? rememberAisle(hit.line.name),
+        aisle_id: item.aisle_id ?? ingredientAisle(ingredientId) ?? hit.line.aisle_id ?? rememberAisle(name),
         // Never cleared once set. Resolution improving is worth following; it
         // going quiet — because a device has not pulled the ingredient yet — is
         // not worth un-grouping a line somebody is looking at.
@@ -202,14 +207,15 @@ export function derive(input: DeriveInput): DeriveResult {
   // 3. Anything still wanted is new.
   for (const [id, { entry, line, recipe }] of wanted) {
     const ingredientId = resolveIngredientId(line)
+    const name = shoppingName(line.name)
     creates.push({
       id,
       household_id: householdId,
-      name: line.name,
+      name,
       quantity: servingsHint(line.quantity, cateringFor(entry), recipe.base_servings),
       // The canonical ingredient's aisle outranks the line's, because it is the
       // thing a person filed deliberately and it holds for every recipe using it.
-      aisle_id: ingredientAisle(ingredientId) ?? line.aisle_id ?? rememberAisle(line.name),
+      aisle_id: ingredientAisle(ingredientId) ?? line.aisle_id ?? rememberAisle(name),
       checked: false,
       checked_at: null,
       source: 'plan',

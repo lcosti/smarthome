@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { asBaseUnit, useIngredientsStore } from '../stores/ingredients'
-import { useListStore } from '../stores/list'
 import type { BaseUnit } from '../utils/quantity'
 
 const open = defineModel<boolean>('open', { required: true })
 const { ingredientId } = defineProps<{ ingredientId: string | null }>()
 
 const store = useIngredientsStore()
-const list = useListStore()
 const toast = useToast()
 
 const name = ref('')
@@ -127,44 +125,20 @@ async function remove() {
           label="Measured in"
           help="What quantities are added up in. Change it if the guess was wrong."
         >
-          <div class="flex gap-2">
-            <UButton
-              v-for="unit in UNITS"
-              :key="unit.value"
-              :color="baseUnit === unit.value ? 'primary' : 'neutral'"
-              :variant="baseUnit === unit.value ? 'solid' : 'subtle'"
-              size="lg"
-              @click="baseUnit = unit.value"
-            >
-              {{ unit.label }}
-            </UButton>
-          </div>
+          <URadioGroup
+            v-model="baseUnit"
+            :items="UNITS"
+            variant="card"
+            orientation="horizontal"
+            :ui="{ fieldset: 'flex-wrap gap-2', item: 'flex-1 basis-32' }"
+          />
         </UFormField>
 
         <UFormField
           label="Aisle"
           help="Where this lives in the shop, for every recipe that uses it."
         >
-          <div class="flex flex-wrap gap-2">
-            <UButton
-              :color="aisleId === null ? 'primary' : 'neutral'"
-              :variant="aisleId === null ? 'solid' : 'subtle'"
-              size="lg"
-              @click="aisleId = null"
-            >
-              None
-            </UButton>
-            <UButton
-              v-for="aisle in list.sortedAisles"
-              :key="aisle.id"
-              :color="aisleId === aisle.id ? 'primary' : 'neutral'"
-              :variant="aisleId === aisle.id ? 'solid' : 'subtle'"
-              size="lg"
-              @click="aisleId = aisle.id"
-            >
-              {{ aisle.name }}
-            </UButton>
-          </div>
+          <AislePicker v-model="aisleId" />
         </UFormField>
 
         <UFormField
@@ -180,22 +154,22 @@ async function remove() {
               size="lg"
             >
               {{ alias.alias }}
-              <button
+              <UButton
                 type="button"
-                class="ml-1 text-dimmed"
+                icon="i-lucide-x"
+                color="neutral"
+                variant="link"
+                size="xs"
                 :aria-label="`Remove ${alias.alias}`"
+                :ui="{ base: 'p-0 ms-1' }"
                 @click="store.removeAlias(alias.id)"
-              >
-                <UIcon
-                  name="i-lucide-x"
-                  class="size-3.5"
-                />
-              </button>
+              />
             </UBadge>
           </div>
-          <form
+          <UForm
+            :state="{ newAlias }"
             class="mt-2 flex gap-2"
-            @submit.prevent="addAlias"
+            @submit="addAlias"
           >
             <UInput
               v-model="newAlias"
@@ -211,7 +185,7 @@ async function remove() {
               :disabled="!newAlias.trim()"
               aria-label="Add name"
             />
-          </form>
+          </UForm>
         </UFormField>
 
         <UFormField
@@ -240,9 +214,10 @@ async function remove() {
               />
             </li>
           </ul>
-          <form
+          <UForm
+            :state="{ unitName, unitAmount }"
             class="flex gap-2"
-            @submit.prevent="addUnit"
+            @submit="addUnit"
           >
             <UInput
               v-model="unitName"
@@ -265,7 +240,7 @@ async function remove() {
               :disabled="!unitName.trim() || !unitAmount.trim()"
               aria-label="Add purchase unit"
             />
-          </form>
+          </UForm>
         </UFormField>
 
         <UFormField

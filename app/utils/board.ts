@@ -18,6 +18,8 @@
 
 import { deriveLifeStage, type LifeStage } from './people'
 import { personHue } from './person-colors'
+import { pictureOf } from './photo'
+import { displayIngredientName, shoppingName } from './shopping-name'
 import { addDays, isoDate, isoWeekNumber, mondayOf, weekDates } from './week'
 
 // ---------------------------------------------------------------------------
@@ -28,6 +30,8 @@ export interface BoardPerson {
   id: string
   name: string
   date_of_birth: string | null
+  /** Their photograph, or null for the initial in their own colour. */
+  avatar: string | null
   created_at: string
 }
 
@@ -173,6 +177,8 @@ export interface RosterPerson {
   id: string
   name: string
   initial: string
+  /** Their photograph, or null for the initial in their own colour. */
+  avatar: string | null
   hue: number
   absent: boolean
   /**
@@ -253,10 +259,18 @@ export interface BoardHeaderInput {
 export interface LibraryRecipe {
   id: string
   name: string
+  /** The site's address; `photo` is the household's own picture and wins. */
   image_url: string | null
+  photo?: string | null
   base_servings: number
   prep_minutes: number | null
   cook_minutes: number | null
+  /**
+   * When somebody shortlisted it, or null. Optional for the same reason the
+   * generator's copy of this is: a caller that has not been told about the
+   * shortlist yet describes a library with nothing on it.
+   */
+  shortlisted_at?: string | null
 }
 
 /** One ingredient line, for searching, listing, and diffing against the list. */
@@ -287,7 +301,7 @@ export interface LibraryListItem {
   name: string
 }
 
-export type LibraryFacet = 'all' | 'quick' | 'batch' | 'planned' | 'pantry' | 'never'
+export type LibraryFacet = 'all' | 'shortlist' | 'quick' | 'batch' | 'planned' | 'pantry' | 'never'
 export type LibrarySort = 'recent' | 'quickest' | 'cooked'
 
 export interface LibraryInput {
@@ -339,6 +353,8 @@ export interface LibraryDetail {
   image: string | null
   /** 'LIBRARY · LAST COOKED 5 DAYS AGO' — the pane's eyebrow, already shouted. */
   eyebrow: string
+  /** On the shortlist, so the pane's first button knows which way round it is. */
+  shortlisted: boolean
   /** '35 min · serves 4 · cooked 11 times'. */
   meta: string
   ingredients: {
@@ -393,7 +409,14 @@ export interface BoardModel {
     startBy: string | null
     /** What tonight still needs. Empty when nothing does. */
     toBuy: { name: string, qty: string | null }[]
-    cook: { id: string, name: string, initial: string, hue: number, label: string } | null
+    cook: {
+      id: string
+      name: string
+      initial: string
+      avatar: string | null
+      hue: number
+      label: string
+    } | null
     /** 'Four for dinner'. */
     eatingCount: string
     roster: RosterPerson[]
@@ -710,6 +733,7 @@ export function buildBoard(input: BoardInput): BoardModel {
       id: person.id,
       name: person.name,
       initial: initialOfName(person.name),
+      avatar: person.avatar,
       hue: hueOf(person.id) ?? 0,
       absent,
       note: [
@@ -999,6 +1023,7 @@ export function buildBoard(input: BoardInput): BoardModel {
             id: cookPerson.id,
             name: cookPerson.name,
             initial: initialOfName(cookPerson.name),
+            avatar: cookPerson.avatar,
             hue: hueOf(cookPerson.id) ?? 0,
             label: lateEvening ? `${cookPerson.name} cooks tomorrow` : `${cookPerson.name} cooks`
           }
@@ -1049,8 +1074,11 @@ const BATCH_SERVINGS = 4
 /** How many past nights the detail pane lists. Enough to see a habit, not a log. */
 const MAX_HISTORY = 4
 
+// Order is the order the chips are drawn in. Shortlisted sits straight after
+// All, because it is the only one of these somebody chose on purpose.
 const FACET_LABELS: Record<LibraryFacet, string> = {
   all: 'All',
+  shortlist: 'Shortlisted',
   quick: 'Quick',
   batch: 'Big batch',
   planned: 'On the plan',
@@ -1154,6 +1182,7 @@ export function buildRecipeLibrary(input: LibraryInput): LibraryModel {
     const fromPantry = lines.length > 0 && lines.every(line => covers(line))
 
     const facets = new Set<LibraryFacet>(['all'])
+    if (recipe.shortlisted_at) facets.add('shortlist')
     if (minutes !== null && minutes <= QUICK_MINUTES) facets.add('quick')
     if (recipe.base_servings >= BATCH_SERVINGS) facets.add('batch')
     if (plannedThisWeek.has(recipe.id)) facets.add('planned')
@@ -1214,7 +1243,7 @@ export function buildRecipeLibrary(input: LibraryInput): LibraryModel {
   const cards: LibraryCard[] = sorted.map(row => ({
     id: row.recipe.id,
     name: row.recipe.name,
-    image: row.recipe.image_url,
+    image: pictureOf(row.recipe),
     servings: row.recipe.base_servings,
     minutes: row.minutes,
     cookedCount: row.cookedCount,
@@ -1234,20 +1263,29 @@ export function buildRecipeLibrary(input: LibraryInput): LibraryModel {
   let detail: LibraryDetail | null = null
 
   if (selected) {
+    // Tidied for reading, not for storing. This pane is where five meals are
+    // compared, so a line reads as the thing you would buy — "Garlic cloves",
+    // not "garlic cloves finely chopped". The recipe row is untouched and cook
+    // mode still shows every word, because at the hob the instruction is the
+    // point. Same rule, and the same function, as the shopping list.
     const ingredients = selected.lines.map(line => ({
       id: line.id,
-      name: line.name,
+      name: displayIngredientName(line.name),
       quantity: line.quantity,
       onList: onList.has(libraryKey(line.name)),
       inPantry: covers(line)
     }))
     // Something in the cupboard is no more missing than something in the trolley,
     // and a button offering to buy it again is the reason this feature exists.
+    // `shoppingName`, not the pane's harder tidy: these names are what the button
+    // actually writes onto the shopping list, so they follow the same rule as a
+    // plan-derived item (see derive.ts) and land next to it rather than beside a
+    // second spelling of the same thing.
     const missing = selected.lines
       .filter(line => !onList.has(libraryKey(line.name)) && !covers(line))
       .map(line => ({
         id: line.id,
-        name: line.name,
+        name: shoppingName(line.name),
         quantity: line.quantity,
         aisleId: line.aisle_id
       }))
@@ -1255,10 +1293,11 @@ export function buildRecipeLibrary(input: LibraryInput): LibraryModel {
     detail = {
       id: selected.recipe.id,
       name: selected.recipe.name,
-      image: selected.recipe.image_url,
+      image: pictureOf(selected.recipe),
       eyebrow: selected.lastCooked
         ? `Library · last cooked ${agoLabel(selected.lastCooked, today)}`
         : 'Library · never cooked',
+      shortlisted: Boolean(selected.recipe.shortlisted_at),
       meta: [
         selected.minutes ? `${selected.minutes} min` : null,
         `serves ${selected.recipe.base_servings}`,

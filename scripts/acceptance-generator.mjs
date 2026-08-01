@@ -114,6 +114,7 @@ try {
   await page.getByPlaceholder('Luke').fill('Luke')
   await page.getByRole('button', { name: 'Create household' }).click()
   await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
+  await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 15_000 })
   log('signed in and created a household')
 
@@ -216,7 +217,7 @@ try {
   await page.getByRole('button', { name: 'Add to shopping list' }).click()
   await page.getByText('On list').first().waitFor({ timeout: 20_000 })
   await page.getByRole('link', { name: 'List', exact: true }).click()
-  await page.waitForURL(`${ORIGIN}/`)
+  await page.waitForURL(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 10_000 })
   const list = await mainText()
   assert(list.includes('Haddock'), `the generated week reached the list, saw: ${list.slice(0, 300)}`)

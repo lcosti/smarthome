@@ -7,6 +7,16 @@ const supabase = useSupabaseClient()
 const user = useSupabaseUser()
 
 const mode = ref<'create' | 'join'>('create')
+
+/**
+ * Two ways in, as one choice. `value` matches `mode`, so the tabs drive the
+ * form directly rather than through a lookup.
+ */
+const modes = [
+  { label: 'Create', value: 'create' },
+  { label: 'Join', value: 'join' }
+]
+
 const householdName = ref('')
 const personName = ref('')
 const inviteCode = ref('')
@@ -71,26 +81,18 @@ async function submit() {
           </p>
         </div>
 
-        <div class="flex gap-2">
-          <UButton
-            block
-            :variant="mode === 'create' ? 'solid' : 'outline'"
-            @click="mode = 'create'"
-          >
-            Create
-          </UButton>
-          <UButton
-            block
-            :variant="mode === 'join' ? 'solid' : 'outline'"
-            @click="mode = 'join'"
-          >
-            Join
-          </UButton>
-        </div>
+        <UTabs
+          v-model="mode"
+          :items="modes"
+          :content="false"
+          size="lg"
+          class="w-full"
+        />
 
-        <form
+        <UForm
+          :state="{ householdName, inviteCode, personName }"
           class="space-y-3"
-          @submit.prevent="submit"
+          @submit="submit"
         >
           <UFormField
             v-if="mode === 'create'"
@@ -136,13 +138,13 @@ async function submit() {
             {{ mode === 'create' ? 'Create household' : 'Join household' }}
           </UButton>
 
-          <p
+          <UAlert
             v-if="errorMessage"
-            class="text-sm text-error"
-          >
-            {{ errorMessage }}
-          </p>
-        </form>
+            color="error"
+            variant="subtle"
+            :description="errorMessage"
+          />
+        </UForm>
       </div>
     </div>
   </div>

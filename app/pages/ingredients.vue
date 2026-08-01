@@ -98,34 +98,17 @@ const unlinkedCount = computed(() =>
     </AppPageHeader>
 
     <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 py-4 lg:max-w-3xl">
-      <div
-        v-if="!sync.hydrated"
-        class="py-16 text-center text-sm text-muted"
-      >
-        Loading…
-      </div>
+      <LoadingState v-if="!sync.hydrated" />
 
-      <div
+      <UEmpty
         v-else-if="!store.ingredients.length"
-        class="py-16 text-center"
-      >
-        <p class="text-muted">
-          No ingredients yet.
-        </p>
-        <p class="mt-1 text-sm text-dimmed">
-          They appear as you add them to recipes. If you already have a library,
-          this reads through it.
-        </p>
-        <UButton
-          v-if="unlinkedCount"
-          class="mt-4"
-          size="lg"
-          :loading="scanning"
-          @click="scanRecipes()"
-        >
-          Read my recipes
-        </UButton>
-      </div>
+        icon="i-lucide-carrot"
+        title="No ingredients yet."
+        description="They appear as you add them to recipes. If you already have a library, this reads through it."
+        :actions="unlinkedCount
+          ? [{ label: 'Read my recipes', size: 'lg', loading: scanning, onClick: () => scanRecipes() }]
+          : []"
+      />
 
       <template v-else>
         <ul class="divide-y divide-default rounded-lg border border-default">
@@ -134,9 +117,10 @@ const unlinkedCount = computed(() =>
             :key="ingredient.id"
             class="flex items-center gap-2"
           >
-            <button
-              type="button"
-              class="flex min-w-0 flex-1 items-center gap-2 px-3 py-3 text-left min-h-12 active:bg-elevated/60"
+            <UButton
+              color="neutral"
+              variant="ghost"
+              class="min-h-12 min-w-0 flex-1 gap-2 px-3 py-3 text-left font-normal"
               @click="edit(ingredient.id)"
             >
               <span class="min-w-0 flex-1">
@@ -157,16 +141,15 @@ const unlinkedCount = computed(() =>
                 v-if="aisleNameFor(ingredient.aisle_id)"
                 class="shrink-0 text-xs text-dimmed"
               >{{ aisleNameFor(ingredient.aisle_id) }}</span>
-            </button>
+            </UButton>
           </li>
         </ul>
 
-        <p
+        <UEmpty
           v-if="!shown.length"
-          class="rounded-lg border border-default bg-elevated/30 px-3 py-6 text-center text-sm text-dimmed"
-        >
-          Nothing matches “{{ query }}”.
-        </p>
+          icon="i-lucide-search-x"
+          :title="`Nothing matches “${query}”.`"
+        />
 
         <UButton
           v-if="unlinkedCount"

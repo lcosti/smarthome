@@ -35,13 +35,12 @@ function railStyle(hue: number | null) {
 
 <template>
   <UCard
-    variant="soft"
+    variant="subtle"
     :ui="{
-      root: 'flex flex-none flex-col overflow-hidden rounded-lg bg-elevated/50 divide-y divide-default ring ring-default',
       header: 'flex flex-none items-center justify-between gap-3 px-6 py-4 sm:px-6',
       body: 'flex flex-col p-0 sm:p-0'
     }"
-    class="transition-opacity duration-300"
+    class="flex flex-none flex-col transition-opacity duration-300"
     :style="{ opacity: schedule.dim ? '0.62' : '1' }"
   >
     <template #header>
@@ -52,7 +51,6 @@ function railStyle(hue: number | null) {
         color="neutral"
         variant="subtle"
         :label="schedule.badge"
-        :ui="{ base: 'rounded-md px-2 py-1 text-xs font-medium leading-none' }"
       />
     </template>
 
@@ -78,7 +76,6 @@ function railStyle(hue: number | null) {
           to="/settings"
           label="Connect a calendar"
           trailing-icon="i-lucide-arrow-right"
-          :ui="{ base: 'rounded-md px-2.5 py-1.5 text-sm font-medium' }"
         />
       </div>
     </div>

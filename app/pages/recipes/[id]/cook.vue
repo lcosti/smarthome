@@ -46,6 +46,14 @@ const dateLabel = computed(() =>
   now.value.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })
 )
 
+// What the dish costs you, in one line. Set in the mono face — figures you
+// compare, never prose.
+const metaLine = computed(() => [
+  minutes.value ? `${minutes.value} min` : null,
+  recipe.value?.kcal ? `${recipe.value.kcal} kcal` : null,
+  `serves ${recipe.value?.base_servings}`
+].filter(Boolean).join(' · '))
+
 // --- the ingredients you have already got out --------------------------------
 
 const checked = ref(new Set<string>())
@@ -57,6 +65,28 @@ function toggleLine(lineId: string) {
 }
 
 const checkedCount = computed(() => lines.value.filter(line => checked.value.has(line.id)).length)
+
+/**
+ * Which pane the phone is showing.
+ *
+ * A wide screen puts the step and the ingredients side by side, because it has
+ * the room and glancing across costs nothing. A phone has room for exactly one
+ * of them, and stacking the two — the old answer — meant the step you are
+ * cooking scrolled off the top the moment you checked what was in it.
+ *
+ * So on a phone they are two tabs, and the tab you are not on carries its own
+ * count: "Ingredients 3/11" answers the question most glances at that list were
+ * asking anyway, without switching.
+ *
+ * Session state like the ticks and the step, and only consulted below `lg` —
+ * the wide layout renders both panes whatever this says.
+ */
+const pane = ref<'steps' | 'ingredients'>('steps')
+
+const panes = computed(() => [
+  { label: 'Steps', value: 'steps' },
+  { label: `Ingredients ${checkedCount.value}/${lines.value.length}`, value: 'ingredients' }
+])
 
 /**
  * The next one to get out.
@@ -139,29 +169,58 @@ function resetTimer() {
 }
 
 /**
- * Timers running on steps you have walked away from.
+ * The step bar, and the timers living in it.
  *
  * The whole reason to time something is that you then go and do the next thing,
  * which on this screen means the timer scrolls out of view exactly when it
- * starts to matter. So it detaches and sits in the top bar, named, and pressing
- * it goes back to the step that set it.
+ * starts to matter. So a timer left running does not scroll away with its step —
+ * that step's segment of the bar opens out into the timer, named, and pressing
+ * it goes back to the pan.
  *
- * The step you are on is left out: its timer is already on screen at four times
- * the size, and two of the same number is a reason to look twice.
+ * Putting it here rather than in a tray of its own is the point: the bar is
+ * already the answer to "where am I in this", and a pan on the heat is a place
+ * you still are. Two steps back with three minutes on it reads off the bar's own
+ * geometry, which no chip in a corner can say.
+ *
+ * The step you are on never opens out: its timer is already on screen at four
+ * times the size, and two of the same number is a reason to look twice.
  */
-const pinned = computed(() => steps.value.flatMap((step, index) => {
+const track = computed(() => steps.value.map((step, index) => {
   const end = endings.get(step.id)
-  if (end === undefined || index === stepIndex.value) return []
+  const running = end !== undefined && index !== stepIndex.value
+  const left = running ? Math.max(0, Math.ceil((end - nowMs.value) / 1000)) : 0
 
-  const left = Math.max(0, Math.ceil((end - nowMs.value) / 1000))
-  return [{
+  return {
     id: step.id,
     index,
-    left,
-    done: left === 0,
-    name: findStepDuration(splitStepBody(step.body).main)?.name ?? `Step ${index + 1}`
-  }]
+    filled: index <= stepIndex.value,
+    timer: running
+      ? {
+          left,
+          done: left === 0,
+          name: findStepDuration(splitStepBody(step.body).main)?.name ?? `Step ${index + 1}`
+        }
+      : null
+  }
 }))
+
+// A phone has not got the width for "Step 3 of 6", two open timers and a bar
+// that still looks like a bar. When one opens, the bar takes a line of its own.
+const anyTimerOpen = computed(() => track.value.some(seg => seg.timer))
+
+/**
+ * A countdown, one character slot at a time.
+ *
+ * Each slot holds a Transition keyed on its character, so each second only the
+ * digits whose value changed roll — the old one slides down and out as the new
+ * one slides in from above, an odometer wheel turning one notch. 4:59 to 4:58
+ * moves one digit; the rest of the number holds still, which is what makes it
+ * read as a countdown rather than a flicker. The classes live in main.css as
+ * `.tick-*`.
+ */
+function countdownChars(seconds: number) {
+  return formatCountdown(seconds).split('')
+}
 
 function stopTick() {
   if (tick) clearInterval(tick)
@@ -192,74 +251,103 @@ onUnmounted(() => {
     class="flex h-full min-h-0 flex-col"
   >
     <div class="flex shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 border-b border-default px-4 py-3 lg:px-6 lg:py-3.5">
-      <div class="flex min-w-0 items-center gap-3.5">
-        <span class="text-lg font-semibold tracking-[-0.02em] text-highlighted lg:text-xl">{{ dayName }}</span>
-        <span class="h-5 w-px shrink-0 bg-accented" />
-        <span class="text-lg text-muted lg:text-xl">{{ dateLabel }}</span>
+      <div class="flex min-w-0 flex-1 items-center gap-3 lg:flex-none lg:gap-3.5">
+        <!--
+          Leaving is a labelled button on a laptop and a cross on a phone, where
+          the width it would cost is width the recipe's name is using. Same
+          destination, same place on the screen it was already looked for.
+        -->
+        <UButton
+          to="/"
+          icon="i-lucide-x"
+          color="neutral"
+          variant="ghost"
+          size="lg"
+          aria-label="Exit cook mode"
+          class="-ms-2 shrink-0 lg:hidden"
+        />
+
+        <!--
+          The day on a wall board, the dish on a phone. A tablet propped in the
+          kitchen is also a calendar and wants to say which day it is; a phone
+          in your hand was opened from the recipe and needs to confirm which one
+          it opened.
+        -->
+        <div class="hidden items-center gap-3.5 lg:flex">
+          <span class="text-lg font-semibold tracking-[-0.02em] text-highlighted lg:text-xl">{{ dayName }}</span>
+          <span class="h-5 w-px shrink-0 bg-accented" />
+          <span class="text-lg text-muted lg:text-xl">{{ dateLabel }}</span>
+        </div>
+
+        <div class="min-w-0 lg:hidden">
+          <h1 class="truncate text-base font-semibold tracking-[-0.02em] text-highlighted">
+            {{ recipe.name }}
+          </h1>
+          <p class="truncate font-mono text-xs text-dimmed">
+            {{ metaLine }}
+          </p>
+        </div>
+
+        <!--
+          One badge, at the end of the day on a wide screen and pushed to the
+          far edge on a phone by `ms-auto` — the group it sits in is the whole
+          header row there, because everything to its right is hidden.
+        -->
         <UBadge
           color="primary"
           variant="outline"
           label="Cook mode"
-          :ui="{ base: 'shrink-0 rounded-md px-2 py-1 text-xs font-medium leading-none' }"
+          class="shrink-0 max-lg:ms-auto"
         />
       </div>
 
       <div class="flex shrink-0 items-center gap-3 lg:gap-4">
-        <!--
-          A timer left running on another step. Amber while it counts, solid
-          when it goes off, and pressing it takes you back to the pan.
-        -->
-        <button
-          v-for="timer in pinned"
-          :key="timer.id"
-          type="button"
-          data-cook-pinned
-          class="flex h-[34px] items-center gap-2.5 rounded-full px-3.5 transition-opacity duration-[80ms] active:opacity-85"
-          :class="timer.done ? 'bg-primary text-inverted' : 'bg-primary/10 text-primary ring ring-primary/25'"
-          @click="goTo(timer.index)"
-        >
-          <span class="size-2 shrink-0 rounded-full bg-current" />
-          <span class="text-sm font-medium">{{ timer.name }}</span>
-          <span class="font-mono text-sm tabular-nums">{{ formatCountdown(timer.left) }}</span>
-        </button>
-
-        <span class="hidden font-mono text-sm text-dimmed sm:inline">
-          <template v-if="minutes">{{ minutes }} min · </template>serves {{ recipe.base_servings }}
-        </span>
+        <!-- Both already under the recipe's name on a phone. -->
+        <span class="hidden font-mono text-sm text-dimmed lg:inline">{{ metaLine }}</span>
         <UButton
-          to="/today"
+          to="/"
           color="neutral"
           variant="subtle"
           size="lg"
           label="Exit"
-          class="shrink-0"
+          class="hidden shrink-0 lg:inline-flex"
         />
       </div>
     </div>
 
+    <!-- The phone's pane switch. Absent above `lg`, which shows both. -->
+    <UTabs
+      v-model="pane"
+      :items="panes"
+      color="neutral"
+      variant="pill"
+      size="lg"
+      :ui="{ root: 'shrink-0 p-3 lg:hidden', list: 'w-full', trigger: 'flex-1' }"
+    />
+
     <!--
-      The step first on a phone and the ingredients under it; side by side with
-      room to spare on a wide screen. Cooking is the step — the ingredients are
-      what you glance back at — and on a narrow screen whichever comes first is
-      the one you are looking at.
+      Side by side on a wide screen, one at a time on a phone. Cooking is the
+      step; the ingredients are what you glance back at.
+
+      Nothing here scrolls at any width — each pane does its own, so the step's
+      footer stays under your thumb rather than being chased down a long method.
     -->
-    <!--
-      Scrolls on a phone, where the two cards are stacked and a long method is
-      taller than the screen. On a wide screen the panes are side by side and do
-      their own scrolling, so the region itself must not.
-    -->
-    <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 lg:grid lg:grid-cols-[1fr_1.9fr] lg:gap-4 lg:overflow-hidden lg:p-6">
+    <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-0 lg:grid-cols-[1fr_1.9fr] lg:p-6">
       <UCard
         variant="outline"
         :ui="{
-          root: 'order-2 flex min-h-0 flex-col overflow-hidden rounded-lg bg-elevated lg:order-1',
-          header: 'px-5 py-4 sm:px-5',
+          root: `flex min-h-0 flex-col overflow-hidden bg-elevated
+                 max-lg:rounded-none max-lg:bg-default max-lg:ring-0
+                 ${pane === 'ingredients' ? '' : 'max-lg:hidden'}`,
+          // The recipe's name is in the top bar on a phone and the tab above
+          // says what this list is, so the header has nothing left to add.
+          header: 'px-5 py-4 max-lg:hidden sm:px-5',
           body: 'flex min-h-0 flex-1 flex-col p-0 sm:p-0',
           footer: 'flex flex-none items-center justify-between px-5 py-3.5 sm:px-5'
         }"
       >
         <template #header>
-          <h3 class="font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
+          <h3 class="text-xs font-medium uppercase tracking-wide text-dimmed">
             Ingredients
           </h3>
           <h2 class="mt-1.5 truncate text-xl font-semibold tracking-[-0.02em] text-highlighted">
@@ -275,41 +363,35 @@ onUnmounted(() => {
             v-for="line in lines"
             :key="line.id"
           >
-            <button
-              type="button"
-              class="flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-default/60"
-              @click="toggleLine(line.id)"
+            <UCheckbox
+              :model-value="checked.has(line.id)"
+              size="lg"
+              :ui="{
+                root: 'items-center rounded-md px-2 py-2.5 transition-colors hover:bg-default/60',
+                base: line.id === activeLineId ? 'ring-primary' : '',
+                wrapper: 'ms-3'
+              }"
+              @update:model-value="toggleLine(line.id)"
             >
-              <span
-                v-if="checked.has(line.id)"
-                class="flex size-5 shrink-0 items-center justify-center rounded bg-primary"
-              >
-                <UIcon
-                  name="i-lucide-check"
-                  class="size-3.5 text-inverted"
-                />
-              </span>
-              <span
-                v-else
-                class="size-5 shrink-0 rounded bg-transparent ring"
-                :class="line.id === activeLineId ? 'ring-primary' : 'ring-accented'"
-              />
+              <template #label>
+                <span class="flex items-center gap-3">
+                  <span
+                    class="min-w-0 flex-1 text-base font-normal"
+                    :class="checked.has(line.id)
+                      ? 'text-dimmed line-through'
+                      : line.id === activeLineId
+                        ? 'font-medium text-highlighted'
+                        : 'text-default'"
+                  >{{ line.name }}</span>
 
-              <span
-                class="min-w-0 flex-1 text-base"
-                :class="checked.has(line.id)
-                  ? 'text-dimmed line-through'
-                  : line.id === activeLineId
-                    ? 'font-medium text-highlighted'
-                    : 'text-default'"
-              >{{ line.name }}</span>
-
-              <span
-                v-if="line.quantity"
-                class="shrink-0 whitespace-nowrap font-mono text-sm"
-                :class="checked.has(line.id) ? 'text-dimmed' : 'text-muted'"
-              >{{ line.quantity }}</span>
-            </button>
+                  <span
+                    v-if="line.quantity"
+                    class="shrink-0 whitespace-nowrap font-mono text-sm"
+                    :class="checked.has(line.id) ? 'text-dimmed' : 'text-muted'"
+                  >{{ line.quantity }}</span>
+                </span>
+              </template>
+            </UCheckbox>
           </li>
         </ul>
 
@@ -329,48 +411,119 @@ onUnmounted(() => {
       <UCard
         variant="outline"
         :ui="{
-          root: 'order-1 flex min-h-0 flex-col overflow-hidden rounded-lg bg-elevated lg:order-2',
-          header: 'flex items-center gap-6 px-5 py-4 sm:px-6',
-          body: 'flex min-h-0 flex-1 flex-col gap-6 px-5 py-5 sm:p-0 sm:px-6 sm:py-6',
-          footer: 'flex flex-none items-center justify-between gap-4 px-5 py-4 sm:px-6'
+          root: `flex min-h-0 flex-col overflow-hidden bg-elevated
+                 max-lg:rounded-none max-lg:bg-default max-lg:ring-0
+                 ${pane === 'steps' ? '' : 'max-lg:hidden'}`,
+          header: 'flex flex-wrap items-center gap-x-4 gap-y-2.5 px-5 py-4 sm:px-6 lg:flex-nowrap lg:gap-x-6',
+          // Scrolls itself, so a nine-line step on a phone never pushes Next
+          // step off the bottom of the screen.
+          body: 'flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-5 py-5 sm:p-0 sm:px-6 sm:py-6',
+          footer: 'flex flex-none items-center justify-between gap-3 px-5 py-4 sm:px-6 lg:gap-4'
         }"
       >
         <template #header>
-          <h3 class="shrink-0 font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
+          <h3 class="shrink-0 text-xs font-medium uppercase tracking-wide text-dimmed">
             Step {{ steps.length ? stepIndex + 1 : 0 }} of {{ steps.length }}
           </h3>
           <!--
             The bar fills as you go rather than lighting only the current
             segment: at step seven of nine you want to see that you are nearly
             done, not one lit stripe adrift in the grey.
+
+            Custom, replacing UProgress: that draws one value against one track,
+            and this is n discrete segments where n is the number of steps —
+            the count is the information, because it is also how far there is
+            left to go, and a segment can carry a running timer.
+
+            The row holds `h-7` whether or not anything is timing, and every
+            segment keeps its equal share of the width. A timer starting must
+            not move the bar: the geometry is what you read your position off,
+            and a bar that reshuffles when a pan goes on is a bar you have to
+            re-read rather than glance at.
           -->
           <div
             v-if="steps.length"
-            class="flex flex-1 items-center gap-1.5"
+            class="flex h-7 min-w-0 flex-1 items-center gap-1.5"
+            :class="anyTimerOpen ? 'max-lg:basis-full' : ''"
           >
-            <span
-              v-for="(step, index) in steps"
-              :key="step.id"
-              class="h-1 flex-1 rounded-full"
-              :class="index <= stepIndex ? 'bg-primary' : 'bg-accented'"
-            />
+            <!--
+              One element per step, which grows into its timer rather than being
+              swapped for one. The fill is the same rounded strip throughout —
+              it just gets taller and takes the room for a name and a number —
+              so a timer starting reads as this step opening up, not as a chip
+              appearing from somewhere else.
+
+              It takes its equal share of the width like every other segment,
+              and `min-w-fit` lets it keep whatever more the reading needs. That
+              nudges its neighbours a little, which is a fair price: a countdown
+              you cannot read is not worth a bar that never moves.
+            -->
+            <div
+              v-for="seg in track"
+              :key="seg.id"
+              class="relative flex h-full flex-1 items-center"
+              :class="seg.timer ? 'min-w-fit' : 'min-w-0'"
+            >
+              <span
+                class="w-full rounded-full transition-[height,background-color] duration-300 ease-out"
+                :class="[
+                  seg.timer ? 'h-full' : 'h-1',
+                  seg.timer || seg.filled ? 'bg-primary' : 'bg-accented',
+                  seg.timer?.done ? 'animate-pulse' : ''
+                ]"
+              />
+
+              <!--
+                The tap target, laid over the fill with nothing of its own to
+                draw — the strip underneath is already the right shape and the
+                right amber. Ghost rather than solid for exactly that reason.
+              -->
+              <UButton
+                v-if="seg.timer"
+                data-cook-pinned
+                color="primary"
+                variant="ghost"
+                size="xs"
+                class="absolute inset-0 justify-center gap-1.5 rounded-full px-2.5 text-inverted transition-opacity duration-300 hover:bg-transparent starting:opacity-0"
+                @click="goTo(seg.index)"
+              >
+                <span class="text-xs font-medium">{{ seg.timer.name }}</span>
+                <span class="inline-flex font-mono text-xs tabular-nums"><span
+                  v-for="(char, slot) in countdownChars(seg.timer.left)"
+                  :key="slot"
+                  class="relative overflow-hidden"
+                ><Transition name="tick"><span
+                  :key="char"
+                  class="inline-block"
+                >{{ char }}</span></Transition></span></span>
+              </UButton>
+            </div>
           </div>
         </template>
 
         <template v-if="content">
-          <p class="text-pretty text-2xl font-semibold leading-[1.15] tracking-[-0.02em] text-highlighted lg:text-4xl">
+          <!--
+            The one serif thing on the screen. Everything around it — the
+            ingredients, the timer, the tip — is interface, and interface is
+            Public Sans; this is the sentence you are actually reading.
+
+            No negative tracking, unlike every other heading here. That was
+            compensating for a sans set large, and Source Serif 4 is drawn with
+            its own fit — tightening it closes the counters at exactly the size
+            they have to survive being read from across a kitchen.
+          -->
+          <p class="text-pretty font-serif text-3xl leading-[1.15] text-highlighted lg:text-4xl">
             {{ content.main }}
           </p>
 
           <!-- No time in the prose, no timer. A guess is not worth a button. -->
           <div v-if="duration">
-            <div class="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                class="flex h-14 items-center gap-4 rounded-lg px-5 transition-opacity duration-[80ms] active:opacity-85 lg:h-16 lg:gap-5 lg:px-6"
-                :class="timerPhase === 'finished'
-                  ? 'bg-primary text-inverted'
-                  : 'bg-primary/10 text-primary ring ring-primary/25'"
+            <div class="flex items-center gap-3 lg:flex-wrap">
+              <UButton
+                color="primary"
+                :variant="timerPhase === 'finished' ? 'solid' : 'subtle'"
+                size="xl"
+                class="h-14 gap-2.5 max-lg:flex-1 max-lg:justify-center lg:h-16 lg:gap-5 lg:px-6"
                 @click="startTimer()"
               >
                 <span class="size-2.5 shrink-0 rounded-full bg-current" />
@@ -379,14 +532,26 @@ onUnmounted(() => {
                   once it is running — at that point the number beside it is
                   the sentence, and repeating how long it was is noise.
                 -->
-                <span class="text-base font-medium lg:text-lg">
+                <!--
+                  One line, always. "Start soak 20 min" broken over two is the
+                  button changing height between steps, which is the one thing
+                  a control you aim at with the back of a wrist must not do.
+                -->
+                <span class="whitespace-nowrap text-base font-medium lg:text-lg">
                   {{ timerPhase === 'idle'
                     ? `Start ${duration.name ? `${duration.name.toLowerCase()} ` : ''}${duration.label}`
                     : timerPhase === 'running' ? (duration.name ?? 'Timer') : `${duration.name ?? 'Timer'} done` }}
                 </span>
                 <span class="h-7 w-px shrink-0 bg-current opacity-25" />
-                <span class="font-mono text-xl tabular-nums lg:text-2xl">{{ formatCountdown(remaining) }}</span>
-              </button>
+                <span class="inline-flex font-mono text-lg tabular-nums lg:text-2xl"><span
+                  v-for="(char, slot) in countdownChars(remaining)"
+                  :key="slot"
+                  class="relative overflow-hidden"
+                ><Transition name="tick"><span
+                  :key="char"
+                  class="inline-block"
+                >{{ char }}</span></Transition></span></span>
+              </UButton>
 
               <UButton
                 color="neutral"
@@ -407,15 +572,14 @@ onUnmounted(() => {
           </div>
 
           <!-- The aside the recipe wrote in its own paragraph, kept as an aside. -->
-          <div
+          <UAlert
             v-if="content.tip"
-            class="flex items-start gap-3.5 rounded-lg bg-default/60 px-5 py-4 ring ring-default"
-          >
-            <span class="mt-2.5 size-2 shrink-0 rounded-full bg-primary" />
-            <p class="whitespace-pre-line text-pretty text-base leading-[1.45] text-default">
-              {{ content.tip }}
-            </p>
-          </div>
+            color="neutral"
+            variant="subtle"
+            icon="i-lucide-lightbulb"
+            :description="content.tip"
+            :ui="{ description: 'whitespace-pre-line text-pretty text-base leading-[1.45] text-default' }"
+          />
 
           <!--
             The step is set at the top and the slack falls to the bottom. A step
@@ -436,6 +600,15 @@ onUnmounted(() => {
           v-if="steps.length"
           #footer
         >
+          <!--
+            Back is an arrow on a phone and a labelled button on a laptop. It is
+            the one you press by mistake, and the width it gives up goes to the
+            one you meant — which on a phone runs the rest of the row, because a
+            wet hand aiming at it should not have to aim.
+
+            `sr-only` rather than hidden: the label is still the button's name
+            for anything reading the screen out.
+          -->
           <UButton
             icon="i-lucide-arrow-left"
             color="neutral"
@@ -443,18 +616,19 @@ onUnmounted(() => {
             size="xl"
             label="Previous"
             :disabled="stepIndex === 0"
-            class="h-14"
+            class="h-14 shrink-0"
+            :ui="{ label: 'sr-only lg:not-sr-only' }"
             @click="goTo(stepIndex - 1)"
           />
           <UButton
             v-if="isLastStep"
-            to="/today"
+            to="/"
             color="primary"
             variant="solid"
             size="xl"
             label="Finish"
             trailing-icon="i-lucide-check"
-            class="h-14 font-semibold"
+            class="h-14 font-semibold max-lg:flex-1 max-lg:justify-center"
           />
           <UButton
             v-else
@@ -463,7 +637,7 @@ onUnmounted(() => {
             size="xl"
             label="Next step"
             trailing-icon="i-lucide-arrow-right"
-            class="h-14"
+            class="h-14 max-lg:flex-1 max-lg:justify-center"
             @click="goTo(stepIndex + 1)"
           />
         </template>
@@ -479,10 +653,6 @@ onUnmounted(() => {
     description="It was deleted on another device while this was open."
     :actions="[{ label: 'All recipes', to: '/recipes', color: 'neutral', variant: 'subtle', size: 'xl' }]"
     class="h-full p-6"
-    :ui="{
-      avatar: 'size-11 bg-transparent text-dimmed',
-      title: 'text-2xl font-semibold text-muted lg:text-3xl',
-      description: 'text-base text-muted'
-    }"
+    :ui="{ avatar: 'size-11', title: 'text-2xl font-semibold lg:text-3xl', description: 'text-base text-muted' }"
   />
 </template>

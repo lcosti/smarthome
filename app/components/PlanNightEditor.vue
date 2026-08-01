@@ -58,20 +58,33 @@ async function chooseLeftovers(sourceEntryId: string) {
   open.value = false
 }
 
-async function setServings(delta: number) {
-  if (!planned.value) return
-  await plan.updateEntry(planned.value.entry.id, {
-    servings: Math.max(1, planned.value.entry.servings + delta)
-  })
+async function setServings(next: number) {
+  if (!planned.value || !Number.isFinite(next)) return
+  await plan.updateEntry(planned.value.entry.id, { servings: Math.max(1, next) })
 }
 
 function isHome(personId: string) {
   return date ? attendance.isPresent(personId, date) : true
 }
 
-async function toggleHome(personId: string) {
+const peopleItems = computed(() =>
+  people.people.map(person => ({ label: person.name, value: person.id }))
+)
+
+const whoIsHome = computed(() =>
+  people.people.filter(person => isHome(person.id)).map(person => person.id)
+)
+
+/**
+ * The group hands back the whole set, but attendance is stored a person at a
+ * time, so only the one that actually changed is written. One tap stays one
+ * mutation on the queue rather than one per person in the household.
+ */
+async function applyHome(next: (string | number)[]) {
   if (!date) return
-  await attendance.togglePresence(personId, date)
+  const selected = new Set(next.map(String))
+  const changed = people.people.find(person => selected.has(person.id) !== isHome(person.id))
+  if (changed) await attendance.togglePresence(changed.id, date)
 }
 
 async function clear() {
@@ -97,23 +110,13 @@ async function clear() {
             {{ dishLabel(planned) }}
           </p>
           <div class="mt-2 flex items-center gap-2">
-            <UButton
-              icon="i-lucide-minus"
+            <UInputNumber
+              :model-value="planned.entry.servings"
+              :min="1"
               size="sm"
-              color="neutral"
-              variant="subtle"
-              :disabled="planned.entry.servings <= 1"
-              aria-label="Fewer servings"
-              @click="setServings(-1)"
-            />
-            <span class="w-8 text-center tabular-nums">{{ planned.entry.servings }}</span>
-            <UButton
-              icon="i-lucide-plus"
-              size="sm"
-              color="neutral"
-              variant="subtle"
-              aria-label="More servings"
-              @click="setServings(1)"
+              class="w-28"
+              aria-label="Servings"
+              @update:model-value="setServings"
             />
             <span class="text-sm text-dimmed">servings</span>
           </div>
@@ -173,40 +176,34 @@ async function clear() {
           <p class="text-xs font-medium uppercase tracking-wide text-dimmed">
             Who's home
           </p>
-          <div class="mt-2 flex flex-wrap gap-2">
-            <UButton
-              v-for="person in people.people"
-              :key="person.id"
-              :color="isHome(person.id) ? 'primary' : 'neutral'"
-              :variant="isHome(person.id) ? 'solid' : 'subtle'"
-              size="lg"
-              @click="toggleHome(person.id)"
-            >
-              {{ person.name }}
-            </UButton>
-          </div>
+          <!--
+            Checkboxes, because this is several independent yes/nos rather than
+            one choice: any number of people can be home, including none.
+          -->
+          <UCheckboxGroup
+            :model-value="whoIsHome"
+            :items="peopleItems"
+            variant="card"
+            orientation="horizontal"
+            class="mt-2"
+            :ui="{ fieldset: 'flex-wrap gap-2', item: 'flex-1 basis-36' }"
+            @update:model-value="applyHome"
+          />
         </div>
 
-        <div
+        <UEmpty
           v-if="!recipes.recipes.length"
-          class="py-8 text-center"
-        >
-          <p class="text-muted">
-            No recipes yet.
-          </p>
-          <p class="mt-1 text-sm text-dimmed">
-            The plan is built from your recipe library.
-          </p>
-          <UButton
-            to="/recipes"
-            class="mt-4"
-            color="neutral"
-            variant="subtle"
-            @click="open = false"
-          >
-            Go to recipes
-          </UButton>
-        </div>
+          icon="i-lucide-chef-hat"
+          title="No recipes yet."
+          description="The plan is built from your recipe library."
+          :actions="[{
+            label: 'Go to recipes',
+            to: '/recipes',
+            color: 'neutral',
+            variant: 'subtle',
+            onClick: () => { open = false }
+          }]"
+        />
 
         <template v-else>
           <UInput
@@ -227,12 +224,12 @@ async function clear() {
               :servings="item.base_servings"
               @select="choose(item.id)"
             />
-            <li
+            <UEmpty
               v-if="!matches.length"
-              class="px-3 py-6 text-center text-sm text-dimmed"
-            >
-              Nothing matches that.
-            </li>
+              as="li"
+              icon="i-lucide-search-x"
+              title="Nothing matches that."
+            />
           </ul>
         </template>
       </div>

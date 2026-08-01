@@ -13,6 +13,8 @@ const alwaysOn = useAlwaysOn()
 
 const household = ref<{ name: string, invite_code: string } | null>(null)
 const newAisle = ref('')
+const confirmAisle = ref<string | null>(null)
+const confirmSignOut = ref(false)
 const drafts = ref(new Map<string, string>())
 
 onMounted(async () => {
@@ -57,7 +59,7 @@ async function copyInviteCode() {
     <AppPageHeader
       title="Settings"
       back="/"
-      back-label="Back to list"
+      back-label="Back to today"
     />
 
     <main class="mx-auto min-h-0 w-full max-w-xl flex-1 space-y-8 overflow-y-auto px-3 py-5 lg:max-w-3xl">
@@ -100,20 +102,28 @@ async function copyInviteCode() {
               :aria-label="`Move ${aisle.name} down`"
               @click="store.moveAisle(aisle.id, 1)"
             />
-            <UButton
-              icon="i-lucide-trash-2"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              :aria-label="`Delete ${aisle.name}`"
-              @click="store.deleteAisle(aisle.id)"
-            />
+            <ConfirmModal
+              :open="confirmAisle === aisle.id"
+              :title="`Delete ${aisle.name}?`"
+              description="Items in it move to Other. The aisle order is what the list is walked in, so this changes every future shop."
+              @update:open="confirmAisle = $event ? aisle.id : null"
+              @confirm="store.deleteAisle(aisle.id)"
+            >
+              <UButton
+                icon="i-lucide-trash-2"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                :aria-label="`Delete ${aisle.name}`"
+              />
+            </ConfirmModal>
           </li>
         </ul>
 
-        <form
+        <UForm
+          :state="{ newAisle }"
           class="flex gap-2"
-          @submit.prevent="addAisle"
+          @submit="addAisle"
         >
           <UInput
             v-model="newAisle"
@@ -126,7 +136,7 @@ async function copyInviteCode() {
             :disabled="!newAisle.trim()"
             aria-label="Add aisle"
           />
-        </form>
+        </UForm>
       </section>
 
       <section class="space-y-2">
@@ -216,22 +226,12 @@ async function copyInviteCode() {
         <h2 class="text-xs font-medium uppercase tracking-wide text-dimmed">
           Always-on display
         </h2>
-        <div class="flex items-start gap-3 rounded-lg border border-default p-3">
+        <div class="rounded-lg border border-default p-3">
           <USwitch
             v-model="alwaysOn"
-            class="mt-0.5"
-            aria-label="Always-on display"
+            label="This screen never sleeps"
+            description="For a tablet left on in the kitchen. Everything drifts a pixel at a time so the layout never burns into the panel — slowly enough that nobody sees it move. Press F for fullscreen."
           />
-          <div class="space-y-1">
-            <p class="text-sm">
-              This screen never sleeps
-            </p>
-            <p class="text-sm text-muted">
-              For a tablet left on in the kitchen. Everything drifts a pixel at a
-              time so the layout never burns into the panel — slowly enough that
-              nobody sees it move. Press F for fullscreen.
-            </p>
-          </div>
         </div>
       </section>
 
@@ -257,9 +257,13 @@ async function copyInviteCode() {
             v-if="household"
             class="mt-2 flex items-center gap-2"
           >
-            <code class="rounded bg-elevated px-2 py-1 font-mono text-lg tracking-widest">
-              {{ household.invite_code }}
-            </code>
+            <UBadge
+              color="neutral"
+              variant="subtle"
+              size="xl"
+              :label="household.invite_code"
+              class="font-mono text-lg tracking-widest"
+            />
             <UButton
               icon="i-lucide-copy"
               color="neutral"
@@ -286,14 +290,28 @@ async function copyInviteCode() {
         <p class="text-sm text-muted">
           {{ sync.pendingCount }} change{{ sync.pendingCount === 1 ? '' : 's' }} waiting to sync.
         </p>
-        <UButton
-          color="neutral"
-          variant="subtle"
-          icon="i-lucide-log-out"
-          @click="signOut()"
+        <!--
+          The only confirmation that is about the queue rather than the data:
+          signing out with changes still waiting throws them away, and the count
+          above is the thing worth reading before agreeing.
+        -->
+        <ConfirmModal
+          v-model:open="confirmSignOut"
+          title="Sign out?"
+          :description="sync.pendingCount
+            ? `${sync.pendingCount} change${sync.pendingCount === 1 ? '' : 's'} have not reached the server yet and will be lost.`
+            : 'Everything is synced. You will need the sign-in link again on this device.'"
+          confirm-label="Sign out"
+          :color="sync.pendingCount ? 'error' : 'primary'"
+          @confirm="signOut()"
         >
-          Sign out
-        </UButton>
+          <UButton
+            color="neutral"
+            variant="subtle"
+            icon="i-lucide-log-out"
+            label="Sign out"
+          />
+        </ConfirmModal>
       </section>
     </main>
   </div>

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import type { AggregateContext, ListEntry } from '../utils/aggregate'
 import { buildEntries } from '../utils/aggregate'
+import { guessAisleId } from '../utils/aisles'
 import type { AisleRow, ItemRow } from '../utils/db'
 import { lineNeedBase } from '../utils/pantry'
 import { plainCopy } from '../utils/sync'
@@ -13,6 +14,21 @@ export interface AisleGroup {
   id: string
   name: string
   entries: ListEntry<ItemRow>[]
+}
+
+/**
+ * One aisle as the list page draws it: what is left to get, what has already
+ * gone in the trolley, and how far through it that is.
+ *
+ * The counts are over rows rather than aggregated lines, because "3 of 19" has
+ * to mean the same number the rest of the app says. A line that collapsed two
+ * rows is still two things somebody has to pick up.
+ */
+export interface AisleSection extends AisleGroup {
+  /** Ticked rows in this aisle, newest first. Never aggregated — see `entries`. */
+  checked: ItemRow[]
+  done: number
+  total: number
 }
 
 /**
@@ -65,43 +81,75 @@ export const useListStore = defineStore('list', () => {
   }))
 
   /**
-   * Unchecked items grouped in the order the shop is walked, then collapsed into
-   * the lines to show. Anything whose aisle is unset or has since been deleted
-   * falls into a trailing "Other" group, so no item can ever become invisible.
+   * The list as aisle cards, in the order the shop is walked. Anything whose
+   * aisle is unset or has since been deleted falls into a trailing "Other"
+   * section, so no item can ever become invisible.
    *
-   * Collapsing happens per aisle, after bucketing, so an ingredient somebody
-   * deliberately filed in two places stays in both.
+   * Unchecked rows are collapsed into lines per aisle, after bucketing, so an
+   * ingredient somebody deliberately filed in two places stays in both. Checked
+   * rows are not collapsed: once something is in the trolley the question is no
+   * longer "how much of this do I need", and un-ticking one row of a merged line
+   * would have to guess which row it was.
+   *
+   * An aisle stays here once everything in it is ticked. Cleared aisles used to
+   * vanish, which read as "you have not been down there yet" — the opposite of
+   * what had happened.
    */
-  const groups = computed<AisleGroup[]>(() => {
-    const unchecked = liveItems.value.filter(i => !i.checked)
-    const byAisle = new Map<string, ItemRow[]>()
-    const other: ItemRow[] = []
+  const sections = computed<AisleSection[]>(() => {
+    const unchecked = new Map<string, ItemRow[]>()
+    const checked = new Map<string, ItemRow[]>()
 
-    for (const item of unchecked) {
+    for (const item of liveItems.value) {
       const aisle = item.aisle_id ? aisles.value.get(item.aisle_id) : undefined
-      if (!aisle || aisle.deleted_at) {
-        other.push(item)
-        continue
-      }
-      const bucket = byAisle.get(aisle.id)
+      const key = !aisle || aisle.deleted_at ? 'other' : aisle.id
+      const into = item.checked ? checked : unchecked
+      const bucket = into.get(key)
       if (bucket) bucket.push(item)
-      else byAisle.set(aisle.id, [item])
+      else into.set(key, [item])
     }
 
     const context = aggregateContext.value
-    const result: AisleGroup[] = []
 
-    for (const aisle of sortedAisles.value) {
-      const bucket = byAisle.get(aisle.id)
-      if (bucket?.length) {
-        result.push({ id: aisle.id, name: aisle.name, entries: buildEntries(bucket, context) })
+    const build = (id: string, name: string): AisleSection | null => {
+      const todo = unchecked.get(id) ?? []
+      const done = (checked.get(id) ?? []).sort((a, b) =>
+        (b.checked_at ?? '').localeCompare(a.checked_at ?? '')
+      )
+      if (!todo.length && !done.length) return null
+      return {
+        id,
+        name,
+        entries: buildEntries(todo, context),
+        checked: done,
+        done: done.length,
+        total: todo.length + done.length
       }
     }
-    if (other.length) {
-      result.push({ id: 'other', name: 'Other', entries: buildEntries(other, context) })
+
+    const result: AisleSection[] = []
+    for (const aisle of sortedAisles.value) {
+      const section = build(aisle.id, aisle.name)
+      if (section) result.push(section)
     }
+    const other = build('other', 'Other')
+    if (other) result.push(other)
 
     return result
+  })
+
+  /**
+   * The aisles with something still to get. What the board's compact list wants,
+   * and what the page wanted before ticked rows stayed in place.
+   */
+  const groups = computed<AisleGroup[]>(() =>
+    sections.value.filter(section => section.entries.length)
+  )
+
+  /** How far through the shop this is, over rows rather than collapsed lines. */
+  const progress = computed(() => {
+    const total = liveItems.value.length
+    const done = liveItems.value.filter(i => i.checked).length
+    return { done, total, fraction: total ? done / total : 0 }
   })
 
   /**
@@ -153,7 +201,13 @@ export const useListStore = defineStore('list', () => {
    * in front of somebody are different acts — the second one is correctable.
    */
   function suggestedAisle(name: string): string | null {
-    return ingredients.resolve(name)?.aisle_id ?? rememberedAisle(name)
+    // In order of how much this household actually knows: its own canonical
+    // ingredient, then where this name went last time, and only then a guess
+    // from the built-in list. Anything learned beats anything assumed, so filing
+    // something by hand once is permanent.
+    return ingredients.resolve(name)?.aisle_id
+      ?? rememberedAisle(name)
+      ?? guessAisleId(name, aisles.value.values())
   }
 
   /**
@@ -317,7 +371,9 @@ export const useListStore = defineStore('list', () => {
     sortedAisles,
     liveItems,
     checkedItems,
+    sections,
     groups,
+    progress,
     neededByIngredient,
     rememberedAisle,
     suggestedAisle,

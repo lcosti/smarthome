@@ -16,10 +16,11 @@ import { dayLabel } from '../utils/week'
  * fills the right-hand pane and nothing navigates — the only way off this screen
  * is a decision.
  *
- * The three decisions the pane offers are the three reasons anybody opens this:
- * cook it now, put it on a night, or buy what it needs. Everything else about a
- * recipe — rewriting a step, fixing a quantity — is a typing job, and its own
- * page.
+ * The decisions the pane offers are the reasons anybody opens this: put it on the
+ * shortlist so the week's generator leans towards it, read it properly, or buy
+ * what it needs. Cooking it is not one of them — that decision is made at the
+ * hob, and it lives on the recipe's own page. Everything else about a recipe —
+ * rewriting a step, fixing a quantity — is a typing job, and its own page too.
  *
  * `?swap=YYYY-MM-DD` turns it into a picker for that night, which is what
  * Tonight's "Swap meal" opens. A mode on the library rather than a modal:
@@ -88,6 +89,16 @@ const library = computed(() => buildRecipeLibrary({
 
 const detail = computed(() => library.value.detail)
 
+/**
+ * The selected recipe's own row, for the nutrition panel.
+ *
+ * Read from the store rather than threaded through LibraryDetail: that model is
+ * deliberately "the rows, minus what only an editor needs", and widening it by
+ * eight columns to reach one read-only block would put the arithmetic in the
+ * board builder instead of beside the thing that draws it.
+ */
+const detailRecipe = computed(() => detail.value ? recipes.recipeById(detail.value.id) : undefined)
+
 // The builder falls back to the first card when a selection is filtered away, so
 // the pane is never empty against a full grid. Writing that choice back keeps the
 // ref honest — otherwise clearing the search would jump to a card nobody picked.
@@ -108,7 +119,7 @@ async function choose() {
   await plan.setNight(date, detail.value.id)
   // Straight back to Today: the swap was the errand, and leaving somebody on
   // the library afterwards makes them find their own way home.
-  await navigateTo('/today')
+  await navigateTo('/')
 }
 
 const sending = ref(false)
@@ -202,45 +213,53 @@ async function add() {
       />
     </div>
 
-    <p
-      v-if="recipeImport.progress.value"
-      class="shrink-0 text-sm text-muted"
-    >
-      {{ recipeImport.progress.value }}
-    </p>
+    <!--
+      Facets, then sort. Both describe the grid under them and nothing else.
 
-    <!-- Facets, then sort. Both describe the grid under them and nothing else. -->
+      Both are radio groups rather than rows of buttons (CLAUDE.md rule 6): each
+      is several chips with one answer, which is what a radio models, and it
+      brings the roles and the arrow keys with it. This is the same chip as the
+      aisle filter on the shopping list — `card` with the indicator hidden, sized
+      in `app.config.ts` — because "filter the thing below" is one question and
+      wants one answer.
+
+      `horizontal` is load-bearing: the group defaults to vertical, and a column
+      flex stretches its items to full width and ignores the flex-wrap.
+    -->
     <div class="flex shrink-0 flex-wrap items-center gap-2">
-      <UButton
-        v-for="option in library.facets"
-        :key="option.key"
-        :color="facet === option.key ? 'primary' : 'neutral'"
-        :variant="facet === option.key ? 'soft' : 'ghost'"
-        size="lg"
-        class="rounded-full px-3.5 py-1.5 text-sm"
-        :data-facet="option.key"
-        :data-active="facet === option.key ? '' : undefined"
-        @click="facet = option.key"
+      <URadioGroup
+        v-model="facet"
+        :items="library.facets"
+        value-key="key"
+        variant="card"
+        indicator="hidden"
+        orientation="horizontal"
+        size="sm"
+        color="primary"
+        class="shrink-0"
+        :ui="{ fieldset: 'flex-wrap gap-1.5' }"
       >
-        {{ option.label }}
-        <span
-          class="font-mono text-xs"
-          :class="facet === option.key ? 'text-primary/70' : 'text-dimmed'"
-        >{{ option.count }}</span>
-      </UButton>
+        <template #label="{ item, modelValue }">
+          {{ item.label }}
+          <span
+            class="ms-1 font-mono"
+            :class="modelValue === item.key ? 'text-primary/70' : 'text-dimmed'"
+          >{{ item.count }}</span>
+        </template>
+      </URadioGroup>
 
       <div class="ml-auto flex items-center gap-2">
         <span class="text-sm text-dimmed">Sort</span>
-        <UButton
-          v-for="option in SORTS"
-          :key="option.value"
-          color="neutral"
-          :variant="sort === option.value ? 'subtle' : 'ghost'"
-          size="lg"
-          :label="option.label"
-          class="rounded-lg px-3 py-1.5 text-sm"
-          :class="sort === option.value ? 'text-default' : 'text-dimmed'"
-          @click="sort = option.value"
+        <URadioGroup
+          v-model="sort"
+          :items="SORTS"
+          variant="card"
+          indicator="hidden"
+          orientation="horizontal"
+          size="sm"
+          color="primary"
+          class="shrink-0"
+          :ui="{ fieldset: 'flex-wrap gap-1.5' }"
         />
       </div>
     </div>
@@ -270,21 +289,15 @@ async function add() {
       <UEmpty
         v-else
         icon="i-lucide-search-x"
-        title="Nothing matches"
-        :description="`No recipe here answers to “${query.trim()}”.`"
+        :title="`Nothing matches “${query.trim()}”.`"
+        description="Press add to make it a new recipe."
         :actions="[{
           label: 'Clear',
           color: 'neutral' as const,
           variant: 'subtle' as const,
-          size: 'xl' as const,
           onClick: clearSearch
         }]"
         class="col-span-2 min-h-0"
-        :ui="{
-          avatar: 'size-10 bg-transparent text-dimmed',
-          title: 'text-2xl font-semibold text-muted',
-          description: 'text-base text-muted'
-        }"
       />
 
       <!-- The pane: what it is, what it needs, and the three things to do about it. -->
@@ -299,7 +312,7 @@ async function add() {
         }"
       >
         <template #header>
-          <p class="font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
+          <p class="text-xs font-medium uppercase tracking-wide text-dimmed">
             {{ detail.eyebrow }}
           </p>
           <h2
@@ -321,8 +334,23 @@ async function add() {
           their height.
         -->
         <div class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 pb-1 pt-4">
+          <!--
+            Above the ingredients because it answers the question being asked
+            here. This pane exists to choose between meals, and "how heavy is
+            it" is a reason to pick one — where the ingredient list is what you
+            read once you already have.
+
+            Renders nothing when the recipe has no figures, so a library that
+            has never imported a panel looks exactly as it did before.
+          -->
+          <RecipeNutritionPanel
+            v-if="detailRecipe"
+            :recipe="detailRecipe"
+            class="shrink-0"
+          />
+
           <div class="shrink-0">
-            <h3 class="font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
+            <h3 class="text-xs font-medium uppercase tracking-wide text-dimmed">
               Ingredients
             </h3>
 
@@ -349,7 +377,7 @@ async function add() {
                 <span class="min-w-0 flex-1 text-sm text-default">{{ line.name }}</span>
                 <span
                   v-if="line.inPantry && !line.onList"
-                  class="shrink-0 font-mono text-[10px] uppercase tracking-wider text-dimmed"
+                  class="shrink-0 text-[10px] font-medium uppercase tracking-wide text-dimmed"
                 >pantry</span>
                 <span
                   v-if="line.quantity"
@@ -366,38 +394,11 @@ async function add() {
             </p>
           </div>
 
-          <!--
-            What is genuinely left: neither on the list nor in the cupboard. Both
-            are facts the app actually holds, which is what makes this safe to put
-            a "buy these" button under.
-          -->
-          <div
-            v-if="detail.missing.length && detail.ingredients.length"
-            class="shrink-0"
-          >
-            <h3 class="font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
-              Not on the list yet
-            </h3>
-            <div class="mt-3 flex flex-wrap gap-2">
-              <span
-                v-for="line in detail.missing"
-                :key="line.id"
-                class="flex items-baseline gap-1.5 rounded-md bg-primary/10 px-2.5 py-1 text-sm text-primary ring ring-primary/25"
-              >
-                {{ line.name }}
-                <span
-                  v-if="line.quantity"
-                  class="font-mono text-xs opacity-70"
-                >{{ line.quantity }}</span>
-              </span>
-            </div>
-          </div>
-
           <div
             v-if="detail.history.length"
             class="shrink-0"
           >
-            <h3 class="font-mono text-xs uppercase tracking-[0.14em] text-dimmed">
+            <h3 class="text-xs font-medium uppercase tracking-wide text-dimmed">
               History
             </h3>
             <ul class="mt-3 flex flex-col gap-1.5">
@@ -427,53 +428,61 @@ async function add() {
               data-testid="recipe-put-on"
               @click="choose()"
             />
-            <template v-else>
-              <UButton
-                :to="`/recipes/${detail.id}/cook`"
-                color="primary"
-                variant="solid"
-                size="xl"
-                label="Cook tonight"
-                class="flex-1 justify-center"
-                data-testid="recipe-cook"
-              />
-              <UButton
-                :to="`/recipes/${detail.id}`"
-                color="neutral"
-                variant="subtle"
-                size="xl"
-                label="Edit"
-                class="flex-1 justify-center"
-              />
-            </template>
+            <!--
+              Shortlisting is the primary action because it is the one that feeds
+              the generator: the week is assembled from the library, and this is
+              how a person leans on that without picking the night themselves.
+              Cooking it right now is a decision made in the kitchen, not in the
+              library, and it lives on the recipe's own page.
+            -->
+            <UButton
+              v-else
+              :color="detail.shortlisted ? 'neutral' : 'primary'"
+              :variant="detail.shortlisted ? 'subtle' : 'solid'"
+              size="xl"
+              :icon="detail.shortlisted ? 'i-lucide-check' : 'i-lucide-bookmark-plus'"
+              :label="detail.shortlisted ? 'On the shortlist' : 'Add to shortlist'"
+              class="flex-1 justify-center"
+              data-testid="recipe-shortlist"
+              @click="recipes.toggleShortlist(detail.id)"
+            />
           </div>
 
-          <UButton
-            v-if="detail.sendLabel && !swapDate"
-            color="neutral"
-            variant="ghost"
-            size="lg"
-            :label="detail.sendLabel"
-            :loading="sending"
-            class="justify-center text-muted"
-            data-testid="recipe-send-list"
-            @click="sendToList()"
-          />
+          <div
+            v-if="!swapDate"
+            class="flex gap-2.5"
+          >
+            <UButton
+              :to="`/recipes/${detail.id}`"
+              color="neutral"
+              variant="subtle"
+              size="lg"
+              label="View recipe"
+              class="flex-1 justify-center"
+              data-testid="recipe-view"
+            />
+            <UButton
+              v-if="detail.sendLabel"
+              color="neutral"
+              variant="subtle"
+              size="lg"
+              label="Add ingredients to list"
+              :loading="sending"
+              class="flex-1 justify-center"
+              data-testid="recipe-send-list"
+              @click="sendToList()"
+            />
+          </div>
         </template>
       </UCard>
     </div>
 
     <UEmpty
       v-else
-      icon="i-lucide-book-open"
-      title="No recipes yet"
-      description="Paste a recipe’s address above, or add one from a photo on your phone — the generator builds the week out of them."
+      icon="i-lucide-chef-hat"
+      title="No recipes yet."
+      description="Type above to add the first one."
       class="flex-1"
-      :ui="{
-        avatar: 'size-10 bg-transparent text-dimmed',
-        title: 'text-2xl font-semibold text-muted',
-        description: 'text-base text-muted'
-      }"
     />
   </div>
 </template>

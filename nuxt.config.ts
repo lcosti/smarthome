@@ -23,6 +23,8 @@ export default defineNuxtConfig({
       title: 'Shopping List',
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+        // Both: iOS reads only the Apple-prefixed one, Chrome deprecated it.
+        { name: 'mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'default' },
         { name: 'apple-mobile-web-app-title', content: 'Shopping' }
@@ -73,9 +75,31 @@ export default defineNuxtConfig({
   // is still there, correctly sized and coloured, simply with no mask to paint.
   // The weather ones cannot be found by scanning at all, since the name is
   // chosen from a weather code at runtime.
+  //
+  // Nor can the ones Nuxt UI's own components reach for — the spinner on a
+  // loading button, the tick inside a checkbox, the chevrons on a number input,
+  // the cross that closes a modal. Those names live in node_modules, where the
+  // scanner does not look, so they are listed here by hand.
   icon: {
     clientBundle: {
       icons: [
+        // Injected by Nuxt UI components rather than written in our templates.
+        'lucide:loader-circle',
+        'lucide:chevron-down',
+        'lucide:chevron-up',
+        'lucide:chevron-left',
+        'lucide:chevron-right',
+        'lucide:x',
+        'lucide:minus',
+        'lucide:plus',
+        'lucide:search',
+        'lucide:info',
+        'lucide:circle-alert',
+        'lucide:triangle-alert',
+        'lucide:lightbulb',
+        'lucide:copy',
+        'lucide:copy-check',
+        'lucide:package-check',
         'lucide:sun',
         'lucide:moon',
         'lucide:cloud',
@@ -90,7 +114,27 @@ export default defineNuxtConfig({
         'lucide:check',
         'lucide:arrow-right',
         'lucide:arrow-left',
-        'lucide:book-open'
+        'lucide:book-open',
+        // Chosen by a ternary on the library pane's shortlist button.
+        'lucide:bookmark-plus',
+        // Chosen by a ternary on the week aside's "nothing to suggest" empty state.
+        'lucide:search-x',
+        // Named in a toast when a chosen photo will not decode.
+        'lucide:image-off',
+        // Built in a computed on the plan's night cards, where the scanner does
+        // not look: what a dish costs in time and in things to buy.
+        'lucide:clock',
+        'lucide:utensils',
+        'lucide:refrigerator',
+        // Chosen at runtime by aisleIcon(), from the aisle's name.
+        'lucide:carrot',
+        'lucide:croissant',
+        'lucide:milk',
+        'lucide:beef',
+        'lucide:package',
+        'lucide:spray-can',
+        'lucide:cup-soda',
+        'lucide:shopping-basket'
       ]
     }
   },
@@ -111,9 +155,10 @@ export default defineNuxtConfig({
         { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
         { src: '/pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
       ],
-      // Long-press the home screen icon. The list stays start_url — it is what
-      // the app is for — but the other two are one press away.
+      // Long-press the home screen icon. Today is start_url — it answers
+      // "what's going on" without being asked — and the rest are one press away.
       shortcuts: [
+        { name: 'Shopping list', short_name: 'Shopping', url: '/shopping' },
         { name: 'Plan the week', short_name: 'Plan', url: '/plan' },
         { name: 'Recipes', short_name: 'Recipes', url: '/recipes' }
       ]

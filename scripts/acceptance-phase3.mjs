@@ -135,6 +135,7 @@ try {
   await page.getByPlaceholder('Luke').fill('Luke')
   await page.getByRole('button', { name: 'Create household' }).click()
   await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
+  await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 15_000 })
   log('signed in and created a household')
 
@@ -179,7 +180,7 @@ try {
   log('planned both nights and derived the week')
 
   await page.getByRole('link', { name: 'List', exact: true }).click()
-  await page.waitForURL(`${ORIGIN}/`)
+  await page.waitForURL(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 10_000 })
   const before = await mainText()
   assert(!before.includes('800g'), 'two different ingredients are not added up')
@@ -208,7 +209,7 @@ try {
   log('merged one into the other: a pointer, a soft delete, and a kept name')
 
   await page.getByRole('link', { name: 'List', exact: true }).click()
-  await page.waitForURL(`${ORIGIN}/`)
+  await page.waitForURL(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 10_000 })
   const grouped = await mainText()
   // No re-derive happened. The rows still name the loser; following the pointer
@@ -237,7 +238,7 @@ try {
   log('told it a tin is 400g')
 
   await page.getByRole('link', { name: 'List', exact: true }).click()
-  await page.waitForURL(`${ORIGIN}/`)
+  await page.waitForURL(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 10_000 })
   const withUnits = await mainText()
   assert(withUnits.includes('2 tins'), `the total is also given in tins, saw: ${withUnits.slice(0, 200)}`)
