@@ -241,11 +241,10 @@ Deno.serve(async (req) => {
 
   const changed = changedRows(rows, existing)
   if (changed.length) {
-    // created_at must not be reset on a row that already exists.
-    const payload = changed.map(row =>
-      existing.has(row.id) ? { ...row, created_at: undefined } : row
-    )
-    const { error } = await client.from('calendar_events').upsert(payload)
+    // Rows never carry created_at: the column default covers inserts, and the
+    // conflict update leaves the existing value alone. Sending it on some rows
+    // but not others would make PostgREST null-fill the gaps across the batch.
+    const { error } = await client.from('calendar_events').upsert(changed)
     if (error) {
       return await finish(client, householdId, halted(
         'error', `upsert failed: ${error.message}`), nowIso)

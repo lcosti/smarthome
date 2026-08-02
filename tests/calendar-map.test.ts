@@ -172,7 +172,6 @@ describe('changedRows', () => {
     end_date: '2026-07-30',
     google_updated_at: updated,
     deleted_at: null,
-    created_at: '2026-07-30T16:00:00.000Z',
     updated_at: '2026-07-30T16:00:00.000Z'
   })
 
