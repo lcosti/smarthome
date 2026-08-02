@@ -275,25 +275,27 @@ const checkedCount = computed(() => store.progress.done)
             That is the right way round anyway — a column is walked, and on a
             phone there is only one of them.
 
-            The height constraint is lg-only, and that is load-bearing: per
+            The multicol block itself must have auto height, everywhere: per
             spec, multicol with a definite height fragments at that height and
-            puts what is left into overflow columns off-screen to the right —
-            one aisle visible, nothing to scroll. Older Chromium overflowed
-            downward instead, which is how a pinned height ever looked fine on
-            a phone. On a phone the block must size to its content so <main>
-            scrolls; only the wide layout, where this div is its own scroll
-            region, may pin it.
+            puts what is left into overflow columns off to the right — a
+            horizontal scroller, not masonry. So the scroll region is a
+            wrapper, and the columns live in a child that sizes to its
+            content and only ever grows downward. On a phone the wrapper has
+            no height either and <main> scrolls; on the wide layout the
+            wrapper is the scroll region.
           -->
-          <div class="columns-1 gap-3 lg:min-h-0 lg:flex-1 lg:columns-2 lg:overflow-y-auto lg:pr-1 2xl:columns-3">
-            <ShoppingAisleCard
-              v-for="section in visibleSections"
-              :key="section.id"
-              :section="section"
-              :show-checked="showChecked"
-              class="mb-3 break-inside-avoid"
-              @edit-entry="openEntry"
-              @edit-item="edit"
-            />
+          <div class="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+            <div class="columns-1 gap-3 lg:columns-2 2xl:columns-3">
+              <ShoppingAisleCard
+                v-for="section in visibleSections"
+                :key="section.id"
+                :section="section"
+                :show-checked="showChecked"
+                class="mb-3 break-inside-avoid"
+                @edit-entry="openEntry"
+                @edit-item="edit"
+              />
+            </div>
           </div>
         </template>
       </div>

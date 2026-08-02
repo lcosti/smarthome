@@ -38,7 +38,6 @@ export interface CalendarRow {
   end_date: string
   google_updated_at: string | null
   deleted_at: string | null
-  created_at: string
   updated_at: string
 }
 
@@ -132,7 +131,6 @@ export async function toRow(
     end_date: endDate,
     google_updated_at: event.updated ?? null,
     deleted_at: null,
-    created_at: options.now,
     updated_at: options.now
   }
 }
