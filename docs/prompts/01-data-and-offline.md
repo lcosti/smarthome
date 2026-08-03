@@ -473,6 +473,21 @@ it properly.
   app cannot reach the server and offer to try again. Do not fall through to an
   empty state.
 
+### Say when a change has not been saved yet
+
+Warm offline keeps working, but the changes made during it are held only in the
+running app. **Closing it loses them**, and that is the one consequence a person
+has to be told about, because they cannot infer it — the tick looked exactly like
+every tick that did save.
+
+So while anything is unsent, say so where it can be seen: a small count in the
+page header, in the same place and the same wording §6.3 and §6.12 already use
+for the offline badge — `3 to sync`. It disappears the moment the last one lands.
+
+That badge is doing a different job here than it does in §5. There, it was
+telling you the app is behind. Here, it is telling you **not to close the app
+yet**, which is worth being unmissable rather than tasteful.
+
 ### Keep every data rule from §5
 
 Soft deletes, an `updated_at` stamped when the edit is made, deterministic ids,
@@ -481,6 +496,10 @@ with the queue is the mistake to avoid:
 
 - **Deterministic ids** are what stop §7.5 putting the week on the list twice
   when it is run twice, and what stop a double-tapped button creating two records.
+  If your platform mints its own ids and you have to keep the deterministic one
+  in a field of its own alongside, that is fine — **but only if every write is
+  "find the record with this key and update it, otherwise create it".** A field
+  nothing looks up before inserting buys you nothing at all.
 - **Soft deletes** are how a deletion made on one phone reaches the other one.
 - **Last-write-wins by `updated_at`** is how two people in the same kitchen
   editing at once converge without anybody being asked to resolve anything.
