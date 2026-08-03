@@ -289,9 +289,17 @@ rather than quietly doing the opposite.
 | a chore tick | household + chore + date |
 | a calendar event | the calendar + the event's id in that calendar |
 
-   **Do not enforce this with a uniqueness rule instead.** A uniqueness rule
-   turns a duplicate into a permanent error that blocks the record forever;
-   a shared id turns it into two harmless writes of the same thing.
+   **Every write to these six must be an upsert** — find the record with this
+   key and update it, otherwise create it. A key that nothing looks up before
+   inserting buys nothing at all.
+
+   A uniqueness rule on that key is **welcome, and is the right way to do this**,
+   *provided the write handles the collision by updating.* What must never happen
+   is a plain insert that relies on the uniqueness rule to *reject* the second
+   write: that turns an ordinary duplicate into a permanent error, and the record
+   is then stuck forever. Nor is a look-then-insert enough on its own — two
+   devices can both look, both find nothing, and both insert, which is precisely
+   the duplicate this is here to prevent. Let the database settle it.
 
 ### The records
 
