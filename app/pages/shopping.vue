@@ -34,10 +34,11 @@ const visibleSections = computed(() => {
 
   // A cleared aisle with its ticked rows hidden is a header over nothing. The
   // card earns its space by having something left in it, so it goes until either
-  // the checked rows come back or something new is filed there.
+  // the checked rows come back or something new is filed there. A cupboard line
+  // counts as something left in it — that is a glance somebody still owes.
   return showChecked.value
     ? chosen
-    : chosen.filter(section => section.entries.length > 0)
+    : chosen.filter(section => section.entries.length > 0 || section.staples)
 })
 
 /**

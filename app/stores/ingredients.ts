@@ -9,6 +9,7 @@ import {
   type Suggestion
 } from '../utils/ingredients'
 import { intrinsicBaseUnit, parseQuantity, type BaseUnit } from '../utils/quantity'
+import { shoppingName } from '../utils/shopping-name'
 import { plainCopy } from '../utils/sync'
 import { nowIso, useSyncStore } from './sync'
 
@@ -31,6 +32,19 @@ export function asBaseUnit(value: string): BaseUnit {
  */
 function inferBaseUnit(quantity: string | null | undefined): BaseUnit {
   return intrinsicBaseUnit(parseQuantity(quantity)?.unit) ?? 'count'
+}
+
+/**
+ * What a canonical ingredient is called, given how a recipe wrote it.
+ *
+ * The same transform the shopping list uses, applied one step earlier. A recipe
+ * line is the cook's wording and stays so; the library row behind it is the
+ * thing on a shelf, and a row called "ground coriander, plus extra to serve" is
+ * a row nothing else will ever resolve to — which is the whole point of having a
+ * canonical list.
+ */
+export function canonicalIngredientName(raw: string): string {
+  return shoppingName(raw, { alternatives: 'first' }).trim()
 }
 
 export const useIngredientsStore = defineStore('ingredients', () => {
@@ -71,6 +85,21 @@ export const useIngredientsStore = defineStore('ingredients', () => {
     return resolveIngredient(name, all.value, aliases.value) ?? undefined
   }
 
+  /**
+   * As `resolve`, then again on the tidied name.
+   *
+   * Two passes rather than one because the library holds both kinds of row: the
+   * ones minted before names were canonicalised, under whatever the recipe said,
+   * and the ones minted since. Asking as-written first means an old row still
+   * answers to its own name rather than being passed over for a new one.
+   */
+  function resolveTidied(name: string): IngredientRow | undefined {
+    const direct = resolve(name)
+    if (direct) return direct
+    const tidied = canonicalIngredientName(name)
+    return tidied && tidied !== name.trim() ? resolve(tidied) : undefined
+  }
+
   function suggest(query: string, limit = 6): Suggestion<IngredientRow>[] {
     return suggestIngredients(query, all.value, aliases.value, limit)
   }
@@ -82,6 +111,10 @@ export const useIngredientsStore = defineStore('ingredients', () => {
    * it has to be cheap. The base unit is guessed from the quantity beside the name
    * — "400g" makes it a weight — and can be corrected later on /ingredients
    * without touching anything that points here.
+   *
+   * A new row is filed under the tidied name, and the wording that produced it is
+   * recorded as an alias, so the next recipe writing it the long way resolves
+   * here instead of minting a second row.
    */
   async function ensureIngredient(name: string, options: {
     quantity?: string | null
@@ -90,21 +123,28 @@ export const useIngredientsStore = defineStore('ingredients', () => {
     const trimmed = name.trim()
     if (!trimmed || !sync.householdId) return null
 
-    const existing = resolve(trimmed)
+    const existing = resolveTidied(trimmed)
     if (existing) return existing
 
+    const canonical = canonicalIngredientName(trimmed) || trimmed
     const timestamp = nowIso()
-    return sync.commit('ingredients', {
+    const created = await sync.commit('ingredients', {
       id: crypto.randomUUID(),
       household_id: sync.householdId,
-      name: trimmed,
+      name: canonical,
       base_unit: inferBaseUnit(options.quantity),
       aisle_id: options.aisleId ?? null,
       merged_into: null,
+      // Nothing is a staple until somebody says so. A recipe line appearing for
+      // the first time is exactly the case where the app knows least.
+      staple: false,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp
     })
+
+    if (created && canonical !== trimmed) await recordAlias(created.id, trimmed)
+    return created
   }
 
   /**
@@ -192,7 +232,7 @@ export const useIngredientsStore = defineStore('ingredients', () => {
     }
 
     if (options.create === false) {
-      const found = resolve(name)
+      const found = resolveTidied(name)
       if (found) await refineBaseUnit(found.id, options.quantity)
       return found?.id ?? null
     }
@@ -207,7 +247,7 @@ export const useIngredientsStore = defineStore('ingredients', () => {
 
   async function updateIngredient(
     id: string,
-    patch: Partial<Pick<IngredientRow, 'name' | 'base_unit' | 'aisle_id'>>
+    patch: Partial<Pick<IngredientRow, 'name' | 'base_unit' | 'aisle_id' | 'staple'>>
   ) {
     const current = all.value.get(id)
     if (!current) return
@@ -330,6 +370,7 @@ export const useIngredientsStore = defineStore('ingredients', () => {
     aliasesFor,
     purchaseUnitsFor,
     resolve,
+    resolveTidied,
     suggest,
     ensureIngredient,
     recordAlias,

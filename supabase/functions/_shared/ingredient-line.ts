@@ -43,15 +43,26 @@ const PREPARATION = new Set([
 const VULGAR = '½⅓⅔¼¾⅛⅜⅝⅞'
 
 /** Longest form first: "1 1/2" has to beat "1", or the fraction is left behind. */
-const NUMBER = new RegExp(
-  '^(?:'
+const NUMBER_BODY = '(?:'
   + `\\d+\\s+\\d+\\s*/\\s*\\d+` // 1 1/2
   + `|\\d+\\s*[${VULGAR}]` // 1½
   + `|\\d+\\s*/\\s*\\d+` // 1/2
   + `|[${VULGAR}]` // ½
   + `|\\d+(?:[.,]\\d+)?(?:\\s*(?:-|–|—|to)\\s*\\d+(?:[.,]\\d+)?)?` // 400, 1.5, 2-3
   + ')'
-)
+
+const NUMBER = new RegExp(`^${NUMBER_BODY}`)
+
+/**
+ * The same amount said twice: "10g/⅓oz", "1kg/2lb". British recipe sites print
+ * both and the slash defeats the unit match below, which wants a word boundary —
+ * so without this the imperial half becomes the ingredient, and the list asks for
+ * "G/⅓oz fresh mint leaves".
+ */
+const DUAL = new RegExp(`^(\\s*[a-zA-Z]+)\\s*/\\s*${NUMBER_BODY}\\s*([a-zA-Z]+)?(?=\\s|$)`)
+
+/** A second imperial amount trailing the first: the "4oz" of "1kg/2lb 4oz". */
+const IMPERIAL_TAIL = new RegExp(`^\\s*${NUMBER_BODY}\\s*([a-zA-Z]+)(?=\\s|$)`)
 
 /** Lowercase and singular, the same fold quantity.ts uses to look a unit up. */
 function foldUnit(word: string): string {
@@ -95,9 +106,33 @@ export function splitIngredientLine(line: string): { name: string, quantity: str
   // spaced exactly as it was written.
   let cursor = number[0].length
   let afterMultiplier = false
+  // Where the metric half of a "10g/⅓oz" ended. The imperial half is consumed so
+  // it stays out of the name, but it is not carried into the quantity: quantity.ts
+  // reads "<number> <unit>" and nothing else, and a quantity it cannot parse is a
+  // quantity that never gets aggregated.
+  let metricEnd: number | null = null
+  let inImperial = false
 
   for (;;) {
     const rest = trimmed.slice(cursor)
+
+    if (inImperial) {
+      const tail = rest.match(IMPERIAL_TAIL)
+      if (tail && UNITS.has(foldUnit(tail[1]!))) {
+        cursor += tail[0].length
+        continue
+      }
+      inImperial = false
+    }
+
+    // Before the plain unit match, which a slash would defeat.
+    const dual = rest.match(DUAL)
+    if (dual && UNITS.has(foldUnit(dual[1]!)) && (!dual[2] || UNITS.has(foldUnit(dual[2]!)))) {
+      metricEnd ??= cursor + dual[1]!.length
+      cursor += dual[0].length
+      inImperial = true
+      continue
+    }
 
     // "1 x 400g tin tomatoes": the multiplier and everything it multiplies is
     // still the quantity.
@@ -137,5 +172,5 @@ export function splitIngredientLine(line: string): { name: string, quantity: str
   // whole rather than committing an ingredient with no name.
   if (!name) return { name: trimmed, quantity: null }
 
-  return { name, quantity: trimmed.slice(0, cursor).trim() }
+  return { name, quantity: trimmed.slice(0, metricEnd ?? cursor).trim() }
 }

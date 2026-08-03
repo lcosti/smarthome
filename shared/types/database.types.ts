@@ -516,6 +516,7 @@ export type Database = {
           id: string
           merged_into: string | null
           name: string
+          staple: boolean
           updated_at: string
         }
         Insert: {
@@ -527,6 +528,7 @@ export type Database = {
           id: string
           merged_into?: string | null
           name: string
+          staple?: boolean
           updated_at?: string
         }
         Update: {
@@ -538,6 +540,7 @@ export type Database = {
           id?: string
           merged_into?: string | null
           name?: string
+          staple?: boolean
           updated_at?: string
         }
         Relationships: [

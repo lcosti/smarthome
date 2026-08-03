@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import type { AggregateContext, ListEntry } from '../utils/aggregate'
-import { buildEntries } from '../utils/aggregate'
+import type { AggregateContext, ListEntry, StapleGroup } from '../utils/aggregate'
+import { buildEntries, splitStaples } from '../utils/aggregate'
 import { guessAisleId } from '../utils/aisles'
 import type { AisleRow, ItemRow } from '../utils/db'
 import { lineNeedBase } from '../utils/pantry'
@@ -14,6 +14,14 @@ export interface AisleGroup {
   id: string
   name: string
   entries: ListEntry<ItemRow>[]
+  /**
+   * The cupboard items this aisle's nights assume, or null when there are none.
+   *
+   * Kept apart from `entries` rather than filed among them because they are not
+   * the same kind of thing: an entry is something to put in the trolley, and
+   * this is something to glance at before leaving the house.
+   */
+  staples: StapleGroup<ItemRow> | null
 }
 
 /**
@@ -23,6 +31,11 @@ export interface AisleGroup {
  * The counts are over rows rather than aggregated lines, because "3 of 19" has
  * to mean the same number the rest of the app says. A line that collapsed two
  * rows is still two things somebody has to pick up.
+ *
+ * Untouched staples are not among them. Nobody is being asked to pick up the
+ * olive oil, and counting it would make the badge read 3/19 down an aisle with
+ * four real things in it. Tick one — meaning the cupboard was empty after all —
+ * and it becomes an ordinary ticked row and counts in both halves.
  */
 export interface AisleSection extends AisleGroup {
   /** Ticked rows in this aisle, newest first. Never aggregated — see `entries`. */
@@ -116,13 +129,17 @@ export const useListStore = defineStore('list', () => {
         (b.checked_at ?? '').localeCompare(a.checked_at ?? '')
       )
       if (!todo.length && !done.length) return null
+      // What the week assumes is in the house comes out before anything is added
+      // up: a staple is not a line to buy, so it is not a line to total either.
+      const { rest, staples } = splitStaples(todo, context)
       return {
         id,
         name,
-        entries: buildEntries(todo, context),
+        entries: buildEntries(rest, context),
+        staples,
         checked: done,
         done: done.length,
-        total: todo.length + done.length
+        total: rest.length + done.length
       }
     }
 
@@ -140,15 +157,30 @@ export const useListStore = defineStore('list', () => {
   /**
    * The aisles with something still to get. What the board's compact list wants,
    * and what the page wanted before ticked rows stayed in place.
+   *
+   * Staples do not qualify. This answers "is there anything left to buy", and
+   * the kitchen wall is the one screen where a reminder to look in a cupboard
+   * you are standing next to is worth nothing.
    */
   const groups = computed<AisleGroup[]>(() =>
     sections.value.filter(section => section.entries.length)
   )
 
-  /** How far through the shop this is, over rows rather than collapsed lines. */
+  /**
+   * How far through the shop this is, over rows rather than collapsed lines.
+   *
+   * Counted off the sections rather than the raw rows, so the untouched staples
+   * they set aside are left out of it here too — a bar that started at 40% done
+   * because a third of the list was the spice rack would be measuring the wrong
+   * thing.
+   */
   const progress = computed(() => {
-    const total = liveItems.value.length
-    const done = liveItems.value.filter(i => i.checked).length
+    let total = 0
+    let done = 0
+    for (const section of sections.value) {
+      total += section.total
+      done += section.done
+    }
     return { done, total, fraction: total ? done / total : 0 }
   })
 

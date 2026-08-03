@@ -545,7 +545,7 @@ export const usePlanStore = defineStore('plan', () => {
    */
   function resolveIngredientId(line: RecipeIngredientRow) {
     return ingredients.ingredientById(line.ingredient_id)?.id
-      ?? ingredients.resolve(line.name)?.id
+      ?? ingredients.resolveTidied(line.name)?.id
       ?? null
   }
 

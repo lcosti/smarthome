@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useIngredientsStore } from '../stores/ingredients'
+import { canonicalIngredientName, useIngredientsStore } from '../stores/ingredients'
 import { useListStore } from '../stores/list'
 import { useRecipesStore } from '../stores/recipes'
 import { useSyncStore } from '../stores/sync'
@@ -16,6 +16,7 @@ const query = ref('')
 const editingId = ref<string | null>(null)
 const editorOpen = ref(false)
 const scanning = ref(false)
+const tidying = ref(false)
 
 const shown = computed(() => {
   const key = query.value.trim().toLowerCase()
@@ -78,6 +79,50 @@ async function scanRecipes() {
 const unlinkedCount = computed(() =>
   [...recipes.allLines.values()].filter(l => !l.deleted_at && !l.ingredient_id).length
 )
+
+/** The rows still filed under the wording a recipe happened to use. */
+const untidy = computed(() => store.ingredients.filter((i) => {
+  const tidied = canonicalIngredientName(i.name)
+  return tidied && tidied !== i.name
+}))
+
+/**
+ * Rename a library that was built before names were canonicalised.
+ *
+ * Two rows tidying to the same name were the same thing written twice, so they
+ * merge rather than collide — `mergeIngredients` already knows how to carry the
+ * aliases, the purchase units and the recipe lines across. Where the name is
+ * merely untidy, the old wording is kept as an alias: it is how the recipe still
+ * reads, and how somebody will go looking for it.
+ */
+async function tidyNames() {
+  tidying.value = true
+  try {
+    let renamed = 0
+    let merged = 0
+    for (const ingredient of untidy.value) {
+      const tidied = canonicalIngredientName(ingredient.name)
+      const owner = store.resolve(tidied)
+      if (owner && owner.id !== ingredient.id) {
+        await store.mergeIngredients(ingredient.id, owner.id)
+        merged++
+        continue
+      }
+      const before = ingredient.name
+      await store.updateIngredient(ingredient.id, { name: tidied })
+      await store.recordAlias(ingredient.id, before)
+      renamed++
+    }
+    const done = renamed + merged
+    toast.add({
+      title: done ? `Tidied ${done} name${done === 1 ? '' : 's'}` : 'Nothing left to tidy',
+      description: merged ? `${merged} turned out to be duplicates.` : undefined,
+      icon: 'i-lucide-sparkles'
+    })
+  } finally {
+    tidying.value = false
+  }
+}
 </script>
 
 <template>
@@ -131,6 +176,15 @@ const unlinkedCount = computed(() =>
                 >{{ summaryFor(ingredient) }}</span>
               </span>
               <UBadge
+                v-if="ingredient.staple"
+                color="neutral"
+                variant="soft"
+                size="sm"
+                icon="i-lucide-archive"
+              >
+                staple
+              </UBadge>
+              <UBadge
                 color="neutral"
                 variant="subtle"
                 size="sm"
@@ -151,17 +205,32 @@ const unlinkedCount = computed(() =>
           :title="`Nothing matches “${query}”.`"
         />
 
-        <UButton
-          v-if="unlinkedCount"
-          class="mt-4"
-          color="neutral"
-          variant="subtle"
-          block
-          :loading="scanning"
-          @click="scanRecipes()"
+        <div
+          v-if="unlinkedCount || untidy.length"
+          class="mt-4 flex flex-col gap-2"
         >
-          Link {{ unlinkedCount }} recipe line{{ unlinkedCount === 1 ? '' : 's' }}
-        </UButton>
+          <UButton
+            v-if="unlinkedCount"
+            color="neutral"
+            variant="subtle"
+            block
+            :loading="scanning"
+            @click="scanRecipes()"
+          >
+            Link {{ unlinkedCount }} recipe line{{ unlinkedCount === 1 ? '' : 's' }}
+          </UButton>
+
+          <UButton
+            v-if="untidy.length"
+            color="neutral"
+            variant="subtle"
+            block
+            :loading="tidying"
+            @click="tidyNames()"
+          >
+            Tidy {{ untidy.length }} name{{ untidy.length === 1 ? '' : 's' }}
+          </UButton>
+        </div>
       </template>
     </main>
 

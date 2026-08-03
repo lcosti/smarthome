@@ -38,6 +38,12 @@ export interface ItemLike {
 /** The parts of an ingredient this needs beyond resolution. */
 export interface IngredientWithUnit extends IngredientLike {
   base_unit: BaseUnit
+  /**
+   * The house always has this, so the list rolls it up rather than asking for
+   * it. Optional and absent means false: an ingredient nobody has flagged
+   * behaves exactly as it did before staples existed.
+   */
+  staple?: boolean
 }
 
 /** The parts of a purchase unit row this reads. */
@@ -90,8 +96,69 @@ export interface ListEntry<T extends ItemLike = ItemLike> {
   pantry: PantryCoverage | null
 }
 
+/** The parts of a row {@link splitStaples} reads, beyond {@link ItemLike}. */
+export interface StapleCandidate extends ItemLike {
+  source: string
+}
+
+/** The staples one aisle assumes are in the house, and the rows behind them. */
+export interface StapleGroup<T extends ItemLike = ItemLike> {
+  /** What to glance at, canonical names, deduped and oldest-first. */
+  names: string[]
+  /** Still ordinary rows. Tickable, for the week the cupboard turns out empty. */
+  items: T[]
+}
+
 function byCreated(a: { created_at: string }, b: { created_at: string }) {
   return a.created_at.localeCompare(b.created_at)
+}
+
+/**
+ * Separate the rows the week assumes from the rows it asks you to buy.
+ *
+ * Nothing is dropped and nothing is rewritten — the rows are the same rows, and
+ * every rule `derive` depends on still holds over them. All that happens here is
+ * that a staple's rows are handed back in their own pile, for the card to draw
+ * as one "check the cupboard" line rather than a line each.
+ *
+ * Only plan-derived rows are eligible. Somebody who typed "olive oil" into the
+ * box at the top of the list meant it — they are out — and an ad-hoc item
+ * disappearing into a roll-up is the app overruling a person. That is also the
+ * escape hatch: however the flag is set, typing the thing always works.
+ *
+ * A row that resolves to no canonical ingredient is never a staple. Nothing
+ * knows enough about it to say, and guessing from the name is how "salted
+ * caramel" ends up in the cupboard pile.
+ */
+export function splitStaples<T extends StapleCandidate>(
+  items: T[],
+  context: AggregateContext
+): { rest: T[], staples: StapleGroup<T> | null } {
+  const rest: T[] = []
+  const found: { item: T, ingredient: IngredientWithUnit }[] = []
+
+  for (const item of items) {
+    const ingredient = item.source === 'plan'
+      ? chaseMerge(item.ingredient_id, context.ingredients)
+      : null
+    if (!ingredient?.staple) rest.push(item)
+    else found.push({ item, ingredient })
+  }
+
+  if (!found.length) return { rest, staples: null }
+
+  // Oldest first, as everywhere else on the list, so a name does not jump about
+  // in the line because a second recipe started wanting it.
+  found.sort((a, b) => byCreated(a.item, b.item))
+  const names = new Map<string, string>()
+  for (const { ingredient } of found) {
+    if (!names.has(ingredient.id)) names.set(ingredient.id, ingredient.name)
+  }
+
+  return {
+    rest,
+    staples: { names: [...names.values()], items: found.map(f => f.item) }
+  }
 }
 
 /** The purchase unit to describe a total in: the first one somebody set up. */

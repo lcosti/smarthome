@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { AggregateContext, IngredientWithUnit, ItemLike, PurchaseUnitLike } from '../app/utils/aggregate'
-import { buildEntries } from '../app/utils/aggregate'
+import type { AggregateContext, IngredientWithUnit, ItemLike, PurchaseUnitLike, StapleCandidate } from '../app/utils/aggregate'
+import { buildEntries, splitStaples } from '../app/utils/aggregate'
 import type { BaseUnit } from '../app/utils/quantity'
 
 let clock = 0
@@ -333,5 +333,69 @@ describe('buildEntries and the pantry', () => {
     const rows = [item('a', 'Tomatoes', '400g', 'tom'), item('b', 'Tomatoes', 'a splash', 'tom')]
     const entries = buildEntries(rows, withPantry([TOMATOES], { tom: 100 }))
     expect(entries[0]!.quantityLabel).toBe('300g · 100g in the pantry + a splash')
+  })
+})
+
+describe('splitStaples', () => {
+  const OIL = ingredient('oil', 'Olive oil', 'ml', { staple: true })
+  const SALT = ingredient('salt', 'Salt', 'g', { staple: true })
+
+  function planItem(id: string, name: string, ingredientId: string | null): StapleCandidate {
+    return { ...item(id, name, null, ingredientId), source: 'plan' }
+  }
+
+  function adhocItem(id: string, name: string, ingredientId: string | null): StapleCandidate {
+    return { ...item(id, name, null, ingredientId), source: 'adhoc' }
+  }
+
+  it('sets a plan row aside when its ingredient is a staple', () => {
+    const rows = [planItem('a', 'Chicken thighs', null), planItem('b', 'Olive oil', 'oil')]
+    const { rest, staples } = splitStaples(rows, context([OIL]))
+    expect(rest.map(r => r.id)).toEqual(['a'])
+    expect(staples).toMatchObject({ names: ['Olive oil'] })
+    expect(staples!.items.map(r => r.id)).toEqual(['b'])
+  })
+
+  it('leaves an ad-hoc row alone however the ingredient is flagged', () => {
+    // Somebody typed "olive oil" into the box. That is the escape hatch for the
+    // week the bottle is empty, and swallowing it would be the app overruling a
+    // person who was standing in the kitchen looking at the shelf.
+    const rows = [adhocItem('a', 'Olive oil', 'oil')]
+    const { rest, staples } = splitStaples(rows, context([OIL]))
+    expect(rest.map(r => r.id)).toEqual(['a'])
+    expect(staples).toBeNull()
+  })
+
+  it('never takes a row that resolved to nothing', () => {
+    const rows = [planItem('a', 'Olive oil', null)]
+    const { rest, staples } = splitStaples(rows, context([OIL]))
+    expect(rest.map(r => r.id)).toEqual(['a'])
+    expect(staples).toBeNull()
+  })
+
+  it('follows a merge to the winner’s flag', () => {
+    const merged = ingredient('evoo', 'Extra virgin olive oil', 'ml', { merged_into: 'oil' })
+    const rows = [planItem('a', 'Extra virgin olive oil', 'evoo')]
+    const { rest, staples } = splitStaples(rows, context([OIL, merged]))
+    expect(rest).toHaveLength(0)
+    expect(staples).toMatchObject({ names: ['Olive oil'] })
+  })
+
+  it('names an ingredient once however many nights want it', () => {
+    const rows = [
+      planItem('a', 'Olive oil', 'oil'),
+      planItem('b', 'Olive oil', 'oil'),
+      planItem('c', 'Sea salt', 'salt')
+    ]
+    const { staples } = splitStaples(rows, context([OIL, SALT]))
+    expect(staples!.names).toEqual(['Olive oil', 'Salt'])
+    expect(staples!.items).toHaveLength(3)
+  })
+
+  it('leaves everything where it was when nothing is flagged', () => {
+    const rows = [planItem('a', 'Tinned tomatoes', 'tom')]
+    const { rest, staples } = splitStaples(rows, context([TOMATOES]))
+    expect(rest).toHaveLength(1)
+    expect(staples).toBeNull()
   })
 })

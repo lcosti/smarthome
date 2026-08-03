@@ -11,6 +11,7 @@ const toast = useToast()
 const name = ref('')
 const baseUnit = ref<BaseUnit>('count')
 const aisleId = ref<string | null>(null)
+const staple = ref(false)
 const newAlias = ref('')
 const unitName = ref('')
 const unitAmount = ref('')
@@ -41,6 +42,7 @@ watch(open, (isOpen) => {
     ? ingredient.value.base_unit
     : 'count'
   aisleId.value = ingredient.value.aisle_id
+  staple.value = ingredient.value.staple
   newAlias.value = ''
   unitName.value = ''
   unitAmount.value = ''
@@ -57,7 +59,8 @@ async function save() {
   await store.updateIngredient(ingredientId, {
     name: name.value.trim(),
     base_unit: baseUnit.value,
-    aisle_id: aisleId.value
+    aisle_id: aisleId.value,
+    staple: staple.value
   })
   if (staleUnits.length) {
     for (const unit of staleUnits) await store.removePurchaseUnit(unit.id)
@@ -139,6 +142,17 @@ async function remove() {
           help="Where this lives in the shop, for every recipe that uses it."
         >
           <AislePicker v-model="aisleId" />
+        </UFormField>
+
+        <UFormField
+          label="Always in the cupboard"
+          help="The list won't ask you to buy this. It'll remind you to check."
+        >
+          <USwitch
+            v-model="staple"
+            size="lg"
+            :label="staple ? 'Checked, not bought' : 'Bought like anything else'"
+          />
         </UFormField>
 
         <UFormField
