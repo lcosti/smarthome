@@ -103,35 +103,35 @@ leaving them in invents "Yoghurt cream".
 
 ### 7.6 Aggregating the list for display
 
-Two recipes in the same week both wanting tomatoes put **two rows** on the list.
+Two recipes in the same week both wanting tomatoes put **two records** on the list.
 Turn them into **one line reading "800g · 2 tins"** — computed **at render time and
 never stored**.
 
 This is the central decision of the ingredient phase and it is worth knowing why.
-Storing a combined row would make the unit of conflict the whole week's
+Storing a combined record would make the unit of conflict the whole week's
 arithmetic: two phones deriving offline would converge on whichever computed last
 rather than on the truth, and a third recipe wanting tomatoes *after* the line was
-ticked could never surface, because a checked row is frozen — a silent under-buy
+ticked could never surface, because a checked record is frozen — a silent under-buy
 with no way back. Grouping at render time has none of that, and it means a merge,
 a parser improvement or a new purchase unit **applies retroactively with nothing
 rewritten**.
 
 Rules:
 
-- Group **per aisle bucket**, not across the whole list, so an ingredient somebody
+- Group **per aisle**, not across the whole list, so an ingredient somebody
   deliberately filed in two aisles stays in both places.
-- Rows resolving to no ingredient pass through unchanged. This keeps the whole
+- Records resolving to no ingredient pass through unchanged. This keeps the whole
   feature invisible until it has something to offer.
-- **One row is still one row.** Showing a single row under its canonical name would
-  rename what the recipe said for no benefit — keep its quantity verbatim.
-- The caller passes only **live, unchecked** rows, which is why ticked rows need no
-  special case: a checked row is simply not in the group, so the total covers only
+- **One record is still one record.** Showing a single one under its
+  canonical name would rename what the recipe said for no benefit — keep its quantity verbatim.
+- Only **live, unchecked** records are grouped, which is why ticked ones need no
+  special case: a checked record is simply not in the group, so the total covers only
   what is still to buy.
 - **Add up what can be added up and keep the rest as written.** A line reading "a
   splash of passata" cannot join a total, but dropping it would mean the list
   quietly asked for less than the recipes do. Keep it verbatim after a `+`:
   `800g · 2 tins + a splash`.
-- Order lines by the **earliest row each stands for**, so a line does not jump up
+- Order lines by the **earliest record each stands for**, so a line does not jump up
   the aisle because a second recipe started needing it.
 - Chase `merged_into` pointers (with a depth cap) when resolving an ingredient.
 

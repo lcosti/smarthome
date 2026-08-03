@@ -14,16 +14,18 @@ Build the server-side functions. Finish by demonstrating acceptance test 7.
 
 ---
 
-## 8. Server-side work
+## 8. Work that cannot happen in the browser
 
-The client is a static bundle, so there are no server routes. Anything that needs
-a server is a small isolated function.
+Four jobs need something running outside the app — either because a browser is
+not allowed to do them, or because they have to happen when nobody has the app
+open. Build them as whatever your platform calls a backend action or a scheduled
+job.
 
 ### 8.1 Recipe import from a URL
 
-The client cannot read another origin's HTML, so a server function fetches the
-page and reads its **schema.org `Recipe` JSON-LD**, which nearly every recipe site
-already publishes. **That path costs nothing: no model call, no wait.** Only a
+A browser is not allowed to read another site's HTML, so this has to happen on
+the server: fetch the page and read the **schema.org `Recipe` data** that nearly
+every recipe site already publishes in its markup. **That path costs nothing: no model call, no wait.** Only a
 page without it falls back to a language model.
 
 Either way, **split the quantity off each ingredient line** so an import lands in
@@ -45,15 +47,16 @@ fills only the blanks.**
 
 ### 8.4 Calendar sync
 
-A scheduled job every five minutes reads the family's calendars with a **service
-account** (not per-user OAuth) and upserts them into `calendar_events`. Clients
-only ever *read* that table. The cache is not an optimisation — it is the only
+A scheduled job every five minutes reads the family's calendars using **one
+shared account for the household**, rather than asking each person to connect
+their own, and writes what it finds into `calendar_event` records. The app only
+ever *reads* those. The cache is not an optimisation — it is the only
 reason the schedule card survives the wifi dropping.
 
 Skip rows whose source last-modified stamp is unchanged; every rewrite would be
 broadcast to every device over realtime, which is a lot of traffic to say nothing.
 
-**Every run records what it did** in `calendar_sync_status`. That table exists
+**Every run records what it did** in `calendar_status`. That record exists
 because absence of events used to be the only symptom, and it was the symptom of
 five different things — four of which produced no log line anywhere. A missing
 secret, an unconfigured calendar list, a calendar never shared with the service
@@ -65,9 +68,9 @@ behaviour for a household that has not connected a calendar.
 
 ### 8.5 Keepalive
 
-If your backend pauses free projects after a period of inactivity, ping it **every
-2–3 days from outside the system** — a scheduled job inside a paused database
-cannot unpause it. **Do not rely on the weekly generation job for this**: a 7-day
+If your platform puts inactive projects to sleep, something **outside it** has to
+poke it every two or three days — a scheduled job inside a sleeping system cannot
+wake itself up. **Do not rely on the weekly generation job for this**: a 7-day
 cycle racing a 7-day timer will lose.
 
 ### 8.6 Weather

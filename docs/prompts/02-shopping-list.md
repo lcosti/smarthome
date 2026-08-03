@@ -51,7 +51,7 @@ one row per line. The aisle icon is looked up from the aisle's *name*
 (`Fruit & veg` → carrot, `Chilled` → milk, `Meat & fish` → beef, `Frozen` →
 snowflake, `Cupboard` → package, `Household` → spray can, `Drinks` → cup, `Bakery`
 → croissant, anything else → basket) — an icon is a rendering decision, not a
-column on the table.
+fact stored about the aisle.
 
 A row shows the name and, right-aligned in mono, the quantity label. A row with
 one item behind it opens the editor on tap; a row standing for **several** items
@@ -94,7 +94,7 @@ Sections, each with a small uppercase dimmed heading:
 - **Always-on display** — a switch. "This screen never sleeps. For a tablet left on
   in the kitchen. Everything drifts a pixel at a time so the layout never burns
   into the panel — slowly enough that nobody sees it move. Press F for
-  fullscreen." **Stored per device in local storage, not in the database** — the
+  fullscreen." **A setting on this device only, not shared with the household** — the
   kitchen tablet is always on and a phone is not.
 - **Household** — the name, the six-character **invite code** in large monospace
   with a copy button, and "Anyone with this code can join the household and see

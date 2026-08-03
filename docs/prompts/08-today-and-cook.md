@@ -165,7 +165,7 @@ width — the geometry is what you read your position off.
 The step body is set in **serif at 36–48px**, with no negative tracking. Only the
 **first paragraph** is the step; anything after a blank line is shown as an aside
 in a lightbulb alert. That split is read from the prose, because a step is one
-column of free text and adding duration and tip columns would leave every existing
+column of free text and adding duration and tip fields would leave every existing
 recipe with empty ones.
 
 **Timers are read from the prose too.** Find the *first* duration mentioned:
@@ -202,9 +202,9 @@ Footer: **Previous** (an arrow on a phone, a labelled button on a laptop — it 
 the one you press by mistake, and the width it gives up goes to the one you meant)
 and **Next step**, which becomes **Finish** on the last step and returns to `/`.
 
-Everything the cook touches — ticks, which step, a running timer — is **session
-state**. None of it belongs to the recipe, and a checkbox still ticked next
-Tuesday would be a small lie.
+Everything the cook touches — ticks, which step, a running timer — is **temporary
+and never saved**. None of it belongs to the recipe, and a checkbox still ticked
+next Tuesday would be a small lie.
 
 ### 7.9 Chores
 

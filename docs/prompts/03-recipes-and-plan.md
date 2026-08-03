@@ -101,7 +101,7 @@ Facets, each with a live count: `all` · `shortlist` · `quick` (under 30 min) �
 already in the house) · `never` (never cooked). Sorts: `recent` · `quickest` ·
 `cooked`.
 
-**All of this is derived, not stored.** There is no tags column and adding one is
+**All of this is derived, not stored.** There is no tags field and adding one is
 not the answer: how long a recipe takes, how many it serves, how often it has been
 cooked, what is already on the list and what is in the cupboard are all facts the
 app has, and they answer the same questions — quick tonight? feeds everyone? had
@@ -153,8 +153,8 @@ Sections, in order, each with a small uppercase dimmed heading:
 
 ### 7.5 Deriving the shopping list from the plan
 
-**One row per (plan entry, recipe line)**, with a deterministic id, because that
-row is the unit last-write-wins already reconciles correctly.
+**One record per (planned night, recipe line)**, with a deterministic id, because
+that record is the unit last-write-wins already reconciles correctly.
 
 Everything falls out of one idea: **the plan owns an item until a person touches
 it.**
@@ -192,6 +192,6 @@ must not quietly buy it twice. A night whose source has been deleted, or has not
 reached this device yet, **defers to nobody and buys for itself**: the ids are
 deterministic, so the extra items come straight back off on the next derive.
 
-**A skipped night has no recipe and buys nothing**, and its existing rows come off
-the list through the same reconciliation that removes a deleted night's rows.
+**A skipped night has no recipe and buys nothing**, and its existing items come
+off the list through the same reconciliation that removes a deleted night's.
 Skipping a planned night un-buys it.

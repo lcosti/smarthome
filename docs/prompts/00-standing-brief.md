@@ -49,10 +49,12 @@ Every screen must answer at both sizes. There is no separate "dashboard app".
 
 ### Non-negotiable constraints
 
-- **Client-rendered, not server-rendered.** First paint must not require a network
-  round trip. There is no SEO requirement.
-- **Offline-first.** Reads come from a local database on the device; writes apply
-  optimistically and queue. Authentication is required to *sync*, not to *shop*.
+- **It must open instantly**, with no round trip to a server before anything
+  appears. There is no search-engine requirement — nobody will ever find this app
+  by searching for it.
+- **Offline-first.** What is on screen comes from a copy held on the device;
+  changes apply straight away and catch up later. Signing in is needed to *sync*,
+  not to *shop*.
 - **People are not user accounts.** Children and babies are rows with no login.
 - **Life stage is derived from a date of birth, never stored as a label.**
 - **Selection over generation.** The generator picks from the household's own
@@ -150,17 +152,17 @@ should be built as separate components swapped by width:
 
 ### Component discipline
 
-Build the UI from your component library's stock components. Do not hand-roll
-what the library provides: no raw buttons/inputs/forms styled with utility
+Build the interface from whatever standard components your platform provides,
+and use them as they come. Do not rebuild what is already there: no raw buttons/inputs/forms styled with utility
 classes, no span-based badges or checkboxes, no selectors built from arrays of
 buttons (use radio groups, checkbox groups, select menus, tabs), no bespoke
 dropdowns, autocompletes, empty states, skeletons or progress bars.
 
-Recurring visual overrides belong in one theme config file, not repeated inline on
-every usage.
+Recurring visual tweaks belong in one place — a theme, a set of shared styles —
+not repeated on every usage.
 
-A custom implementation is allowed only where the library genuinely cannot express
-the requirement. In this app that is: the bottom tab bar; the kitchen-board avatar
+Something custom is allowed only where the standard components genuinely cannot
+express the requirement. In this app that is: the bottom tab bar; the kitchen-board avatar
 (runtime pixel sizes and generated per-person hues); card and row tap targets
 whose content is a laid-out block rather than a label; the day grid on the Today
 screen; the ingredient suggestion list (because Enter must always submit what was
@@ -276,9 +278,9 @@ Do not build later phases before earlier ones work.
 Write these as real end-to-end tests against the built bundle.
 
 1. **Offline round trip.** Create a household, add items, go offline, add and tick
-   more, kill the app, reopen it still offline, cold-open a route that was never
-   prerendered, come back online. The server ends up with exactly what the screen
-   showed.
+   more, close the app completely, reopen it still offline, come back online. The
+   server ends up with exactly what the screen showed. *(If the platform cannot
+   run offline at all, say so — do not fake it.)*
 2. **Two devices.** Join from a second browser profile as a second person; a change
    on one shows up on the other over realtime.
 3. **Plan → list.** Drive a recipe onto a night onto the shopping list. Deriving
@@ -287,9 +289,9 @@ Write these as real end-to-end tests against the built bundle.
 4. **One line, two recipes.** Two recipes wanting the same thing become one line.
    The unit is inferred from a quantity typed a moment later. Two ingredients
    merge and the list heals **with no re-derive**. The line reads "800g · 2 tins".
-   Ticking it takes both rows behind it. *(Check the local database as well as the
-   screen — "one line" and "one row" are different claims and only one is
-   visible.)*
+   Ticking it takes both rows behind it. *(Check the stored records as well as the
+   screen — "one line" and "one record" are different claims, and only one of
+   them is visible.)*
 5. **The roster.** Add a child; check the life stage was **derived rather than
    typed**; record an allergy; mark them out on one night. The load-bearing
    assertion is about a row that does not exist: **no row means present**, so
@@ -315,30 +317,17 @@ Write these as real end-to-end tests against the built bundle.
 
 ---
 
-## Appendix A — the reference implementation's stack
+## Appendix A — if your platform lets you choose
 
-Match this if your tool can; otherwise use the nearest equivalent and keep every
-behaviour above.
+Most won't, and nothing above depends on it. Skip this unless you are building
+with arbitrary code.
 
-| Thing | Choice |
-|---|---|
-| Framework | Nuxt 4.5+ (**not** Nuxt 3 — EOL 31 July 2026), `ssr: false` |
-| UI | Nuxt UI v4 (all 110+ components are in the free library) |
-| Backend | Supabase, free tier |
-| Supabase module | `@nuxtjs/supabase` v2.x, with `useSsrCookies: false` and `redirect: false` |
-| PWA | `@vite-pwa/nuxt` |
-| State | Pinia |
-| Local persistence | IndexedDB via Dexie |
-| Server-side work | Supabase Edge Functions |
-| Deploy | static generate → Netlify / Cloudflare Pages |
+The reference implementation this brief was written from is a client-rendered
+Nuxt 4 app with Supabase behind it, local storage through IndexedDB, and a
+mutation queue of full-record upserts — deployed as a static bundle. Its schema
+changes are numbered migration files in version control, never edits made in a
+database GUI.
 
-`useSsrCookies: false` makes the Supabase module use the standard client with the
-session in local storage rather than SSR cookies — the documented recommendation
-for statically generated sites, and what keeps the shared kitchen tablet signed in
-indefinitely. `redirect: false` disables the module's login-redirect middleware in
-favour of the hand-rolled auth gate described in §5.
-
-Schema changes go through **numbered SQL migration files in version control**,
-never a dashboard table editor.
-
----
+If you are choosing, the only choices that actually matter are the ones §5 turns
+on: a database that lets the *client* decide a record's id and its `updated_at`,
+and somewhere to hold a queue of unsent changes on the device.

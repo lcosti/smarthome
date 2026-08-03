@@ -57,12 +57,12 @@ a typo is obvious.
 
 ### 7.2 Who is eating
 
-**NO ROW MEANS PRESENT.** A row exists only once somebody has said otherwise. A
-soft-deleted absence row counts as present — deleting the record of an absence is
+**NO RECORD MEANS PRESENT.** One exists only once somebody has said otherwise. A
+soft-deleted absence counts as present — deleting the record of an absence is
 saying the absence never happened.
 
 `presentPeople(people, rows, date, meal)` = every live person minus those with a
-live row for that (date, meal) carrying `present: false`.
+live record for that (date, meal) carrying `present: false`.
 
 `nightsPresent(person, dates, meal, rows)` counts over **the week's nights**, not
 over the nights somebody has already planned a dinner for. Counting only planned

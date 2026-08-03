@@ -4,11 +4,17 @@ This is a complete specification for an application. Build it as described. Wher
 a detail is not specified, choose the option that best serves the stated purpose
 of the screen you are working on.
 
-The document is stack-agnostic — build it with whatever framework, database and
-component library you use. The data model is given as SQL because it is precise,
-not because you must use Postgres; if your platform has its own database, mirror
-the tables, columns, types and relationships exactly. **Appendix A** names the
-reference implementation's stack, if you can honour it.
+This assumes nothing about how you build it. Use whatever framework, database and
+components your platform provides — including its own built-in database, if it
+has one. **§4 describes the records the app needs, not the tables of any
+particular database**: give them the fields listed, with the relationships listed,
+under whatever names your platform prefers.
+
+Where this document says something is load-bearing or non-negotiable, it is
+usually preventing a specific failure that is explained on the spot. If your
+platform makes one of those impossible, **say so plainly rather than quietly
+doing the opposite** — there are two or three places where that changes what is
+worth building.
 
 ---
 
@@ -48,10 +54,12 @@ Every screen must answer at both sizes. There is no separate "dashboard app".
 
 ### Non-negotiable constraints
 
-- **Client-rendered, not server-rendered.** First paint must not require a network
-  round trip. There is no SEO requirement.
-- **Offline-first.** Reads come from a local database on the device; writes apply
-  optimistically and queue. Authentication is required to *sync*, not to *shop*.
+- **It must open instantly**, with no round trip to a server before anything
+  appears. There is no search-engine requirement — nobody will ever find this app
+  by searching for it.
+- **Offline-first.** What is on screen comes from a copy held on the device;
+  changes apply straight away and catch up later. Signing in is needed to *sync*,
+  not to *shop*.
 - **People are not user accounts.** Children and babies are rows with no login.
 - **Life stage is derived from a date of birth, never stored as a label.**
 - **Selection over generation.** The generator picks from the household's own
@@ -149,17 +157,17 @@ should be built as separate components swapped by width:
 
 ### Component discipline
 
-Build the UI from your component library's stock components. Do not hand-roll
-what the library provides: no raw buttons/inputs/forms styled with utility
+Build the interface from whatever standard components your platform provides,
+and use them as they come. Do not rebuild what is already there: no raw buttons/inputs/forms styled with utility
 classes, no span-based badges or checkboxes, no selectors built from arrays of
 buttons (use radio groups, checkbox groups, select menus, tabs), no bespoke
 dropdowns, autocompletes, empty states, skeletons or progress bars.
 
-Recurring visual overrides belong in one theme config file, not repeated inline on
-every usage.
+Recurring visual tweaks belong in one place — a theme, a set of shared styles —
+not repeated on every usage.
 
-A custom implementation is allowed only where the library genuinely cannot express
-the requirement. In this app that is: the bottom tab bar; the kitchen-board avatar
+Something custom is allowed only where the standard components genuinely cannot
+express the requirement. In this app that is: the bottom tab bar; the kitchen-board avatar
 (runtime pixel sizes and generated per-person hues); card and row tap targets
 whose content is a laid-out block rather than a label; the day grid on the Today
 screen; the ingredient suggestion list (because Enter must always submit what was
@@ -234,456 +242,391 @@ not, and a path regex gets that wrong the first time either route moves.
 
 ## 4. Data model
 
-Every table is scoped to a `household_id` with row-level security. Every policy is
-scoped to the caller's household membership. No cross-household reads, ever.
+Eighteen kinds of record. **Every one of them belongs to exactly one household**,
+and nothing may ever read across households.
 
-### Conventions that the offline layer depends on
+Field types are given in plain terms — text, number, whole number, true/false,
+date (a calendar day with no time), instant (a moment in time), reference (a link
+to another record). Use whatever your platform calls these.
 
-These are load-bearing. Do not change them.
+Three fields recur and are not repeated in every table below. **Assume every
+record has them** unless it says otherwise:
 
-1. **Ids are minted on the device**, not by the database. Any row — an item, a
-   recipe, a planned night, an ingredient — must be creatable in airplane mode and
-   pushed later. Tables the client writes have **no id default**.
-2. **`updated_at` is set by the client, never by a database trigger.** It is the
-   last-write-wins comparison key; a server-side trigger makes every echo look
-   newer than the local write it came from.
-3. **Deletes are soft** (`deleted_at timestamptz`), so every mutation the client
-   queues is a plain idempotent full-row upsert.
-4. **Five id types are derived, not random**, so two devices doing the same thing
-   offline converge on one row instead of two. Each is a UUIDv5 over a fixed
-   namespace:
+| field | type | meaning |
+|---|---|---|
+| `id` | text | unique, see the conventions below |
+| `created_at` | instant | when it was first made |
+| `updated_at` | instant | when it was last changed |
+| `deleted_at` | instant, optional | set to delete it; never remove the record |
 
-| Row | Derived from |
+### Conventions the whole design depends on
+
+These are load-bearing. If your platform makes one of them impossible, say so
+rather than quietly doing the opposite.
+
+1. **Deletes are soft.** Deleting sets `deleted_at` and changes nothing else. A
+   record is "live" when `deleted_at` is empty. Every list, count and filter in
+   this document means live records unless it says otherwise. This is what lets
+   a deletion made on one device reach another one, and what makes every change
+   in the app the same kind of operation.
+2. **`updated_at` is stamped when the edit is made, by whatever made it** — not
+   when it reaches the database. It is the tiebreaker for which of two competing
+   edits wins, and a stamp applied on arrival makes an old edit look newer than
+   the change it is overwriting.
+3. **A record can be created while offline**, which means its id must be
+   available at the moment of creation rather than assigned later.
+4. **Six kinds of record use a deterministic id** — computed by hashing the
+   fields listed below rather than generated at random. This is how two devices
+   doing the same thing while offline land on *one* record instead of two:
+
+| record | id computed from |
 |---|---|
-| a shopping item created by the plan | `(plan_entry_id, recipe_ingredient_id)` |
-| an ingredient alias | `(household_id, ingredient_id, alias)` |
-| an attendance row | `(household_id, person_id, date, meal)` |
-| a dietary constraint | `(household_id, person_id, kind, normalised tag)` |
-| a chore completion | `(household_id, chore_id, date)` |
-| a calendar event | `(calendar_id, google_event_id)` |
+| a list item created by the plan | the planned night + the recipe line |
+| an ingredient alias | household + ingredient + the alias text |
+| an attendance record | household + person + date + meal |
+| a dietary constraint | household + person + kind + the tag, lowercased |
+| a chore tick | household + chore + date |
+| a calendar event | the calendar + the event's id in that calendar |
 
-### Tables
+   **Do not enforce this with a uniqueness rule instead.** A uniqueness rule
+   turns a duplicate into a permanent error that blocks the record forever;
+   a shared id turns it into two harmless writes of the same thing.
 
-```sql
--- Ambiguous characters (I, O, 0, 1) omitted: this gets read aloud across a kitchen.
-create function gen_invite_code() returns text as $$
-  select string_agg(
-    substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', floor(random() * 32)::int + 1, 1), '')
-  from generate_series(1, 6)
-$$ language sql volatile;
+### The records
 
-create table households (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  invite_code text not null unique default gen_invite_code(),
-  created_at timestamptz not null default now()
-);
+**household** — there is exactly one, for this family.
 
--- People are NOT auth users. An adult who signs in gets auth_user_id set; that
--- row IS the household membership record — there is no separate members table.
--- Children and babies are rows with no login.
-create table people (
-  id uuid primary key default gen_random_uuid(),
-  household_id uuid not null references households(id) on delete cascade,
-  name text not null,
-  date_of_birth date,                    -- life stage is derived from this
-  auth_user_id uuid unique references auth.users(id) on delete set null,
-  avatar text,                           -- data URL, max 262144 chars
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+| field | type | notes |
+|---|---|---|
+| `name` | text | |
+| `invite_code` | text | six characters, read aloud across a kitchen — so use an alphabet with no `I`, `O`, `0` or `1` |
 
-create table dietary_constraints (
-  id uuid primary key,                   -- uuidv5, see above
-  household_id uuid not null references households(id) on delete cascade,
-  person_id uuid not null references people(id) on delete cascade,
-  kind text not null check (kind in ('allergy','intolerance','dislike','preference')),
-  tag text not null,                     -- free text: "peanut", "anything spicy"
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+**person** — everybody who eats here. **Not** a login. Children and babies are
+records with no account attached.
 
--- THE ROSTER. The contract the whole design rests on: NO ROW MEANS PRESENT.
--- A row exists only once somebody has said otherwise. Toggling back to present
--- is an update setting present = true, NEVER a delete.
-create table attendance (
-  id uuid primary key,                   -- uuidv5 of (household, person, date, meal)
-  household_id uuid not null references households(id) on delete cascade,
-  person_id uuid not null references people(id) on delete cascade,
-  date date not null,
-  meal text not null default 'dinner',
-  present boolean not null,
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+| field | type | notes |
+|---|---|---|
+| `household` | reference | |
+| `name` | text | |
+| `date_of_birth` | date, optional | life stage is derived from this and never stored |
+| `account` | reference, optional | the login, for adults who have one. A person with an account set **is** the household membership — there is no separate members list |
+| `avatar` | image, optional | |
 
-create table aisles (
-  id uuid primary key,                   -- device-minted, no default
-  household_id uuid not null references households(id) on delete cascade,
-  name text not null,
-  sort_order integer not null default 0, -- the order the shop is walked
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+**dietary_constraint**
 
-create table ingredients (
-  id uuid primary key,
-  household_id uuid not null references households(id) on delete cascade,
-  name text not null,
-  base_unit text not null default 'count' check (base_unit in ('g','ml','count')),
-  aisle_id uuid references aisles(id) on delete set null,
-  -- Set by a merge, alongside deleted_at: "this row turned out to be that row".
-  -- Readers chase this pointer (with a depth cap) rather than the app rewriting
-  -- every row that referenced the loser — some of those rows are on a phone in
-  -- a car park with no signal.
-  merged_into uuid references ingredients(id) on delete set null,
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+| field | type | notes |
+|---|---|---|
+| `household`, `person` | reference | |
+| `kind` | one of `allergy`, `intolerance`, `dislike`, `preference` | the first two are hard filters the plan must never violate; the last two only cost a recipe points |
+| `tag` | text | free text — "peanut", "anything spicy" — stored as typed |
 
-create table ingredient_aliases (
-  id uuid primary key,                   -- uuidv5 of (household, ingredient, alias)
-  household_id uuid not null references households(id) on delete cascade,
-  ingredient_id uuid not null references ingredients(id) on delete cascade,
-  alias text not null,                   -- stored as typed; normalised for compare
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+**attendance** — the roster. **No record means present.** One exists only once
+somebody has said otherwise; marking a person back in is that record changing to
+`present: true`, never a deletion.
 
--- How it is bought: {name: 'tin', amount: 400} on a gram ingredient is a 400g tin.
--- This is what turns "800g" into "2 tins", the only form of the number anybody
--- can act on while standing in an aisle.
-create table ingredient_purchase_units (
-  id uuid primary key,
-  household_id uuid not null references households(id) on delete cascade,
-  ingredient_id uuid not null references ingredients(id) on delete cascade,
-  name text not null,                    -- singular, as written on a shelf
-  amount numeric not null,               -- how much of the base unit one holds
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+| field | type | notes |
+|---|---|---|
+| `household`, `person` | reference | |
+| `date` | date | |
+| `meal` | text | `dinner` for now |
+| `present` | true/false | |
 
-create table recipes (
-  id uuid primary key,
-  household_id uuid not null references households(id) on delete cascade,
-  name text not null,
-  source_url text,
-  image_url text,                        -- the source site's photograph
-  photo text,                            -- the household's own picture, data URL,
-                                         -- max 524288 chars; wins over image_url
-  base_servings integer not null default 2,
-  prep_minutes integer,
-  cook_minutes integer,
-  method text,                           -- free notes, NOT the steps
-  shortlisted_at timestamptz,            -- "cook this soon"
-  -- Per-serving nutrition, exactly as the source printed it. All nullable.
-  -- Empty is the honest state; never zero.
-  kcal numeric, fat_g numeric, saturates_g numeric, carbs_g numeric,
-  sugars_g numeric, fibre_g numeric, protein_g numeric, salt_g numeric,
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+Absence is the exception — most nights everybody is home — so this keeps a quiet
+week at zero records, lets a newly added baby be counted before anybody touches
+the roster, and means next week already reads correctly.
 
-create table recipe_ingredients (
-  id uuid primary key,
-  household_id uuid not null references households(id) on delete cascade, -- denormalised
-  recipe_id uuid not null references recipes(id) on delete cascade,
-  name text not null,                    -- free text, the cook's own wording
-  quantity text,                         -- free text: "2", "1 tin", "a bunch"
-  aisle_id uuid references aisles(id) on delete set null,
-  ingredient_id uuid references ingredients(id) on delete set null,
-  sort_order integer not null default 0,
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+**aisle** — the shelves of the shop, in the order it is walked.
 
--- One step is one column of prose. Deliberately not a title/body split: a step
--- is a thing you do, and splitting it is a structure nobody maintains.
-create table recipe_steps (
-  id uuid primary key,
-  household_id uuid not null references households(id) on delete cascade,
-  recipe_id uuid not null references recipes(id) on delete cascade,
-  body text not null,
-  sort_order integer not null default 0, -- sparse; reordering swaps two values
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+| field | type | notes |
+|---|---|---|
+| `household` | reference | |
+| `name` | text | |
+| `sort_order` | whole number | the list follows this order |
 
-create table meal_plan_entries (
-  id uuid primary key,
-  household_id uuid not null references households(id) on delete cascade,
-  date date not null,                    -- a calendar date, not an instant
-  meal text not null default 'dinner',
-  recipe_id uuid references recipes(id) on delete cascade,  -- NULL on a skipped night
-  servings integer not null,
-  note text,
-  cook_person_id uuid references people(id) on delete set null,
-  eat_time text,                         -- 'HH:MM', or null for the household default
-  leftover_of_entry_id uuid,             -- this night reheats that night
-  skip_reason text,                      -- 'takeaway'|'out'|'someone_else'|'other'
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+**ingredient** — the canonical name two recipes share.
 
-create table shopping_list_items (
-  id uuid primary key,                   -- uuidv5 when source = 'plan'
-  household_id uuid not null references households(id) on delete cascade,
-  name text not null,
-  quantity text,                         -- free text
-  aisle_id uuid references aisles(id) on delete set null,
-  ingredient_id uuid references ingredients(id) on delete set null,
-  checked boolean not null default false,
-  checked_at timestamptz,
-  source text not null default 'adhoc' check (source in ('adhoc','plan')),
-  plan_entry_id uuid references meal_plan_entries(id) on delete set null,
-  recipe_ingredient_id uuid references recipe_ingredients(id) on delete set null,
-  added_by uuid references people(id) on delete set null,  -- null for derived rows
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+| field | type | notes |
+|---|---|---|
+| `household` | reference | |
+| `name` | text | |
+| `base_unit` | one of `g`, `ml`, `count` | the unit everything about it is summed in. `count` is the default and the only honest answer when nothing says otherwise |
+| `aisle` | reference, optional | where it lives in the shop, once somebody has said |
+| `merged_into` | reference, optional | set alongside `deleted_at` by a merge: "this turned out to be that". Readers follow the pointer (with a depth limit) instead of the app rewriting every record that referenced the loser — some of those are on a phone in a car park with no signal |
 
-create table pantry_items (
-  id uuid primary key,
-  household_id uuid not null references households(id) on delete cascade,
-  ingredient_id uuid not null references ingredients(id) on delete cascade,
-  on_hand numeric not null default 0,    -- in the ingredient's base unit
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+**ingredient_alias** — "tinned tomatoes", "canned tomatoes" and "chopped
+tomatoes" all resolving to one ingredient.
 
--- What a planned night has already claimed out of the cupboard, so two nights
--- do not both count the same two onions.
-create table pantry_reservations (
-  id uuid primary key,
-  household_id uuid not null references households(id) on delete cascade,
-  plan_entry_id uuid not null references meal_plan_entries(id) on delete cascade,
-  ingredient_id uuid not null references ingredients(id) on delete cascade,
-  amount numeric not null,
-  date date not null,
-  settled_at timestamptz,
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+| field | type | notes |
+|---|---|---|
+| `household`, `ingredient` | reference | |
+| `alias` | text | stored as typed; lowercased only for comparison, so the list still reads like something a person wrote |
 
--- Nothing is stored per day. A weekly chore is ONE row saying "Tuesdays", and
--- every Tuesday it will ever have is worked out at read time.
-create table chores (
-  id uuid primary key,
-  household_id uuid not null references households(id) on delete cascade,
-  name text not null,
-  person_id uuid references people(id) on delete set null,  -- null = everyone
-  weekdays smallint[],                   -- ISO weekdays, 1=Mon .. 7=Sun
-  due_date date,                         -- for a one-off; mutually exclusive
-  at_time text,                          -- 'HH:MM', or null for "some time today"
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+**ingredient_purchase_unit** — how it is bought.
 
--- Same contract as attendance: NO ROW MEANS NOT DONE; unticking writes done=false.
-create table chore_completions (
-  id uuid primary key,                   -- uuidv5 of (household, chore, date)
-  household_id uuid not null references households(id) on delete cascade,
-  chore_id uuid not null references chores(id) on delete cascade,
-  date date not null,
-  done boolean not null default true,
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+| field | type | notes |
+|---|---|---|
+| `household`, `ingredient` | reference | |
+| `name` | text | singular, as written on a shelf: `tin`, `pack`, `bunch` |
+| `amount` | number | how much of the base unit one holds. A 400g tin is `400` |
 
--- Read-only on the client. Written only by the calendar sync job.
-create table calendar_events (
-  id uuid primary key,                   -- uuidv5 of (calendar_id, google_event_id)
-  household_id uuid not null references households(id) on delete cascade,
-  person_id uuid references people(id) on delete set null,  -- null = shared event
-  calendar_id text not null,
-  google_event_id text not null,
-  title text not null default '',
-  all_day boolean not null,
-  starts_at timestamptz not null,
-  ends_at timestamptz not null,
-  start_date date not null,              -- the local calendar date, stored not derived
-  end_date date not null,                -- EXCLUSIVE, matching Google's convention
-  google_updated_at timestamptz,         -- skip unchanged rows on a sync run
-  deleted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+This is what turns "800g" into "2 tins", which is the only form of the number
+anybody can act on while standing in an aisle.
 
--- Why the calendar card says what it says. This table exists because an empty
--- calendar was the symptom of five different problems, four of which produced no
--- log line anywhere.
-create table calendar_sync_status (
-  id uuid primary key default gen_random_uuid(),
-  household_id uuid not null unique references households(id) on delete cascade,
-  ran_at timestamptz not null,
-  outcome text not null check (outcome in ('ok','skipped','error')),
-  detail text,
-  fetched integer, written integer, removed integer,
-  calendars_failed integer not null default 0,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-```
+**recipe**
 
-### Security
+| field | type | notes |
+|---|---|---|
+| `household` | reference | |
+| `name` | text | |
+| `source_url` | text, optional | kept when imported — the page has the photographs and the comments |
+| `image_url` | text, optional | the source site's picture |
+| `photo` | image, optional | the household's own picture; wins over `image_url` |
+| `base_servings` | whole number | what the quantities are written for. Default 2 |
+| `prep_minutes`, `cook_minutes` | whole number, optional | |
+| `method` | text, optional | free notes — **not** the steps |
+| `shortlisted_at` | instant, optional | "cook this soon" |
+| `kcal`, `fat_g`, `saturates_g`, `carbs_g`, `sugars_g`, `fibre_g`, `protein_g`, `salt_g` | number, optional | per serving, exactly as the source printed it. **All optional, and empty is the honest state — never zero** |
 
-One helper, used by every policy:
+**recipe_ingredient** — one line of a recipe.
 
-```sql
-create function is_member(hid uuid) returns boolean
-language sql stable security definer as $$
-  select exists (select 1 from people
-                 where household_id = hid and auth_user_id = auth.uid())
-$$;
-```
+| field | type | notes |
+|---|---|---|
+| `household`, `recipe` | reference | |
+| `name` | text | free text, the cook's own wording |
+| `quantity` | text, optional | free text: "2", "1 tin", "a bunch" |
+| `aisle` | reference, optional | |
+| `ingredient` | reference, optional | the canonical ingredient, once resolved |
+| `sort_order` | whole number | |
 
-Every table gets `select`, `insert` and `update` policies for authenticated users
-gated on `is_member(household_id)`. **No delete policies** — deletes are soft, so
-a delete is an update. `calendar_events` and `calendar_sync_status` get `select`
-only; they are written by the server.
+**recipe_step** — one step is one field of prose. Deliberately **not** a title
+and a body: a step is a thing you do, and splitting it is a structure nobody
+maintains.
 
-Two `security definer` functions handle setup, because a person who is not yet a
-member cannot pass their own RLS check:
+| field | type | notes |
+|---|---|---|
+| `household`, `recipe` | reference | |
+| `body` | text | |
+| `sort_order` | whole number | spaced out, so reordering swaps two values rather than renumbering the list |
 
-- `create_household(hname text, pname text) → uuid` — creates the household, seeds
-  the default aisles, and inserts the caller as a person with `auth_user_id` set.
-- `join_household(code text, pname text) → uuid` — finds the household by invite
-  code and inserts the caller as a person.
+**planned_night** — one dinner on one date.
+
+| field | type | notes |
+|---|---|---|
+| `household` | reference | |
+| `date` | date | a calendar day, not a moment — Tuesday dinner is the same night whatever timezone the phone is in |
+| `meal` | text | `dinner` for now |
+| `recipe` | reference, **optional** | empty on a night nobody is cooking |
+| `servings` | whole number | |
+| `note` | text, optional | |
+| `cook_person` | reference, optional | |
+| `eat_time` | text, optional | `HH:MM`, or empty for the household's usual hour |
+| `leftover_of` | reference, optional | this night reheats that night |
+| `skip_reason` | one of `takeaway`, `out`, `someone_else`, `other`; optional | |
+
+**list_item** — one line of the shopping list.
+
+| field | type | notes |
+|---|---|---|
+| `household` | reference | |
+| `name` | text | |
+| `quantity` | text, optional | free text |
+| `aisle`, `ingredient` | reference, optional | |
+| `checked` | true/false | |
+| `checked_at` | instant, optional | |
+| `source` | `adhoc` or `plan` | |
+| `planned_night`, `recipe_ingredient` | reference, optional | where a `plan` item came from |
+| `added_by` | reference, optional | empty on derived items — the plan put them there, not a person |
+
+**pantry_item** — what is already in the house.
+
+| field | type | notes |
+|---|---|---|
+| `household`, `ingredient` | reference | |
+| `on_hand` | number | in the ingredient's base unit |
+
+**pantry_reservation** — what a planned night has already claimed, so two nights
+do not both count the same two onions.
+
+| field | type | notes |
+|---|---|---|
+| `household`, `planned_night`, `ingredient` | reference | |
+| `amount` | number | |
+| `date` | date | |
+| `settled_at` | instant, optional | |
+
+**chore** — nothing is stored per day. A weekly chore is **one** record saying
+"Tuesdays", and every Tuesday it will ever have is worked out when it is read.
+
+| field | type | notes |
+|---|---|---|
+| `household` | reference | |
+| `name` | text | |
+| `person` | reference, optional | empty means everyone |
+| `weekdays` | list of whole numbers, optional | 1 = Monday … 7 = Sunday |
+| `due_date` | date, optional | for a one-off; use this **or** `weekdays`, not both |
+| `at_time` | text, optional | `HH:MM`, or empty for "some time today" |
+
+**chore_tick** — same contract as attendance: **no record means not done**, and
+unticking writes `done: false`.
+
+| field | type | notes |
+|---|---|---|
+| `household`, `chore` | reference | |
+| `date` | date | |
+| `done` | true/false | |
+
+**calendar_event** — read-only in the app. Written only by the calendar job
+(§8.4); nothing in the interface ever creates or edits one.
+
+| field | type | notes |
+|---|---|---|
+| `household` | reference | |
+| `person` | reference, optional | empty for a shared household event ("bins out") |
+| `calendar_id`, `external_id` | text | |
+| `title` | text | |
+| `all_day` | true/false | |
+| `starts_at`, `ends_at` | instant | |
+| `start_date`, `end_date` | date | the local calendar days it covers, **stored rather than worked out on the fly** — the job has already decided which household day it belongs to. `end_date` is exclusive, so a one-day event ends the day after it starts |
+| `source_updated_at` | instant, optional | used only to skip unchanged events on a sync run |
+
+**calendar_status** — one record, saying what the last sync run did. Also
+read-only in the app.
+
+| field | type | notes |
+|---|---|---|
+| `household` | reference | |
+| `ran_at` | instant | |
+| `outcome` | one of `ok`, `skipped`, `error` | |
+| `detail` | text, optional | the server's own words, for the settings screen |
+| `fetched`, `written`, `removed`, `calendars_failed` | whole number | |
+
+This exists because an empty calendar used to be the only symptom, and it was the
+symptom of five different problems — four of which said nothing anywhere.
+
+### Access rules
+
+Everything is scoped to the household. Somebody signed in may read and write
+records belonging to a household they are a person in, and nothing else. There
+are **no delete rules to write**, because deleting is setting `deleted_at` — an
+ordinary edit.
+
+The two exceptions are `calendar_event` and `calendar_status`, which are
+readable but never writable from the app.
+
+Two operations need to work for somebody who is *not yet* a member, so they
+cannot be gated on membership:
+
+- **Create a household** — makes the household, seeds the default aisles below,
+  and adds the caller as a person with their account attached.
+- **Join a household** — finds it by invite code and adds the caller as a person.
 
 ### Default aisles
 
-Seeded on household creation, in this order — it is the order a supermarket is
+Created with a new household, in this order — it is the order a supermarket is
 walked:
 
 `Fruit & veg` · `Bakery` · `Chilled` · `Meat & fish` · `Frozen` · `Cupboard` ·
 `Household`
 
----
+## 5. Offline behaviour and syncing
 
-## 5. The offline layer
+### What has to be true
 
-This is the hardest part of the app and no library does it for you. Build it as
-specified.
+Whatever your platform gives you, these three things decide whether the app is
+usable:
 
-### Shape
+1. **The list opens and is readable with no connection**, from the home screen,
+   without a sign-in prompt.
+2. **Ticking an item and adding an item work with no connection**, and nothing is
+   lost when the connection comes back.
+3. **Two people editing at once converge**, without ever asking anybody to
+   resolve a conflict.
 
-- In-memory reactive state holds the working set.
-- A local device database (IndexedDB or equivalent) persists every table.
-- Writes apply optimistically to local state and **append a full row snapshot to a
-  mutation queue**.
-- The queue drains to the server as plain upserts, in order, and is
-  order-independent in effect.
-- Live updates arrive over a realtime subscription when online.
-- A service worker precaches the app shell.
+**If your platform cannot do the first two, say so plainly rather than building
+something that looks like it works and silently drops a write.** Everything else
+in this document is still worth building; this section is the one place where
+the platform's own limits decide the answer.
 
-### The rules
+### The rules that must not be broken
 
-1. **Every queued write is a full row snapshot, not a patch.** This makes draining
-   idempotent and order-independent, which is what lets last-write-wins be
-   sufficient. Insert, edit, tick, untick and delete are all the same operation.
-2. **Deletes are soft**, so deleting is an ordinary upsert too.
-3. **`updated_at` is written by the client.** Never by a trigger.
-4. **A row with a queued write is never overwritten by anything arriving from the
-   server.** This is what stops a stale echo undoing an unsynced change.
-5. A server row is applied to local state when: it is not in the queued set, AND
-   (there is no local row OR the server's `updated_at` is greater than or equal to
-   the local one). **Parse the timestamps** — do not string-compare them. The
-   server returns microsecond precision with a `+00:00` offset and the client
-   writes millisecond precision with a `Z`; those are lexically incomparable and
-   the same instant.
-6. A row only stops being "pending" once **nothing else is queued against it**,
-   or a later queued edit gets exposed to the echo of the earlier one.
+These hold whether the platform syncs for you or you build it yourself. Each one
+prevents a specific way of losing data that nobody notices until a shop goes
+wrong.
 
-### The drain loop
+1. **Last write wins, decided by `updated_at`**, which is stamped when the edit
+   is made rather than when it arrives. Nothing more clever is needed: ticking
+   milk off is the same result in any order, so a pile of edits replayed in any
+   order lands correctly. **Do not build conflict resolution.**
+2. **Every change is a full copy of the record**, not a description of what
+   changed. That makes replaying one twice harmless, which is what makes the
+   ordering not matter. Adding, editing, ticking, unticking and deleting are all
+   the same operation.
+3. **Deletes are soft**, so deleting is an ordinary edit too, and a deletion made
+   on one device actually reaches the other.
+4. **A record with an unsent local change is never overwritten by an incoming
+   copy of it.** Without this, a stale echo from the server undoes an edit
+   somebody just made.
+5. **Compare timestamps as moments in time, not as text.** Two systems can write
+   the same instant in different formats, and comparing those as strings gives
+   the wrong answer in a way that looks fine in testing.
+6. **Duplicates are prevented by deterministic ids** (§4), never by a uniqueness
+   rule.
 
-Triggers: on reconnect, on app focus, after each write, and on a 30-second timer.
+### If you are building the sync yourself
 
-For each queued mutation in order:
+Hold unsent changes in a queue, in the order they were made, and send them on
+reconnect, when the app is opened, after each change, and on a timer of about
+thirty seconds. When sending one fails:
 
-- **Success** → delete from queue, mark the row settled if nothing else is queued
-  against it.
-- **Failure with no error code** (a transport failure) → **halt the drain and
-  leave the queue completely intact.** The triggers above are the retry policy.
-- **Failure with an expired/missing-token code** → same: halt. It succeeds the
+- **No answer at all** — the device cannot reach the server. **Stop, and leave
+  the whole queue untouched.** The triggers above are the retry.
+- **Rejected because the sign-in has expired** — same: stop. It will succeed the
   moment the session refreshes.
-- **Failure with a schema-drift code** (the server does not have a column or table
-  this client writes: PostgREST `PGRST204`/`PGRST205`, Postgres `42703`/`42P01`)
-  → **halt.** This is a client deployed ahead of its migrations. The write must
-  wait, not be discarded. Every row of that table fails identically, so halting
-  cannot strand a good write behind a bad one.
-- **Any other coded failure** → increment an attempt counter and *skip to the next
-  mutation*. One bad row must never hold up the milk behind it. After **5**
-  attempts, drop it and show a toast.
+- **Rejected because the server does not recognise a field or a record type** —
+  the app has been updated ahead of the database. **Stop.** The change must wait,
+  not be thrown away. Every record of that type fails identically, so stopping
+  cannot strand a good change behind a bad one.
+- **Rejected for any other reason** — count it and **move on to the next one**.
+  One bad record must never hold up the milk behind it. After five attempts,
+  give up on it and tell the user something could not be saved.
 
-Note what is deliberately *not* retryable: permission-denied and
-foreign-key-violation are permanent, because a retryable error halts the whole
-queue and a row that genuinely fails its check would block every write behind it
-forever.
+Two more rules that only matter once you are doing this yourself:
 
-### Requeue on boot
+- **After a full refresh, any local record the server did not return, and which
+  nothing is waiting to send, is a change that got dropped.** Send it again. This
+  is only safe because deletes are soft — a record the server has never heard of
+  was never saved, not deliberately removed.
+- **Load parent records before the records that point at them**, so a device
+  opening for the first time can resolve a list item's recipe and ingredient on
+  the first paint rather than showing blanks that fill in a second later.
 
-After a completed pull, any **local row the server did not return and that nothing
-is waiting to push** was a write that got dropped while its row stayed in the
-cache. Requeue it. This is only safe because every delete is soft — a row the
-server has never heard of was never inserted, not deliberately removed. *If a hard
-delete is ever added, this becomes a resurrection bug.*
+### Installing to the home screen
 
-### Pull order
+The app should install to a phone's home screen and open straight to Today, with
+its own icon, no browser chrome, and no sign-in prompt on a device that has been
+set up. If the household is in a supermarket and has to think about which app to
+open, the group chat wins.
 
-Which tables sync should be **one registry** that drives the local stores, the
-hydrate, the pull order, the realtime subscription and the typing — so adding a
-table is one entry.
+Cached pictures are the one thing allowed to come from a network cache: recipe
+photographs live on whichever site the recipe came from, and the address is
+stored while the image is not — so without caching them the kitchen tablet loses
+every picture the moment the wifi does.
 
-Pull order is load-bearing: **parents land before the rows that reference them**,
-so a fresh device can resolve a derived item's recipe and ingredient on first
-paint.
+### Staying signed in
 
-### Service worker
+The gate is **"has this device ever been set up"**, not "is the sign-in valid
+right now". Sessions expire on their own schedule and the app has to open in a
+supermarket. A device that has been set up gets in and reads from its local copy;
+a valid session is needed to *sync*, not to *shop*.
 
-- Precache the app shell and all fonts.
-- **Navigation fallback must resolve to `/`, not `/index.html`.** A dynamic route
-  like `/recipes/<id>` has no precache entry of its own and needs the fallback.
-- **Never serve API/database requests from the service worker cache** — offline
-  behaviour belongs entirely to the local database and mutation queue.
-- **One exception:** cross-origin *images* (recipe photographs, which live on
-  whichever site the recipe came from) are cached CacheFirst, max 120 entries, 60
-  days, accepting opaque responses. The address is stored but the bytes are not,
-  so without this the kitchen tablet loses every picture the moment the wifi does.
+The shared kitchen tablet should stay signed in indefinitely.
 
-### Auth gate
-
-The gate is **"has this device ever been set up"**, not "is the access token valid
-right now". A token lasts an hour and the app has to open in a supermarket. Store
-a small identity record locally; if it exists, let the app in and let reads come
-from the cache.
-
-Keep the session in local storage rather than in cookies, so the shared kitchen
-tablet stays signed in indefinitely.
-
-### The acceptance test for this layer
+### The test for this section
 
 > Put the phone in airplane mode. Open the app from the home screen. Tick five
-> items. Add two more. Close the app entirely. Reopen it, still offline. Cold-open
-> a route that was never prerendered. Come back online. **Nothing is lost, and the
-> server ends up with exactly what the screen showed.**
-
----
+> items. Add two more. Close the app entirely. Reopen it, still offline. Come
+> back online. **Nothing is lost, and the server ends up with exactly what the
+> screen showed.**
 
 ## 6. Screen by screen
 
@@ -870,7 +813,7 @@ one row per line. The aisle icon is looked up from the aisle's *name*
 (`Fruit & veg` → carrot, `Chilled` → milk, `Meat & fish` → beef, `Frozen` →
 snowflake, `Cupboard` → package, `Household` → spray can, `Drinks` → cup, `Bakery`
 → croissant, anything else → basket) — an icon is a rendering decision, not a
-column on the table.
+fact stored about the aisle.
 
 A row shows the name and, right-aligned in mono, the quantity label. A row with
 one item behind it opens the editor on tap; a row standing for **several** items
@@ -969,7 +912,7 @@ Facets, each with a live count: `all` · `shortlist` · `quick` (under 30 min) �
 already in the house) · `never` (never cooked). Sorts: `recent` · `quickest` ·
 `cooked`.
 
-**All of this is derived, not stored.** There is no tags column and adding one is
+**All of this is derived, not stored.** There is no tags field and adding one is
 not the answer: how long a recipe takes, how many it serves, how often it has been
 cooked, what is already on the list and what is in the cupboard are all facts the
 app has, and they answer the same questions — quick tonight? feeds everyone? had
@@ -1044,7 +987,7 @@ width — the geometry is what you read your position off.
 The step body is set in **serif at 36–48px**, with no negative tracking. Only the
 **first paragraph** is the step; anything after a blank line is shown as an aside
 in a lightbulb alert. That split is read from the prose, because a step is one
-column of free text and adding duration and tip columns would leave every existing
+column of free text and adding duration and tip fields would leave every existing
 recipe with empty ones.
 
 **Timers are read from the prose too.** Find the *first* duration mentioned:
@@ -1081,9 +1024,9 @@ Footer: **Previous** (an arrow on a phone, a labelled button on a laptop — it 
 the one you press by mistake, and the width it gives up goes to the one you meant)
 and **Next step**, which becomes **Finish** on the last step and returns to `/`.
 
-Everything the cook touches — ticks, which step, a running timer — is **session
-state**. None of it belongs to the recipe, and a checkbox still ticked next
-Tuesday would be a small lie.
+Everything the cook touches — ticks, which step, a running timer — is **temporary
+and never saved**. None of it belongs to the recipe, and a checkbox still ticked
+next Tuesday would be a small lie.
 
 ### 6.9 `/people`
 
@@ -1160,7 +1103,7 @@ Sections, each with a small uppercase dimmed heading:
 - **Always-on display** — a switch. "This screen never sleeps. For a tablet left on
   in the kitchen. Everything drifts a pixel at a time so the layout never burns
   into the panel — slowly enough that nobody sees it move. Press F for
-  fullscreen." **Stored per device in local storage, not in the database** — the
+  fullscreen." **A setting on this device only, not shared with the household** — the
   kitchen tablet is always on and a phone is not.
 - **Household** — the name, the six-character **invite code** in large monospace
   with a copy button, and "Anyone with this code can join the household and see
@@ -1219,12 +1162,12 @@ a typo is obvious.
 
 ### 7.2 Who is eating
 
-**NO ROW MEANS PRESENT.** A row exists only once somebody has said otherwise. A
-soft-deleted absence row counts as present — deleting the record of an absence is
+**NO RECORD MEANS PRESENT.** One exists only once somebody has said otherwise. A
+soft-deleted absence counts as present — deleting the record of an absence is
 saying the absence never happened.
 
 `presentPeople(people, rows, date, meal)` = every live person minus those with a
-live row for that (date, meal) carrying `present: false`.
+live record for that (date, meal) carrying `present: false`.
 
 `nightsPresent(person, dates, meal, rows)` counts over **the week's nights**, not
 over the nights somebody has already planned a dinner for. Counting only planned
@@ -1319,8 +1262,8 @@ leaving them in invents "Yoghurt cream".
 
 ### 7.5 Deriving the shopping list from the plan
 
-**One row per (plan entry, recipe line)**, with a deterministic id, because that
-row is the unit last-write-wins already reconciles correctly.
+**One record per (planned night, recipe line)**, with a deterministic id, because
+that record is the unit last-write-wins already reconciles correctly.
 
 Everything falls out of one idea: **the plan owns an item until a person touches
 it.**
@@ -1358,41 +1301,41 @@ must not quietly buy it twice. A night whose source has been deleted, or has not
 reached this device yet, **defers to nobody and buys for itself**: the ids are
 deterministic, so the extra items come straight back off on the next derive.
 
-**A skipped night has no recipe and buys nothing**, and its existing rows come off
-the list through the same reconciliation that removes a deleted night's rows.
+**A skipped night has no recipe and buys nothing**, and its existing items come
+off the list through the same reconciliation that removes a deleted night's.
 Skipping a planned night un-buys it.
 
 ### 7.6 Aggregating the list for display
 
-Two recipes in the same week both wanting tomatoes put **two rows** on the list.
+Two recipes in the same week both wanting tomatoes put **two records** on the list.
 Turn them into **one line reading "800g · 2 tins"** — computed **at render time and
 never stored**.
 
 This is the central decision of the ingredient phase and it is worth knowing why.
-Storing a combined row would make the unit of conflict the whole week's
+Storing a combined record would make the unit of conflict the whole week's
 arithmetic: two phones deriving offline would converge on whichever computed last
 rather than on the truth, and a third recipe wanting tomatoes *after* the line was
-ticked could never surface, because a checked row is frozen — a silent under-buy
+ticked could never surface, because a checked record is frozen — a silent under-buy
 with no way back. Grouping at render time has none of that, and it means a merge,
 a parser improvement or a new purchase unit **applies retroactively with nothing
 rewritten**.
 
 Rules:
 
-- Group **per aisle bucket**, not across the whole list, so an ingredient somebody
+- Group **per aisle**, not across the whole list, so an ingredient somebody
   deliberately filed in two aisles stays in both places.
-- Rows resolving to no ingredient pass through unchanged. This keeps the whole
+- Records resolving to no ingredient pass through unchanged. This keeps the whole
   feature invisible until it has something to offer.
-- **One row is still one row.** Showing a single row under its canonical name would
-  rename what the recipe said for no benefit — keep its quantity verbatim.
-- The caller passes only **live, unchecked** rows, which is why ticked rows need no
-  special case: a checked row is simply not in the group, so the total covers only
+- **One record is still one record.** Showing a single one under its
+  canonical name would rename what the recipe said for no benefit — keep its quantity verbatim.
+- Only **live, unchecked** records are grouped, which is why ticked ones need no
+  special case: a checked record is simply not in the group, so the total covers only
   what is still to buy.
 - **Add up what can be added up and keep the rest as written.** A line reading "a
   splash of passata" cannot join a total, but dropping it would mean the list
   quietly asked for less than the recipes do. Keep it verbatim after a `+`:
   `800g · 2 tins + a splash`.
-- Order lines by the **earliest row each stands for**, so a line does not jump up
+- Order lines by the **earliest record each stands for**, so a line does not jump up
   the aisle because a second recipe started needing it.
 - Chase `merged_into` pointers (with a depth cap) when resolving an ingredient.
 
@@ -1568,16 +1511,18 @@ straddles two months.
 
 ---
 
-## 8. Server-side work
+## 8. Work that cannot happen in the browser
 
-The client is a static bundle, so there are no server routes. Anything that needs
-a server is a small isolated function.
+Four jobs need something running outside the app — either because a browser is
+not allowed to do them, or because they have to happen when nobody has the app
+open. Build them as whatever your platform calls a backend action or a scheduled
+job.
 
 ### 8.1 Recipe import from a URL
 
-The client cannot read another origin's HTML, so a server function fetches the
-page and reads its **schema.org `Recipe` JSON-LD**, which nearly every recipe site
-already publishes. **That path costs nothing: no model call, no wait.** Only a
+A browser is not allowed to read another site's HTML, so this has to happen on
+the server: fetch the page and read the **schema.org `Recipe` data** that nearly
+every recipe site already publishes in its markup. **That path costs nothing: no model call, no wait.** Only a
 page without it falls back to a language model.
 
 Either way, **split the quantity off each ingredient line** so an import lands in
@@ -1599,15 +1544,16 @@ fills only the blanks.**
 
 ### 8.4 Calendar sync
 
-A scheduled job every five minutes reads the family's calendars with a **service
-account** (not per-user OAuth) and upserts them into `calendar_events`. Clients
-only ever *read* that table. The cache is not an optimisation — it is the only
+A scheduled job every five minutes reads the family's calendars using **one
+shared account for the household**, rather than asking each person to connect
+their own, and writes what it finds into `calendar_event` records. The app only
+ever *reads* those. The cache is not an optimisation — it is the only
 reason the schedule card survives the wifi dropping.
 
 Skip rows whose source last-modified stamp is unchanged; every rewrite would be
 broadcast to every device over realtime, which is a lot of traffic to say nothing.
 
-**Every run records what it did** in `calendar_sync_status`. That table exists
+**Every run records what it did** in `calendar_status`. That record exists
 because absence of events used to be the only symptom, and it was the symptom of
 five different things — four of which produced no log line anywhere. A missing
 secret, an unconfigured calendar list, a calendar never shared with the service
@@ -1619,9 +1565,9 @@ behaviour for a household that has not connected a calendar.
 
 ### 8.5 Keepalive
 
-If your backend pauses free projects after a period of inactivity, ping it **every
-2–3 days from outside the system** — a scheduled job inside a paused database
-cannot unpause it. **Do not rely on the weekly generation job for this**: a 7-day
+If your platform puts inactive projects to sleep, something **outside it** has to
+poke it every two or three days — a scheduled job inside a sleeping system cannot
+wake itself up. **Do not rely on the weekly generation job for this**: a 7-day
 cycle racing a 7-day timer will lose.
 
 ### 8.6 Weather
@@ -1675,9 +1621,9 @@ Do not build later phases before earlier ones work.
 Write these as real end-to-end tests against the built bundle.
 
 1. **Offline round trip.** Create a household, add items, go offline, add and tick
-   more, kill the app, reopen it still offline, cold-open a route that was never
-   prerendered, come back online. The server ends up with exactly what the screen
-   showed.
+   more, close the app completely, reopen it still offline, come back online. The
+   server ends up with exactly what the screen showed. *(If the platform cannot
+   run offline at all, say so — do not fake it.)*
 2. **Two devices.** Join from a second browser profile as a second person; a change
    on one shows up on the other over realtime.
 3. **Plan → list.** Drive a recipe onto a night onto the shopping list. Deriving
@@ -1686,9 +1632,9 @@ Write these as real end-to-end tests against the built bundle.
 4. **One line, two recipes.** Two recipes wanting the same thing become one line.
    The unit is inferred from a quantity typed a moment later. Two ingredients
    merge and the list heals **with no re-derive**. The line reads "800g · 2 tins".
-   Ticking it takes both rows behind it. *(Check the local database as well as the
-   screen — "one line" and "one row" are different claims and only one is
-   visible.)*
+   Ticking it takes both rows behind it. *(Check the stored records as well as the
+   screen — "one line" and "one record" are different claims, and only one of
+   them is visible.)*
 5. **The roster.** Add a child; check the life stage was **derived rather than
    typed**; record an allergy; mark them out on one night. The load-bearing
    assertion is about a row that does not exist: **no row means present**, so
@@ -1714,33 +1660,20 @@ Write these as real end-to-end tests against the built bundle.
 
 ---
 
-## Appendix A — the reference implementation's stack
+## Appendix A — if your platform lets you choose
 
-Match this if your tool can; otherwise use the nearest equivalent and keep every
-behaviour above.
+Most won't, and nothing above depends on it. Skip this unless you are building
+with arbitrary code.
 
-| Thing | Choice |
-|---|---|
-| Framework | Nuxt 4.5+ (**not** Nuxt 3 — EOL 31 July 2026), `ssr: false` |
-| UI | Nuxt UI v4 (all 110+ components are in the free library) |
-| Backend | Supabase, free tier |
-| Supabase module | `@nuxtjs/supabase` v2.x, with `useSsrCookies: false` and `redirect: false` |
-| PWA | `@vite-pwa/nuxt` |
-| State | Pinia |
-| Local persistence | IndexedDB via Dexie |
-| Server-side work | Supabase Edge Functions |
-| Deploy | static generate → Netlify / Cloudflare Pages |
+The reference implementation this brief was written from is a client-rendered
+Nuxt 4 app with Supabase behind it, local storage through IndexedDB, and a
+mutation queue of full-record upserts — deployed as a static bundle. Its schema
+changes are numbered migration files in version control, never edits made in a
+database GUI.
 
-`useSsrCookies: false` makes the Supabase module use the standard client with the
-session in local storage rather than SSR cookies — the documented recommendation
-for statically generated sites, and what keeps the shared kitchen tablet signed in
-indefinitely. `redirect: false` disables the module's login-redirect middleware in
-favour of the hand-rolled auth gate described in §5.
-
-Schema changes go through **numbered SQL migration files in version control**,
-never a dashboard table editor.
-
----
+If you are choosing, the only choices that actually matter are the ones §5 turns
+on: a database that lets the *client* decide a record's id and its `updated_at`,
+and somewhere to hold a queue of unsent changes on the device.
 
 ## Appendix B — a phased prompt sequence
 
