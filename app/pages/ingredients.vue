@@ -176,6 +176,15 @@ async function tidyNames() {
                 >{{ summaryFor(ingredient) }}</span>
               </span>
               <UBadge
+                v-if="ingredient.staple"
+                color="neutral"
+                variant="soft"
+                size="sm"
+                icon="i-lucide-archive"
+              >
+                staple
+              </UBadge>
+              <UBadge
                 color="neutral"
                 variant="subtle"
                 size="sm"

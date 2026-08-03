@@ -120,6 +120,12 @@ export function leftoverPlan(entries: PlanEntryRow[]): { extra: Map<string, numb
  *     lets the list group two recipes' tomatoes into one line without any of
  *     these rules changing shape.
  *   - Items belonging to nights outside the range are left completely alone.
+ *
+ * Staples are deliberately not this function's business. An ingredient the house
+ * always has still gets its row, because the row is what the pantry reserves
+ * against and what somebody ticks the week the bottle turns out to be empty.
+ * Collapsing them into one "check the cupboard" line is a rendering decision and
+ * is made in {@link splitStaples}, where nothing has to be reconciled.
  */
 export function derive(input: DeriveInput): DeriveResult {
   const {

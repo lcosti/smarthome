@@ -21,6 +21,9 @@ import type { ItemRow } from '../utils/db'
  * Ticking goes straight to the store, as it does on the board: it is idempotent
  * and needs nothing from the page. Editing is emitted, because which overlay
  * opens is the page's decision.
+ *
+ * Underneath, a collapsed line for the staples the week assumes — the olive oil
+ * and the spice rack — so they are one glance rather than half the aisle.
  */
 const { section, showChecked = true } = defineProps<{
   section: AisleSection
@@ -112,6 +115,40 @@ function onUpdate(next: unknown) {
 
 const icon = computed(() => aisleIcon(section.name))
 const cleared = computed(() => section.total > 0 && section.done === section.total)
+
+/**
+ * The cupboard rows, behind a collapsible.
+ *
+ * They are ordinary rows and they tick like ordinary rows — ticking one means
+ * the cupboard was empty after all, and it leaves this pile for the trolley
+ * through exactly the same path as everything else. What the collapse buys is
+ * that fifteen things nobody is buying take one line instead of fifteen.
+ */
+const stapleRows = computed<Row[]>(() =>
+  (section.staples?.items ?? []).map(item => ({
+    value: item.id,
+    label: item.name,
+    quantity: item.quantity,
+    source: store.sourceLabelFor(item),
+    covered: false,
+    checked: false,
+    grouped: false,
+    toggle: () => store.toggleItem(item.id),
+    edit: () => emit('editItem', item.id)
+  }))
+)
+
+const stapleByValue = computed(() => new Map(stapleRows.value.map(row => [row.value, row])))
+
+const stapleItems = computed(() => stapleRows.value.map(row => ({ value: row.value, label: row.label })))
+
+/** Same set difference as {@link onUpdate}; none of these start out ticked. */
+function onStapleUpdate(next: unknown) {
+  const after = new Set((next as string[]) ?? [])
+  for (const row of stapleRows.value) {
+    if (after.has(row.value)) row.toggle()
+  }
+}
 </script>
 
 <template>
@@ -180,5 +217,65 @@ const cleared = computed(() => section.total > 0 && section.done === section.tot
         />
       </template>
     </UCheckboxGroup>
+
+    <!--
+      What the week assumes is already in the house. Deliberately outside the
+      group above: that group models "a set of things, any of them ticked", and
+      none of these is a thing to pick up until you have looked and it is not
+      there. Open it and they are the same rows, tickable, for the week it isn't.
+    -->
+    <UCollapsible
+      v-if="section.staples"
+      class="border-t border-default"
+    >
+      <UButton
+        color="neutral"
+        variant="ghost"
+        block
+        size="lg"
+        icon="i-lucide-archive"
+        trailing-icon="i-lucide-chevron-down"
+        class="justify-start gap-3 px-3 py-3 font-normal group"
+        :ui="{
+          leadingIcon: 'text-dimmed',
+          trailingIcon: 'ms-auto transition-transform duration-200 group-data-[state=open]:rotate-180'
+        }"
+      >
+        <span class="min-w-0 flex-1 text-left">
+          <span class="block text-highlighted">Check the cupboard</span>
+          <span class="block truncate text-xs text-dimmed">{{ section.staples.names.join(', ') }}</span>
+        </span>
+      </UButton>
+
+      <template #content>
+        <UCheckboxGroup
+          :model-value="[]"
+          :items="stapleItems"
+          variant="list"
+          size="lg"
+          color="primary"
+          :ui="{
+            fieldset: 'flex-col gap-0',
+            item: 'items-center gap-3 px-3 py-3 border-t border-default transition-colors hover:bg-elevated/40',
+            wrapper: 'min-w-0 flex-1',
+            base: 'size-5'
+          }"
+          @update:model-value="onStapleUpdate"
+        >
+          <template #label="{ item }">
+            <ShoppingItemLabel
+              v-if="stapleByValue.has(item.value)"
+              :label="stapleByValue.get(item.value)!.label"
+              :quantity="stapleByValue.get(item.value)!.quantity"
+              :source="stapleByValue.get(item.value)!.source"
+              :covered="stapleByValue.get(item.value)!.covered"
+              :checked="stapleByValue.get(item.value)!.checked"
+              :grouped="stapleByValue.get(item.value)!.grouped"
+              @edit="stapleByValue.get(item.value)!.edit()"
+            />
+          </template>
+        </UCheckboxGroup>
+      </template>
+    </UCollapsible>
   </UCard>
 </template>

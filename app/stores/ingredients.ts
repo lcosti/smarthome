@@ -135,6 +135,9 @@ export const useIngredientsStore = defineStore('ingredients', () => {
       base_unit: inferBaseUnit(options.quantity),
       aisle_id: options.aisleId ?? null,
       merged_into: null,
+      // Nothing is a staple until somebody says so. A recipe line appearing for
+      // the first time is exactly the case where the app knows least.
+      staple: false,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp
@@ -244,7 +247,7 @@ export const useIngredientsStore = defineStore('ingredients', () => {
 
   async function updateIngredient(
     id: string,
-    patch: Partial<Pick<IngredientRow, 'name' | 'base_unit' | 'aisle_id'>>
+    patch: Partial<Pick<IngredientRow, 'name' | 'base_unit' | 'aisle_id' | 'staple'>>
   ) {
     const current = all.value.get(id)
     if (!current) return
