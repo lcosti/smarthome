@@ -92,6 +92,18 @@ nothing yet, and build nothing yet. Every step that follows assumes it.`,
     appendix: true
   },
   {
+    file: '00b-sign-in-and-setup.md',
+    title: 'Step 0 — signing in and setting up a household',
+    shots: [],
+    lead: `Build this FIRST, before anything else. Until it exists there is no household,
+so every other screen has nothing to attach its records to.
+
+Two one-way flows, both without any app navigation — no tab bar, no header. A
+person is either signing in or setting up, and offering them three other places
+to go is three ways to get lost.`,
+    keys: ['6.1', '6.2']
+  },
+  {
     file: '01-data-and-offline.md',
     title: 'Step 1 — the data model and the offline layer',
     shots: [],
@@ -166,9 +178,33 @@ demonstrating acceptance test 6.`,
     shots: ['wide-today.png', 'phone-today.png', 'wide-cook.png', 'phone-cook.png', 'phone-pantry.png'],
     lead: `Build the kitchen board and everything left. Finish by demonstrating
 acceptance test 8.`,
-    keys: ['6.3', '6.8', '7.9', '6.11', '7.10']
+    keys: ['6.3', '6.8', '7.9', '6.11', '6.13', '7.10']
   }
 ]
+
+/**
+ * Every numbered section must land in some bundle.
+ *
+ * §6.1 and §6.2 — signing in, and creating a household — went out in no bundle
+ * at all, because section 6 is handed out one screen at a time and those two
+ * were simply never listed. Nobody noticed until an app with four working
+ * screens turned out to have no way to make a household to put them in. A
+ * parent key covers its own children, so only genuinely orphaned sections are
+ * reported here.
+ */
+const covered = new Set(BUNDLES.flatMap(b => b.keys))
+const orphans = [...sections.keys()].filter(key =>
+  !covered.has(key)
+  // A parent whose children are all handed out separately is not orphaned; it
+  // is only a heading with an introduction under it.
+  && ![...covered].some(c => c.startsWith(key + '.'))
+  && ![...covered].some(c => key.startsWith(c + '.'))
+)
+if (orphans.length) {
+  throw new Error(
+    `these sections are in no bundle and would never be sent: ${orphans.join(', ')}`
+  )
+}
 
 // Clear the generated bundles, one by one — never the whole folder. README.md
 // lives here and is written by hand, and a `rm -rf` on the directory took it

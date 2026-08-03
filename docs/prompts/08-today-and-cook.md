@@ -242,6 +242,20 @@ household has said what a tin is; a bare number means the base unit.
 There is also a **paste-an-order** flow: paste a supermarket order confirmation
 and review what it found before it lands.
 
+### 6.13 Always-on display behaviour
+
+When the switch is on, the **entire app drifts one pixel at a time around an
+eight-point loop** — `(0,0) (1,0) (1,1) (0,1) (-1,1) (-1,0) (-1,-1) (0,-1)` —
+moving every **4 minutes** with a 3-second linear transition. This is burn-in
+mitigation, slow enough that nobody in the room will ever see it move and far
+enough that no edge sits still long enough to burn. The drift rides on the app
+shell so a route change never restarts it.
+
+**`F` toggles fullscreen anywhere in the app**, except while anything is being
+typed.
+
+---
+
 ### 7.10 Dates and weeks
 
 **Everything works in local time.** Never use `toISOString()` to produce a date key
