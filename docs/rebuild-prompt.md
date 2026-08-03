@@ -765,12 +765,31 @@ Everything in §6 stands, with two clarifications:
 
 ### 6.1 `/login`
 
-Centred, max-width 384px. Title "Shopping List", subtitle "Sign in once. This
-device stays signed in." One email field and one full-width button, "Email me a
-link". On success, replace the form with an alert: "Check your email — We sent a
-sign-in link to `<address>`. Open it on this device."
+**Use whatever sign-in your platform already provides.** This app has four users
+and no security requirements beyond keeping strangers out of the shopping list;
+building an auth flow by hand would be effort spent on the least interesting part
+of it.
 
-Magic link only. No passwords.
+Only three things about it actually matter, and they are all about *not* getting
+in the way:
+
+1. **The session persists indefinitely on a device.** The kitchen tablet is
+   signed in once and never again. A sign-in that expires weekly is a sign-in
+   that gets abandoned.
+2. **No sign-in prompt on a device that has already been set up.** The gate is
+   "has this device ever been set up", not "is the credential valid right now" —
+   see §5. Reads come from what the device already has.
+3. **The account is not the person.** See below; this is the one that platform
+   auth will fight, because it wants a row per user and this household contains
+   two people who cannot type.
+
+The screen itself is centred, max-width 384px. Title "Shopping List", subtitle
+"Sign in once. This device stays signed in."
+
+The reference implementation uses an emailed sign-in link — one email field, one
+full-width button reading "Email me a link", and on success the form is replaced
+by "Check your email — We sent a sign-in link to `<address>`. Open it on this
+device." Match that if it is free; otherwise use what you have and say which.
 
 ### 6.2 `/welcome`
 
