@@ -54,7 +54,8 @@ Every screen must answer at both sizes. There is no separate "dashboard app".
   by searching for it.
 - **Offline-first.** What is on screen comes from a copy held on the device;
   changes apply straight away and catch up later. Signing in is needed to *sync*,
-  not to *shop*.
+  not to *shop*. **If your platform cannot store data on the device, build §5b
+  instead** — it keeps almost all of this and is honest about the part it cannot.
 - **People are not user accounts.** Children and babies are rows with no login.
 - **Life stage is derived from a date of birth, never stored as a label.**
 - **Selection over generation.** The generator picks from the household's own
@@ -280,7 +281,10 @@ Write these as real end-to-end tests against the built bundle.
 1. **Offline round trip.** Create a household, add items, go offline, add and tick
    more, close the app completely, reopen it still offline, come back online. The
    server ends up with exactly what the screen showed. *(If the platform cannot
-   run offline at all, say so — do not fake it.)*
+   store data on the device, say so — do not fake it — and run §5b's replacement
+   test instead: drop the signal with the app open, and separately check that a
+   cold start with no signal says it cannot reach the server rather than showing
+   an empty list.)*
 2. **Two devices.** Join from a second browser profile as a second person; a change
    on one shows up on the other over realtime.
 3. **Plan → list.** Drive a recipe onto a night onto the shopping list. Deriving

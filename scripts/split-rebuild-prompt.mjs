@@ -96,8 +96,20 @@ nothing yet, and build nothing yet. Every step that follows assumes it.`,
     title: 'Step 1 — the data model and the offline layer',
     shots: [],
     lead: `Build only the data model and the sync layer. No screens beyond whatever you
-need to prove it works. Finish by demonstrating acceptance test 1.`,
-    keys: ['4', '5']
+need to prove it works. Finish by demonstrating acceptance test 1.
+
+If your platform cannot keep a copy of the data on the device, say so, then build
+§5b in place of §5 — it is at the end of this file.`,
+    keys: ['4', '5', '5b']
+  },
+  {
+    file: '01b-no-device-storage.md',
+    title: 'Step 1b — the fallback, if the platform cannot store data on the device',
+    shots: [],
+    lead: `Send this **only** if the tool has told you it cannot keep a copy of the data on
+the device. It replaces §5 and changes nothing else. Everything in steps 2 to 8
+still applies exactly as written.`,
+    keys: ['5b']
   },
   {
     file: '02-shopping-list.md',
@@ -158,8 +170,11 @@ acceptance test 8.`,
   }
 ]
 
-await rm(OUT, { recursive: true, force: true })
+// Clear the generated bundles, one by one — never the whole folder. README.md
+// lives here and is written by hand, and a `rm -rf` on the directory took it
+// with it the first time.
 await mkdir(OUT, { recursive: true })
+for (const { file } of BUNDLES) await rm(new URL(file, OUT), { force: true })
 
 const written = []
 for (const bundle of BUNDLES) {

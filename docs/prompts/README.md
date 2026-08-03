@@ -14,7 +14,8 @@ follow it directly.
 | File | Words | What it covers |
 |---|---|---|
 | `00-standing-brief.md` | ~2,600 | What the app is, the design system, the routes, the build order, the acceptance tests |
-| `01-data-and-offline.md` | ~3,200 | The eighteen records, access rules, and what syncing must not break |
+| `01-data-and-offline.md` | ~4,200 | The eighteen records, access rules, and what syncing must not break |
+| `01b-no-device-storage.md` | ~1,100 | **Only if the tool says it cannot store data on the device.** Replaces §5 |
 | `02-shopping-list.md` | ~1,000 | The shopping list and aisle settings |
 | `03-recipes-and-plan.md` | ~1,900 | Library, recipe editor, the week, deriving the list |
 | `04-ingredients.md` | ~1,800 | Quantities, shopping names, aggregation, aisle guessing |
@@ -55,10 +56,16 @@ that the six deterministic ids are not enforced with a uniqueness rule instead.
 the tool to admit it rather than fake it. Read its answer honestly:
 
 - If it supports offline use, hold it to the §5 rules and the airplane-mode test.
-- If it does not, the app is still worth building — but the shopping list is now
-  a page that needs signal, which is the one compromise that changes how it feels
-  in a supermarket. Note it and move on; do not let the tool paper over it with
-  a spinner.
+- **If it says it cannot store data on the device, send
+  `01b-no-device-storage.md`** and carry on. That is §5b: it keeps optimistic
+  writes, the instant add box, no loading states after first paint, and every
+  data rule from §5 — and it is precise about the one thing genuinely lost, which
+  is cold-opening the app in a dead spot.
+
+Do not let a tool that cannot go offline simply drop the subject. The failure
+mode §5b exists to prevent is a cold start with no signal falling through to the
+"Nothing on the list" empty state, which is a lie, and the specific lie most
+likely to make somebody buy nothing or buy everything twice.
 
 Everything else — the derivation, the aggregation, the generator, the whole
 design system — is unaffected by either answer.
