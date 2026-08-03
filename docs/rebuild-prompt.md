@@ -182,6 +182,33 @@ already in the trolley.
 
 ---
 
+## 2b. Reference screenshots
+
+`docs/screenshots/` holds the real application at both widths. Attach the
+relevant ones alongside the section you are working on — they settle in one look
+what a paragraph of layout prose only approximates.
+
+| File | Screen |
+|---|---|
+| `wide-today.png` · `phone-today.png` | Today (§6.3) — the schedule grid, the hero, the week strip |
+| `wide-shopping.png` · `phone-shopping.png` | The shopping list (§6.4) — aisle cards, chips, grouped lines |
+| `wide-plan.png` · `phone-plan.png` | The week (§6.5) — a leftovers night, a skipped night, a gap, the aside |
+| `wide-recipes.png` · `phone-recipes.png` | The library (§6.6) — master/detail and facets on wide |
+| `wide-recipe-detail.png` · `phone-recipe-detail.png` | The recipe editor (§6.7) |
+| `wide-cook.png` · `phone-cook.png` | Cook mode (§6.8) — the serif step, the segment bar, the timer |
+| `phone-settings.png` | Settings (§6.12) |
+| `phone-people.png` | The roster (§6.9) — derived life stages, constraint badges |
+| `phone-ingredients.png` | Canonical ingredients (§6.10) |
+| `phone-pantry.png` | The pantry (§6.11) |
+
+They were taken against a seeded household of four — two adults, a toddler and a
+baby — with five recipes, a planned week containing a leftovers night and a
+takeaway night, and a part-ticked shopping list. That is deliberately the state
+worth photographing: an app with one item in it hides most of what these screens
+do.
+
+---
+
 ## 3. Routes
 
 | Route | What it is for | Chrome |
