@@ -37,6 +37,25 @@ describe('splitIngredientLine', () => {
       .toEqual({ quantity: '1 x 400g tin', name: 'chopped tomatoes' })
   })
 
+  /**
+   * British recipe sites print the amount twice. The imperial half is dropped
+   * rather than kept alongside the metric: quantity.ts reads "<number> <unit>"
+   * and nothing else, and a quantity it cannot parse never gets aggregated.
+   */
+  it('keeps the metric half of a dual quantity and drops the imperial', () => {
+    expect(splitIngredientLine('10g/⅓oz fresh mint leaves'))
+      .toEqual({ quantity: '10g', name: 'fresh mint leaves' })
+    expect(splitIngredientLine('100g / 3½oz butter'))
+      .toEqual({ quantity: '100g', name: 'butter' })
+    expect(splitIngredientLine('1kg/2lb 4oz beef shin'))
+      .toEqual({ quantity: '1kg', name: 'beef shin' })
+  })
+
+  it('does not read a slash that is not two units as a dual quantity', () => {
+    expect(splitIngredientLine('2 red/yellow peppers'))
+      .toEqual({ quantity: '2', name: 'red/yellow peppers' })
+  })
+
   it('leaves a line with no number alone', () => {
     expect(splitIngredientLine('Salt and pepper'))
       .toEqual({ quantity: null, name: 'Salt and pepper' })

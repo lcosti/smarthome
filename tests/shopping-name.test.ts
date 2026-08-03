@@ -64,6 +64,41 @@ describe('shoppingName', () => {
   })
 })
 
+/**
+ * The rows a real shopping list arrived with, verbatim. Each one is a different
+ * way a recipe site says something that is not the name of the thing.
+ */
+describe('the fluff a real list turned up with', () => {
+  it('drops what the ingredient is for', () => {
+    expect(shoppingName('toasted pitta bread to serve')).toBe('toasted pitta bread')
+    expect(shoppingName('coriander, to garnish')).toBe('coriander')
+    expect(shoppingName('sea salt, to taste')).toBe('sea salt')
+    expect(shoppingName('butter for greasing')).toBe('butter')
+  })
+
+  it('drops a bracketed instruction but keeps a bracketed size', () => {
+    expect(shoppingName('tortilla wraps (use corn or flour)')).toBe('tortilla wraps')
+    expect(shoppingName('chopped tomatoes (400g)')).toBe('chopped tomatoes (400g)')
+  })
+
+  it('drops an adverb and its participle from inside a name', () => {
+    expect(shoppingName('Sea salt and freshly ground black pepper'))
+      .toBe('Sea salt and black pepper')
+    expect(shoppingName('lemon and finely grated zest')).toBe('lemon and zest')
+  })
+
+  it('leaves a participle that is part of the name, wherever it sits', () => {
+    expect(shoppingName('salt and ground black pepper')).toBe('salt and ground black pepper')
+    expect(shoppingName('freshly grated parmesan')).toBe('freshly grated parmesan')
+  })
+
+  it('takes the first of two sizes, which is what the quantity now counts', () => {
+    expect(shoppingName('small or 4 large tortilla wraps')).toBe('small tortilla wraps')
+    expect(shoppingName('small or 4 large tortilla wraps (use corn or flour)'))
+      .toBe('small tortilla wraps')
+  })
+})
+
 describe('displayIngredientName', () => {
   // The two lines that started this, from the BBC mushroom risotto.
   it('reads a recipe line as the thing you would buy', () => {

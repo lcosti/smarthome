@@ -50,12 +50,17 @@ export function derivedItemId(planEntryId: string, recipeIngredientId: string): 
  * A quantity annotated with how far the night's servings differ from what the
  * recipe was written for. The text is never rescaled — it is free text, and
  * "2 tins" times 1.5 is not a thing anyone can act on in an aisle.
+ *
+ * A line the recipe gave no amount for gets no hint either. A badge reading
+ * nothing but "×0.3" is a ratio with nothing to apply it to, and it takes up the
+ * space where a real quantity would have been.
  */
 export function servingsHint(quantity: string | null, servings: number, baseServings: number): string | null {
+  if (!quantity) return null
   if (baseServings <= 0 || servings === baseServings) return quantity
   const ratio = Math.round((servings / baseServings) * 10) / 10
   if (ratio === 1) return quantity
-  return quantity ? `${quantity} ×${ratio}` : `×${ratio}`
+  return `${quantity} ×${ratio}`
 }
 
 /**
@@ -177,7 +182,7 @@ export function derive(input: DeriveInput): DeriveResult {
       // The list gets the shop's version of the name, not the cook's. Aisle
       // memory is looked up under the same name it will be stored under, or the
       // two drift and nothing is ever remembered.
-      const name = shoppingName(hit.line.name)
+      const name = shoppingName(hit.line.name, { alternatives: 'first' })
       const next: ItemRow = {
         ...item,
         name,
@@ -210,7 +215,7 @@ export function derive(input: DeriveInput): DeriveResult {
   // 3. Anything still wanted is new.
   for (const [id, { entry, line, recipe }] of wanted) {
     const ingredientId = resolveIngredientId(line)
-    const name = shoppingName(line.name)
+    const name = shoppingName(line.name, { alternatives: 'first' })
     creates.push({
       id,
       household_id: householdId,

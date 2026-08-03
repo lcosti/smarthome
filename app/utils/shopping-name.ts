@@ -45,6 +45,47 @@ const PREPARATION = new Set([
  */
 const QUALIFIER = /[,(]?\s*\b(?:such as|or similar|or other|preferably|ideally|if you can|e\.g\.?|eg\.?|i\.e\.?)\b.*$/i
 
+/**
+ * What the ingredient is *for*, tacked onto the end. "Toasted pitta bread to
+ * serve" is pitta bread; the toasting and the serving are the recipe's business.
+ *
+ * A suffix rather than a word list, because these only ever mean this at the end
+ * of a line — "water to cover" is a garnish clause, "cordial to water" is not a
+ * line anybody writes.
+ */
+const SERVING = /[,;]?\s*\b(?:to (?:serve|taste|garnish|finish|decorate|dust|drizzle)|for (?:serving|garnish(?:ing)?|dusting|greasing|frying|drizzling|the top)|plus extra\b.*)\s*$/i
+
+/**
+ * A trailing bracket that is an instruction, not a fact.
+ *
+ * "(use corn or flour)" is the recipe talking to the cook; "(400g)" is the size
+ * of the thing on the shelf, so a bracket opening on a number is left alone.
+ */
+const PARENTHETICAL = /\s*\((?:use|using|optional|or|such|preferably|ideally|about|approx\.?|approximately|see|plus|to|for|not)\b[^)]*\)\s*$/i
+
+/**
+ * An adverb married to a preparation: "freshly ground black pepper".
+ *
+ * The only rule here that reaches inside a name rather than trimming its end,
+ * and it is hedged twice for that reason. It needs both halves — "ground
+ * coriander" is a jar and "chopped tomatoes" is a tin, so the participle alone
+ * is part of the name, and it is the adverb in front of it that makes the pair
+ * an instruction. And it needs a word before it, because the front of a line is
+ * where a name lives: "freshly grated parmesan" is left alone by the same rule
+ * that turns "sea salt and freshly ground black pepper" into salt and pepper.
+ */
+const FRESHLY = /(\S\s+)(?:freshly|finely|roughly|coarsely|lightly|thinly|newly)\s+(?:ground|grated|chopped|milled|squeezed|cracked|toasted|sliced|picked)\s+/gi
+
+/**
+ * Two sizes of the same thing, priced by the packet: "8 small or 4 large
+ * tortilla wraps".
+ *
+ * The quantity splitter takes the 8 and leaves the rest of the arithmetic in the
+ * name, where it reads as a different ingredient. The first size is the one the
+ * quantity now counts, so the second choice goes.
+ */
+const SIZE = /^(small|large|medium|big|mini|regular)\s+or\s+\d+\s+(?:small|large|medium|big|mini|regular)\s+(.+)$/i
+
 /** Joining words that only ever trail once the clause after them has gone. */
 const CONNECTIVE = new Set(['and', 'or', 'then', 'if', 'to', 'well', 'very'])
 
@@ -146,7 +187,11 @@ export function shoppingName(
   const original = raw.replace(/\s+/g, ' ').trim()
   if (!original) return raw
 
-  let name = original.replace(QUALIFIER, '').trim()
+  let name = original.replace(SIZE, '$1 $2').trim()
+  name = name.replace(QUALIFIER, '').trim()
+  name = name.replace(PARENTHETICAL, '').trim()
+  name = name.replace(SERVING, '').trim()
+  name = name.replace(FRESHLY, '$1').replace(/\s+/g, ' ').trim()
   name = dropTrailingClauses(name)
   name = dropTrailingPreparation(name)
   if (alternatives === 'first') name = takeFirstAlternative(name)

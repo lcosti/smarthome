@@ -92,8 +92,13 @@ describe('servingsHint', () => {
     expect(servingsHint('a bunch', 3, 2)).toBe('a bunch ×1.5')
   })
 
-  it('still says something useful with no quantity', () => {
-    expect(servingsHint(null, 4, 2)).toBe('×2')
+  /**
+   * A badge reading nothing but "×0.3" is a ratio with nothing to apply it to,
+   * and it sits where a real quantity would have gone. A line the recipe gave no
+   * amount for gets no hint.
+   */
+  it('says nothing at all with no quantity to scale', () => {
+    expect(servingsHint(null, 4, 2)).toBeNull()
     expect(servingsHint(null, 2, 2)).toBeNull()
   })
 
