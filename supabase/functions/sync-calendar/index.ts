@@ -121,8 +121,11 @@ Deno.serve(async (req) => {
   // Nothing above this point can leave a status row: there is no household to hang
   // one off yet. Those two failures stay response-only, which is tolerable because
   // both are visible the moment anyone calls the function by hand.
-  let householdId = Deno.env.get('HOUSEHOLD_ID') ?? null
-  if (!householdId) {
+  const configured = Deno.env.get('HOUSEHOLD_ID')
+  let householdId: string
+  if (configured) {
+    householdId = configured
+  } else {
     const { data, error } = await client
       .from('households')
       .select('id')
@@ -131,7 +134,7 @@ Deno.serve(async (req) => {
       .maybeSingle()
     if (error) return json(500, { error: `household lookup failed: ${error.message}` })
     if (!data) return json(200, { skipped: 'no household yet' })
-    householdId = data.id
+    householdId = data.id as string
   }
 
   const { data: people, error: peopleError } = await client
