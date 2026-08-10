@@ -1,7 +1,8 @@
 import { usePlanStore } from '../stores/plan'
+import { isMeal, type Meal } from '../utils/meal'
 
 /**
- * Dragging a dinner onto a night.
+ * Dragging a dish onto a slot — or off the plan altogether.
  *
  * Hand-rolled on pointer events, and deliberately not on HTML5 drag-and-drop:
  * `dragstart` never fires on a touchscreen, and the kitchen tablet is the device
@@ -27,13 +28,47 @@ import { usePlanStore } from '../stores/plan'
  *    enough to have meant scrolling.
  */
 
-/** What is being dragged: a night already on the plan, or a meal being offered. */
+/** What is being dragged: a slot already on the plan, or a meal being offered. */
 export type DragPayload
-  = | { kind: 'night', entryId: string, date: string, label: string, image: string | null }
+  = | { kind: 'night', entryId: string, date: string, meal: Meal, label: string, image: string | null }
     | { kind: 'suggestion', recipeId: string, label: string, image: string | null }
 
+/**
+ * A slot, as one string: `2026-08-11|lunch`.
+ *
+ * Targets are keyed by slot rather than by date because a day is three cells
+ * now. Three cells registering under one bare date would overwrite each other in
+ * the map, and only whichever mounted last would be findable — a week where
+ * dropping on Tuesday lunch quietly did nothing.
+ */
+export type SlotKey = string
+
+export function slotKey(date: string, meal: Meal): SlotKey {
+  return `${date}|${meal}`
+}
+
+/**
+ * The shortlist, as somewhere a dish can be dropped: not a slot, and the one
+ * target that takes something off the plan rather than putting it somewhere.
+ *
+ * Dragging a dinner out of the week and onto the panel that offered it is the
+ * gesture people reach for — it is where the dish came from, and it is where it
+ * reappears, because the shortlist is exactly the recipes the week has not
+ * claimed. So the drop is a delete and the panel is the bin, without either word
+ * appearing anywhere.
+ *
+ * It carries no `|`, so `parseSlot` refuses it and nothing downstream can
+ * mistake it for a date.
+ */
+export const SHORTLIST_SLOT: SlotKey = 'shortlist'
+
+function parseSlot(key: SlotKey): { date: string, meal: Meal } | null {
+  const [date, meal] = key.split('|')
+  return date && meal && isMeal(meal) ? { date, meal } : null
+}
+
 interface DropTarget {
-  date: string
+  key: SlotKey
   el: HTMLElement
 }
 
@@ -51,30 +86,52 @@ const EDGE = 64
 const EDGE_SPEED = 14
 
 const payload = shallowRef<DragPayload | null>(null)
-const overDate = ref<string | null>(null)
+const overSlot = ref<SlotKey | null>(null)
 const pointer = ref({ x: 0, y: 0 })
-const targets = new Map<string, DropTarget>()
+const targets = new Map<SlotKey, DropTarget>()
 
 export function usePlanDrag() {
   const plan = usePlanStore()
-  const toast = useToast()
 
   /**
-   * Register a night as somewhere a drag can land.
+   * Register a slot as somewhere a drag can land.
    *
    * Elements rather than rectangles, because both shapes of this page scroll
    * while a drag is in flight and a rectangle measured at pick-up would be
    * pointing at the wrong night by the time the finger got there.
    */
-  function registerTarget(date: string, el: HTMLElement | null) {
-    if (el) targets.set(date, { date, el })
-    else targets.delete(date)
+  function registerTarget(key: SlotKey, el: HTMLElement | null) {
+    if (el) targets.set(key, { key, el })
+    else targets.delete(key)
   }
 
-  function hitTest(x: number, y: number): string | null {
+  /**
+   * Whether what is in hand can land here.
+   *
+   * Every slot takes everything. A recipe being offered goes wherever it is
+   * dropped, and so does a dish already on the plan — Tuesday's dinner onto
+   * Thursday's lunch is a thing households do, and `planMove` rewrites the row's
+   * `meal` with its date so it arrives calling itself what the column says.
+   * (It did not, once, which is why this used to refuse.)
+   *
+   * The shortlist is the one target that discriminates: dropping a dish there
+   * takes it off the plan, and there is nothing for a suggestion to be taken off
+   * of. Refused in the hit test rather than at the drop, so the panel never
+   * lights up and the answer reads as "not there" rather than as a drop that did
+   * nothing.
+   */
+  function landable(key: SlotKey): boolean {
+    const dragged = payload.value
+    if (!dragged) return false
+    if (key === SHORTLIST_SLOT) return dragged.kind === 'night'
+    return true
+  }
+
+  function hitTest(x: number, y: number): SlotKey | null {
     for (const target of targets.values()) {
       const box = target.el.getBoundingClientRect()
-      if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return target.date
+      if (x < box.left || x > box.right || y < box.top || y > box.bottom) continue
+      return landable(target.key) ? target.key : null
     }
     return null
   }
@@ -99,22 +156,51 @@ export function usePlanDrag() {
     else if (box.bottom - y < EDGE) scroller.scrollTop += EDGE_SPEED
   }
 
-  async function drop(date: string) {
+  async function drop(key: SlotKey) {
     const dragged = payload.value
     if (!dragged) return
 
-    if (dragged.kind === 'suggestion') {
-      const row = await plan.setNight(date, dragged.recipeId)
-      if (row) {
-        toast.add({ title: `${dragged.label} planned`, icon: 'i-lucide-check', color: 'success' })
-      }
+    /**
+     * Onto the shortlist: off the plan.
+     *
+     * Silent, like every other drop, and like everything else the plan page
+     * does to a night — see the note on `pick` in plan.vue. A drag is the most
+     * deliberate gesture the app has: you picked the dish up, carried it to the
+     * panel and let go, watching the card leave the night and land back in the
+     * shortlist. A toast repeating that is the app narrating a press somebody
+     * just made and watched land, and a week of rearranging is a column of
+     * them. Toasts are kept for what happens out of sight — filling a week,
+     * clearing one, putting it on the list.
+     *
+     * This used to carry a "Put it back" undo, which is what it really cost:
+     * `restoreEntry` un-deletes the row, so it put back the night that was
+     * there — its day, its slot, its servings, anything eating its leftovers —
+     * where dragging the dish out of the shortlist again plans a fresh one. The
+     * dish is back where it came from either way, which is the ordinary way
+     * back and the one that needs no button.
+     */
+    if (key === SHORTLIST_SLOT) {
+      if (dragged.kind !== 'night') return
+      await plan.removeEntry(dragged.entryId)
       return
     }
 
-    if (dragged.date === date) return
-    // Swapping is the store's business; what matters here is that a drag never
-    // deletes anything, so there is nothing to warn about and nothing to undo.
-    await plan.moveEntry(dragged.entryId, date)
+    const slot = parseSlot(key)
+    if (!slot) return
+    const { date, meal } = slot
+
+    if (dragged.kind === 'suggestion') {
+      // Also silent: the empty slot becomes the dish, which is the same thing
+      // the toast was going to say, a beat later and over the top of it.
+      await plan.setNight(date, dragged.recipeId, meal)
+      return
+    }
+
+    if (dragged.date === date && dragged.meal === meal) return
+    // Swapping is the store's business; what matters here is that a drop on a
+    // slot never deletes anything, so there is nothing to warn about and nothing
+    // to undo. Only the shortlist above does that.
+    await plan.moveEntry(dragged.entryId, date, meal)
   }
 
   /**
@@ -153,7 +239,7 @@ export function usePlanDrag() {
       dragging = true
       payload.value = next
       pointer.value = { x: startX, y: startY }
-      overDate.value = hitTest(startX, startY)
+      overSlot.value = hitTest(startX, startY)
       // Captured so the drag survives the pointer leaving the card, which it
       // does immediately — the whole point is to be somewhere else.
       el.setPointerCapture(event.pointerId)
@@ -178,7 +264,7 @@ export function usePlanDrag() {
       // Stops the drag turning into a text selection on a desktop.
       moveEvent.preventDefault()
       pointer.value = { x: moveEvent.clientX, y: moveEvent.clientY }
-      overDate.value = hitTest(moveEvent.clientX, moveEvent.clientY)
+      overSlot.value = hitTest(moveEvent.clientX, moveEvent.clientY)
       autoScroll(moveEvent.clientX, moveEvent.clientY)
     }
 
@@ -187,13 +273,23 @@ export function usePlanDrag() {
       // The press that dragged a card must not also open it. The click arrives
       // after pointerup, so it is swallowed once, in the capture phase, before
       // it reaches the card underneath.
+      //
+      // And disarmed on the next task whether or not it fired, because there are
+      // drops after which no click ever arrives: dropping a dish on the
+      // shortlist deletes the card the pointer was captured by, and a browser
+      // does not dispatch a click at an element that has left the document. Left
+      // armed, the listener would sit there and eat the next press anywhere on
+      // the page — the "Put it back" in the toast this very drop just raised.
+      // A click follows mouseup within the same task, so a zero timeout is after
+      // the one it is meant to catch and before anything a person could do next.
       if (dragging) {
         document.addEventListener('click', swallow, { capture: true, once: true })
+        setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 0)
       }
       cleanup()
       if (landedOn) await drop(landedOn)
       payload.value = null
-      overDate.value = null
+      overSlot.value = null
     }
 
     function swallow(clickEvent: MouseEvent) {
@@ -204,7 +300,7 @@ export function usePlanDrag() {
     function cancel() {
       cleanup()
       payload.value = null
-      overDate.value = null
+      overSlot.value = null
     }
 
     function cleanup() {
@@ -230,12 +326,15 @@ export function usePlanDrag() {
   return {
     /** What is in hand, or null. Every visual cue reads this. */
     payload: readonly(payload),
-    /** The night under the pointer, so it can light up. */
-    overDate: readonly(overDate),
+    /** The slot under the pointer, so it can light up — null when it would refuse the drop. */
+    overSlot: readonly(overSlot),
     /** Where the pointer is, for the thing following it. */
     pointer: readonly(pointer),
     dragging: computed(() => payload.value !== null),
     registerTarget,
+    slotKey,
+    /** The shortlist's key, for the panel that registers itself as the way off the plan. */
+    shortlistSlot: SHORTLIST_SLOT,
     press
   }
 }

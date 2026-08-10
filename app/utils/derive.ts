@@ -32,6 +32,19 @@ export interface DeriveResult {
   creates: ItemRow[]
   updates: ItemRow[]
   removes: ItemRow[]
+  /**
+   * Every row the plan calls for over this range, as the plan would have it,
+   * keyed by id — the creates and the updates, but also the rows already on the
+   * list that need no change, the ones in the trolley, and the ones somebody has
+   * taken off. Each carries the freshly computed name, quantity, aisle and
+   * ingredient; `checked` and `deleted_at` are left exactly as the list has them,
+   * because those are facts about a person and not about the plan.
+   *
+   * Nothing in the ordinary derive path reads this. It exists for the review
+   * step, which has to show the week's whole shopping list — including the lines
+   * somebody unticked last time — before any of it is committed.
+   */
+  wanted: Map<string, ItemRow>
 }
 
 /**
@@ -170,6 +183,7 @@ export function derive(input: DeriveInput): DeriveResult {
   const creates: ItemRow[] = []
   const updates: ItemRow[] = []
   const removes: ItemRow[] = []
+  const asked = new Map<string, ItemRow>()
 
   // 2. Reconcile what is already on the list.
   for (const item of planItems) {
@@ -183,7 +197,13 @@ export function derive(input: DeriveInput): DeriveResult {
     wanted.delete(item.id)
 
     if (hit) {
-      if (item.checked || item.deleted_at) continue
+      // Somebody has it in the trolley. It is still one of the week's rows, so
+      // the review has to show it, but the plan does not get to rewrite a word
+      // of it — which is why what goes in is the row as it stands.
+      if (item.checked && !item.deleted_at) {
+        asked.set(item.id, item)
+        continue
+      }
       const ingredientId = resolveIngredientId(hit.line)
       // The list gets the shop's version of the name, not the cook's. Aisle
       // memory is looked up under the same name it will be stored under, or the
@@ -199,6 +219,11 @@ export function derive(input: DeriveInput): DeriveResult {
         // not worth un-grouping a line somebody is looking at.
         ingredient_id: ingredientId ?? item.ingredient_id
       }
+      // Refreshed either way, so that a row somebody took off the list last week
+      // comes back with this week's quantity if they put it back. It stays off
+      // until they do: `next` carries the row's own `deleted_at` through.
+      asked.set(item.id, next)
+      if (item.deleted_at) continue
       if (
         next.name !== item.name
         || next.quantity !== item.quantity
@@ -222,7 +247,7 @@ export function derive(input: DeriveInput): DeriveResult {
   for (const [id, { entry, line, recipe }] of wanted) {
     const ingredientId = resolveIngredientId(line)
     const name = shoppingName(line.name, { alternatives: 'first' })
-    creates.push({
+    const row: ItemRow = {
       id,
       household_id: householdId,
       name,
@@ -241,8 +266,10 @@ export function derive(input: DeriveInput): DeriveResult {
       deleted_at: null,
       created_at: now,
       updated_at: now
-    })
+    }
+    creates.push(row)
+    asked.set(id, row)
   }
 
-  return { creates, updates, removes }
+  return { creates, updates, removes, wanted: asked }
 }

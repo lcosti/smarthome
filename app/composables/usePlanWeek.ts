@@ -1,6 +1,9 @@
 import type { Ref } from 'vue'
+import { useListStore } from '../stores/list'
 import { usePlanStore, type PlannedNight } from '../stores/plan'
 import type { RankedCandidate } from '../utils/generator'
+import { DINNER, MEALS, type Meal } from '../utils/meal'
+import { entryIdsIn, nextUnplannedDate, weekStats } from '../utils/plan-stats'
 import { splitWeek } from '../utils/week'
 
 /**
@@ -18,8 +21,23 @@ import { splitWeek } from '../utils/week'
  */
 export function usePlanWeek(weekStart: Ref<string>, today: Ref<string>) {
   const plan = usePlanStore()
+  const list = useListStore()
 
   const nights = computed<PlannedNight[]>(() => plan.week(weekStart.value))
+
+  /**
+   * The nights nobody is eating on, which this week is not asking about.
+   *
+   * Derived once here rather than at each of the four places that care — the
+   * cards, the strip, the fraction, the button that walks the week — because a
+   * Wednesday that is greyed out on the strip and still queued up by the footer
+   * is worse than either behaviour on its own.
+   */
+  const noOneEating = computed(
+    () => new Set(nights.value.filter(night => plan.nobodyEatingOn(night.date)).map(night => night.date))
+  )
+
+  const skipNight = (date: string) => noOneEating.value.has(date)
 
   /** What has been cooked, and what is still to decide. */
   const split = computed(() => splitWeek(nights.value, today.value))
@@ -32,10 +50,13 @@ export function usePlanWeek(weekStart: Ref<string>, today: Ref<string>) {
    *
    * Skipping the nights that have gone is the whole point: on a Friday the first
    * empty night is Monday, and "Use Mon" is an offer to cook something four days
-   * ago.
+   * ago. A night nobody is in for is skipped for the same reason — "Use Wed" is
+   * an offer to cook for an empty house.
    */
   const target = computed(() =>
-    nights.value.find(night => !night.entries.length && night.date >= today.value)?.date ?? null
+    nights.value.find(night =>
+      !night.entries.length && night.date >= today.value && !skipNight(night.date)
+    )?.date ?? null
   )
 
   /**
@@ -46,10 +67,35 @@ export function usePlanWeek(weekStart: Ref<string>, today: Ref<string>) {
    * top-ranked meal on every free night, so a shortlist on each of them said the
    * same recipe name seven times and read as a plan already made.
    */
-  const suggestions = computed<RankedCandidate[]>(() => {
-    if (!target.value) return []
-    return plan.weekSuggestions(weekStart.value, 4).get(target.value) ?? []
-  })
+  const suggestions = computed<RankedCandidate[]>(() => suggestionsFor(target.value))
+
+  /**
+   * The week's ranked meals, kept as one map rather than one lookup per night.
+   *
+   * Scoring is the expensive part and it is done for the whole week at once, so
+   * the phone walking Monday to Sunday costs what the wide screen's single
+   * shortlist costs.
+   */
+  const suggestionsByNight = computed(() => plan.weekSuggestions(weekStart.value, 4))
+
+  /** The shortlist for one night, for a page that shows a night at a time. */
+  function suggestionsFor(date: string | null): RankedCandidate[] {
+    return date ? suggestionsByNight.value.get(date) ?? [] : []
+  }
+
+  /** How full the week is, how much cooking it is, and which night is the long one. */
+  const stats = computed(() => weekStats(nights.value, skipNight))
+
+  /** What this week is still waiting on at the shop — every slot of it, not just the dinners. */
+  const toBuy = computed(() => list.outstandingForEntries(entryIdsIn(nights.value)))
+
+  /**
+   * The night the "next" button goes to, or null when there is none left — which
+   * is what turns it into "review the week".
+   */
+  function nextUnplanned(after?: string | null): string | null {
+    return nextUnplannedDate(nights.value, today.value, after, skipNight)
+  }
 
   /** Stays true after the last night comes off — that is exactly when the list
    * still holds ingredients nobody is going to cook. */
@@ -62,12 +108,48 @@ export function usePlanWeek(weekStart: Ref<string>, today: Ref<string>) {
     return added ? `Add ${added} to list` : 'Add to shopping list'
   })
 
-  /** Take the meal off a night. One entry per night today; the first is it. */
-  async function removeNight(night: PlannedNight) {
-    const planned = night.entries[0]
+  /** Take the meal off one of a day's slots, which for the card that asks is the dinner. */
+  async function removeNight(night: PlannedNight, meal: Meal = DINNER) {
+    const planned = night.meals[meal]
     if (!planned) return
     await plan.removeEntry(planned.entry.id)
   }
 
-  return { nights, strip, cards, target, suggestions, canDerive, deriveLabel, removeNight }
+  /**
+   * Whether there is anything ahead to clear. A week already cooked has not.
+   *
+   * Any slot counts: a week somebody has only put breakfasts on is still a week
+   * with something to empty, and a "Clear week" greyed out in front of it would
+   * be the app disagreeing with the screen.
+   */
+  const canClear = computed(() => cards.value.some(night => MEALS.some(meal => night.meals[meal])))
+
+  /**
+   * Empty the nights still to come, and say how many had a meal on them.
+   *
+   * The nights that have gone are left alone: the same split that decides which
+   * of them get a card decides which of them a clear can touch, so the strip
+   * along the top stays the record it is.
+   */
+  async function clearWeek() {
+    return plan.clearWeek(cards.value.map(night => night.date))
+  }
+
+  return {
+    nights,
+    strip,
+    cards,
+    noOneEating,
+    target,
+    suggestions,
+    suggestionsFor,
+    stats,
+    toBuy,
+    nextUnplanned,
+    canDerive,
+    deriveLabel,
+    removeNight,
+    canClear,
+    clearWeek
+  }
 }

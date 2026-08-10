@@ -78,7 +78,11 @@ function assert(condition, message) {
 }
 
 const browser = await chromium.launch()
-const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+// A phone, except for the one press that is about the whole week — see
+// deriveTheWeek.
+const PHONE = { width: 390, height: 844 }
+const WIDE = { width: 1280, height: 900 }
+const ctx = await browser.newContext({ viewport: PHONE })
 const page = await ctx.newPage()
 page.on('pageerror', e => console.error('     page error:', e.message))
 
@@ -93,6 +97,33 @@ const readTable = table => page.evaluate(name => new Promise((resolve) => {
 }), table)
 
 const mainText = async () => (await page.locator('main').innerText()).replace(/[\n\t]+/g, ' ')
+
+/** The seven pills of the week strip, by the full date each one reads out. */
+const dayTiles = () => page.getByRole('button', {
+  name: /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), /
+})
+
+/** Fill the week, which lives in the phone's week menu rather than on the page. */
+async function fillEmptyNights() {
+  await page.getByRole('button', { name: 'Week actions' }).click()
+  await page.getByRole('menuitem', { name: 'Fill empty nights' }).click()
+}
+
+/**
+ * Put the week on the shopping list, from the week aside, then back to a phone.
+ *
+ * The phone's own route to the list is the last step of its walk (`PlanReview`),
+ * reached only once every night is planned or skipped — and this week
+ * deliberately ends with a night left empty because nobody is home.
+ */
+async function deriveTheWeek() {
+  await page.setViewportSize(WIDE)
+  await page.getByRole('link', { name: 'Plan', exact: true }).click()
+  await page.waitForURL('**/plan')
+  await page.getByRole('button', { name: /^(Add to shopping list|Add \d+ to list)$/ }).click()
+  await page.getByText(/items? added|Already on the list/).first().waitFor({ timeout: 20_000 })
+  await page.setViewportSize(PHONE)
+}
 
 /** Add a recipe with one ingredient, which is enough to be planned and derived. */
 async function newRecipe(name, ingredient) {
@@ -151,13 +182,13 @@ try {
   // --- One night chosen by hand, which must survive -------------------------
   await page.getByRole('link', { name: 'Plan', exact: true }).click()
   await page.waitForURL('**/plan')
-  await page.locator('main ul li button').first().click()
+  await page.getByRole('button', { name: 'Add dinner' }).first().click()
   await page.locator('[role="dialog"] button', { hasText: 'Fish pie' }).first().click()
   await page.locator('main').getByText('Fish pie').first().waitFor({ timeout: 10_000 })
   log('chose Monday by hand: fish pie')
 
   // --- Fill the rest --------------------------------------------------------
-  await page.getByRole('button', { name: 'Fill the empty nights' }).click()
+  await fillEmptyNights()
   await page.getByText(/nights? planned/).waitFor({ timeout: 20_000 })
   await page.waitForTimeout(1500)
   log('pressed fill, and the week came back planned')
@@ -195,27 +226,27 @@ try {
   log('servings came from the roster, not the recipe default')
 
   // --- A night nobody is home stays empty -----------------------------------
-  await page.locator('main ul li button').nth(1).click()
+  // Tuesday, off the strip. Sending both of them out is a press each on the
+  // night's own roll-call — the chips say what is true and toggle it.
+  await dayTiles().nth(1).click()
   for (const name of ['Luke', 'Tom']) {
-    await page.locator('[role="dialog"] button', { hasText: name }).first().click()
+    await page.getByRole('button', { name: `${name} is eating in — press to change` }).click()
     await page.waitForTimeout(300)
   }
-  await page.getByRole('button', { name: 'Done' }).click()
-  await page.waitForTimeout(500)
-  await page.locator('main ul li button').nth(1).click()
-  await page.locator('[role="dialog"]').getByRole('button', { name: 'Remove' }).click()
+  // The × on the dish card, which is how a meal comes off a slot now.
+  await page.getByRole('button', { name: /^Take .+ off / }).first().click()
   await page.waitForTimeout(1000)
 
-  const gapText = await mainText()
-  assert(gapText.includes('away'), `the empty night says who is away, saw: ${gapText.slice(0, 300)}`)
-  // Nobody is eating, so there is nothing to suggest and the button knows it.
-  const fillAgain = await page.getByRole('button', { name: 'Fill the empty nights' }).count()
+  await page.locator('main').getByText('Nobody home').first().waitFor({ timeout: 10_000 })
+  // Nobody is eating, so there is nothing to suggest and the menu knows it.
+  await page.getByRole('button', { name: 'Week actions' }).click()
+  const fillAgain = await page.getByRole('menuitem', { name: 'Fill empty nights' }).count()
+  await page.keyboard.press('Escape')
   assert(fillAgain === 0, 'a night nobody is home for is not a gap worth filling')
   log('a night nobody is home for stays empty, and is not offered as a gap')
 
   // --- And the week still derives into a shopping list ----------------------
-  await page.getByRole('button', { name: 'Add to shopping list' }).click()
-  await page.getByText('On list').first().waitFor({ timeout: 20_000 })
+  await deriveTheWeek()
   await page.getByRole('link', { name: 'List', exact: true }).click()
   await page.waitForURL(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 10_000 })

@@ -292,39 +292,57 @@ export type Database = {
       }
       chores: {
         Row: {
+          anchor_date: string | null
           at_time: string | null
           created_at: string
           deleted_at: string | null
           due_date: string | null
           household_id: string
           id: string
+          month_day: number | null
+          month_week: number | null
+          month_weekday: number | null
           name: string
           person_id: string | null
+          rule: string
           updated_at: string
+          week_interval: number | null
           weekdays: number[] | null
         }
         Insert: {
+          anchor_date?: string | null
           at_time?: string | null
           created_at?: string
           deleted_at?: string | null
           due_date?: string | null
           household_id: string
           id: string
+          month_day?: number | null
+          month_week?: number | null
+          month_weekday?: number | null
           name: string
           person_id?: string | null
+          rule?: string
           updated_at?: string
+          week_interval?: number | null
           weekdays?: number[] | null
         }
         Update: {
+          anchor_date?: string | null
           at_time?: string | null
           created_at?: string
           deleted_at?: string | null
           due_date?: string | null
           household_id?: string
           id?: string
+          month_day?: number | null
+          month_week?: number | null
+          month_weekday?: number | null
           name?: string
           person_id?: string | null
+          rule?: string
           updated_at?: string
+          week_interval?: number | null
           weekdays?: number[] | null
         }
         Relationships: [
@@ -932,6 +950,9 @@ export type Database = {
           shortlisted_at: string | null
           source_url: string | null
           sugars_g: number | null
+          suits_breakfast: boolean
+          suits_dinner: boolean
+          suits_lunch: boolean
           updated_at: string
         }
         Insert: {
@@ -956,6 +977,9 @@ export type Database = {
           shortlisted_at?: string | null
           source_url?: string | null
           sugars_g?: number | null
+          suits_breakfast?: boolean
+          suits_dinner?: boolean
+          suits_lunch?: boolean
           updated_at?: string
         }
         Update: {
@@ -980,6 +1004,9 @@ export type Database = {
           shortlisted_at?: string | null
           source_url?: string | null
           sugars_g?: number | null
+          suits_breakfast?: boolean
+          suits_dinner?: boolean
+          suits_lunch?: boolean
           updated_at?: string
         }
         Relationships: [

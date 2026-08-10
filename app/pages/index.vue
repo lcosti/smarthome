@@ -120,23 +120,6 @@ const board = computed(() =>
   })
 )
 
-const generating = ref(false)
-
-async function generate() {
-  if (generating.value) return
-  // No spinner and no overlay — the button's own label changes and the page
-  // keeps its content, which is the rule everywhere on this screen.
-  generating.value = true
-  try {
-    // From tonight forward, not from Monday: on a Friday, filling the calendar
-    // week would spend most of its effort on nights that have already been and
-    // gone, and leave the weekend the page is actually showing still empty.
-    await plan.fillWeek(isoDate(now.value))
-  } finally {
-    generating.value = false
-  }
-}
-
 function openRecipe() {
   // Cook mode, not the recipe's edit page: the thing you want from tonight's
   // dinner while standing in the kitchen is the method, at a readable size.
@@ -232,10 +215,8 @@ function swapMeal() {
       <div class="contents lg:flex lg:min-h-0 lg:flex-col lg:gap-4">
         <BoardHero
           :hero="board.hero"
-          :generating="generating"
           class="order-1 lg:order-none"
           @open="openRecipe"
-          @generate="generate"
           @skip="skipNight"
           @swap="swapMeal"
         />

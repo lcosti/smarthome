@@ -139,9 +139,20 @@ async function waitForSupabase(timeout = 60_000) {
   }
 }
 
-const itemNamed = (page, name) => page.locator('main li', { hasText: name }).first()
+/**
+ * One row of the shopping list.
+ *
+ * An aisle is a `UCheckboxGroup`, so a row is `[data-slot="item"]` and its tick
+ * is a `<button role="checkbox">` — which is why reaching for the first *button*
+ * in the row finds the edit pencil instead. By role rather than by `data-slot`:
+ * the badge and the pencil are both a `base` of something. Scoped to the aisle
+ * card because the filter chips above the list are a checkbox group too.
+ */
+const itemNamed = (page, name) =>
+  page.locator('[data-shopping-aisle] [data-slot="item"]', { hasText: name }).first()
+const tickBox = row => row.getByRole('checkbox')
+const tickedBox = row => row.locator('[role="checkbox"][data-state="checked"]')
 const addBox = page => page.getByPlaceholder('Add an item')
-const doneToggle = page => page.getByRole('button', { name: /^Done \(/ })
 
 async function addItem(page, name) {
   await addBox(page).fill(name)
@@ -150,7 +161,21 @@ async function addItem(page, name) {
 }
 
 async function tick(page, name) {
-  await itemNamed(page, name).getByRole('button').first().click()
+  await tickBox(itemNamed(page, name)).click()
+}
+
+/**
+ * Every one of these rows is ticked, on this device.
+ *
+ * The list used to collapse what was done behind a "Done (n)" button and this
+ * waited on the counter. Ticked rows now stay where they are, struck through, so
+ * the assertion is per row — which is the stronger claim anyway: five ticks, on
+ * the five things that were ticked.
+ */
+async function assertTicked(page, names, timeout = 10_000) {
+  for (const name of names) {
+    await tickedBox(itemNamed(page, name)).waitFor({ timeout })
+  }
 }
 
 /** Reads the mutation queue straight out of IndexedDB, the durable source. */
@@ -298,7 +323,7 @@ try {
   log(`adding ${OFFLINE_ITEMS.length} more items and ticking ${TO_TICK.length}, all offline`)
   for (const name of OFFLINE_ITEMS) await addItem(page, name)
   for (const name of TO_TICK) await tick(page, name)
-  await page.getByRole('button', { name: `Done (${TO_TICK.length})` }).waitFor({ timeout: 10_000 })
+  await assertTicked(page, TO_TICK)
   assert(await page.getByText('to sync').isVisible(), 'pending-sync badge shown while offline')
 
   // The UI updates optimistically and the IndexedDB write lands a moment later.
@@ -314,14 +339,9 @@ try {
   reopened.on('pageerror', error => console.error('     page error:', error.message))
   await reopened.goto(`${ORIGIN}/shopping`, { waitUntil: 'domcontentloaded' })
 
-  await doneToggle(reopened).waitFor({ timeout: 25_000 })
+  await addBox(reopened).waitFor({ timeout: 25_000 })
   assert(!reopened.url().includes('/login'), 'app opens without a login prompt while offline')
-  assert(
-    await reopened.getByRole('button', { name: `Done (${TO_TICK.length})` }).isVisible(),
-    `all ${TO_TICK.length} ticks survived the restart`
-  )
-  await doneToggle(reopened).click()
-  for (const name of TO_TICK) await itemNamed(reopened, name).waitFor({ timeout: 10_000 })
+  await assertTicked(reopened, TO_TICK, 25_000)
   log('every tick and both new items survived the restart')
 
   // Every route above is prerendered, so it has a precache entry of its own and
@@ -365,7 +385,7 @@ try {
   // --- Two devices, one household ------------------------------------------
   log('reading the invite code off the settings screen')
   await reopened.getByRole('link', { name: 'Settings' }).click()
-  const inviteCode = (await reopened.locator('code').innerText()).trim()
+  const inviteCode = (await reopened.locator('[data-invite-code]').innerText()).trim()
   assert(/^[A-Z0-9]{6}$/.test(inviteCode), `invite code looks like a code (got "${inviteCode}")`)
   await reopened.getByRole('link', { name: 'Back to today' }).click()
   await reopened.goto(`${ORIGIN}/shopping`)
@@ -376,15 +396,16 @@ try {
   const partnerContext = await browser.newContext({ viewport: { width: 390, height: 844 } })
   contexts.push(partnerContext)
   const partner = await signIn(partnerContext, PARTNER_EMAIL)
-  await partner.getByRole('button', { name: 'Join', exact: true }).click()
+  // Create and Join are a UTabs now, not two buttons.
+  await partner.getByRole('tab', { name: 'Join', exact: true }).click()
   await partner.getByPlaceholder('ABC123').fill(inviteCode)
   await partner.getByPlaceholder('Luke').fill('Partner')
   await partner.getByRole('button', { name: 'Join household' }).click()
   await partner.waitForURL(ORIGIN + '/', { timeout: 20_000 })
   await partner.goto(ORIGIN + '/shopping')
 
-  await partner.getByRole('button', { name: `Done (${TO_TICK.length})` }).waitFor({ timeout: 20_000 })
-  log('the second device sees the shared list')
+  await assertTicked(partner, TO_TICK, 20_000)
+  log('the second device sees the shared list, ticks and all')
 
   log('adding an item on the first device')
   await addItem(reopened, 'Olive oil')
@@ -393,9 +414,7 @@ try {
 
   log('ticking it on the second device')
   await tick(partner, 'Olive oil')
-  await reopened
-    .getByRole('button', { name: `Done (${TO_TICK.length + 1})` })
-    .waitFor({ timeout: 25_000 })
+  await tickedBox(itemNamed(reopened, 'Olive oil')).waitFor({ timeout: 25_000 })
   log('the tick came back to the first device')
 
   console.log('\n  PASS — offline writes survived a restart and synced on reconnect;'

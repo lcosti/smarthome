@@ -202,7 +202,9 @@ try {
     (await page.getByLabel('Recipe name').inputValue()) === 'Lentil soup',
     'the recipe page shows the extracted name'
   )
-  assert(soupText.includes('chopped tomatoes'), 'the ingredient lines are shown')
+  // Case-insensitively: an ingredient is shown under the library's own name for
+  // it, which is capitalised, not under the words the page happened to use.
+  assert(/chopped tomatoes/i.test(soupText), 'the ingredient lines are shown')
   assert(soupText.includes('400g'), 'the quantities came across')
   assert(soupText.includes('Soften the onion.'), 'the first step is shown')
   assert(soupText.includes('Add everything else and simmer.'), 'and so is the second')
@@ -242,7 +244,7 @@ try {
   assert(lines.every(l => l.ingredient_id), 'every line was stamped with a canonical ingredient')
   const canonical = (await readTable('ingredients')).filter(i => !i.deleted_at)
   assert(canonical.length === 3, `three canonical ingredients coined, got ${canonical.length}`)
-  const tomatoes = canonical.find(i => i.name === 'chopped tomatoes')
+  const tomatoes = canonical.find(i => i.name.toLowerCase() === 'chopped tomatoes')
   assert(tomatoes?.base_unit === 'g', `unit inferred from "400g", got ${tomatoes?.base_unit}`)
   log('every line canonicalised, units inferred — exactly as if typed')
 
@@ -261,7 +263,7 @@ try {
   log('imported a second recipe that also wants chopped tomatoes')
 
   const after = (await readTable('ingredients')).filter(i => !i.deleted_at)
-  const tomatoRows = after.filter(i => i.name === 'chopped tomatoes')
+  const tomatoRows = after.filter(i => i.name.toLowerCase() === 'chopped tomatoes')
   assert(tomatoRows.length === 1, `imports share one canonical tomatoes row, got ${tomatoRows.length}`)
   assert(after.length === 4, `only the genuinely new ingredient was coined, got ${after.length}`)
   log('the shared ingredient resolved to the existing row, coining nothing')

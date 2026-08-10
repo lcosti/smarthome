@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { useAttendanceStore } from '../stores/attendance'
-import { dishLabel, type PlannedNight } from '../stores/plan'
-import { useRecipesStore } from '../stores/recipes'
-import { deriveLifeStage } from '../utils/people'
-import { initialOf } from '../utils/person-colors'
-import { pictureOf } from '../utils/photo'
-import { skipIcon } from '../utils/skip'
+import { dishLabel, usePlanStore, type PlannedNight } from '../stores/plan'
+import { DINNER } from '../utils/meal'
 
 /**
  * One night of the week, on a screen with room to say what is actually on it.
@@ -23,21 +19,50 @@ import { skipIcon } from '../utils/skip'
  * Presentational: the week above owns which night is being edited, so the phone
  * rows and these cards cannot drift apart over what changing a night does.
  */
-const { night, today, past = false, table = true, events = [] } = defineProps<{
+const { night, today, past = false, header = true, frame = true, eaters = 'table', events = [] } = defineProps<{
   night: PlannedNight
   today: boolean
   /** The night is before today. */
   past?: boolean
   /**
-   * Show the whole table — the faces and the portion count — along the bottom.
+   * Show the day and the date along the top.
    *
-   * False on a phone, where the cards are a column and the same four faces on
-   * every one of them is a roll-call nobody reads. What survives is the
-   * exception: a night somebody is missing says who, and a night with everybody
-   * there says nothing. Everybody being home is the normal case and needs no
-   * ink.
+   * False where the page is already a day — the phone plans one night at a time
+   * under a heading that names it, and the card repeating "Mon · 10 Aug" under
+   * "Monday" is the same sentence twice.
    */
-  table?: boolean
+  header?: boolean
+  /**
+   * How much of who is eating the card says along the bottom.
+   *
+   * `table` is the whole roll-call — the faces and the portion count — for a
+   * card standing on its own.
+   *
+   * `away` is the exception only, for the phone: the cards are a column there
+   * and the same four faces on every one of them is a roll-call nobody reads,
+   * so a night somebody is missing says who and a night with everybody there
+   * says nothing. Everybody being home is the normal case and needs no ink.
+   *
+   * `none` is for the wide week, where the day's table is in the gutter of the
+   * row this card sits in. The roster is kept per day, so anything here would be
+   * the same fact twice on one line.
+   */
+  eaters?: 'table' | 'away' | 'none'
+  /**
+   * Draw the card around the night.
+   *
+   * False in the wide week, where the day is already a card and the night is one
+   * cell inside it: a card inside a card, a padding apart, drew two borders and
+   * two insets for one dinner, and left it sitting further from its own row than
+   * the breakfast beside it. Without the frame this is the dish, the empty state
+   * and the diary, in the cell — which is what `PlanMealCell` is too, so all
+   * three slots of a day sit in the row's grid the same way.
+   *
+   * The header and the footer are dropped with it. Both are already off in the
+   * one place that turns this off, and a header rule with nothing above it is
+   * a line across a cell.
+   */
+  frame?: boolean
   /**
    * What else the day is already spoken for by.
    *
@@ -50,7 +75,7 @@ const { night, today, past = false, table = true, events = [] } = defineProps<{
 defineEmits<{ open: [], remove: [] }>()
 
 const attendance = useAttendanceStore()
-const recipes = useRecipesStore()
+const plan = usePlanStore()
 
 const planned = computed(() => night.entries[0] ?? null)
 
@@ -68,30 +93,10 @@ const dateLabel = computed(() =>
 )
 
 /**
- * Only who is eating. A night is a list of the people at the table, not a
- * register of the household with some of it crossed out — the count beside the
- * faces is what says how many are missing, and it says it in one number.
+ * Whether the night is asking for anything. The faces and the count that go with
+ * it are `PlanDayEaters`, which the wide plan shows in the day's gutter.
  */
-const faces = computed(() =>
-  attendance.presentOn(night.date).map(person => ({
-    id: person.id,
-    name: person.name,
-    initial: initialOf(person.name),
-    avatar: person.avatar
-  }))
-)
-
-/**
- * How many portions the night is for.
- *
- * A pre-weaning baby is at the table and eating nothing off it, exactly as the
- * generator counts it — otherwise the card promises a portion nobody plates.
- */
-const eating = computed(() =>
-  attendance.presentOn(night.date)
-    .filter(person => deriveLifeStage(person.date_of_birth, night.date) !== 'baby')
-    .length
-)
+const nobodyHome = computed(() => plan.nobodyEatingOn(night.date))
 
 /** Only who is out — the shorter list, and the one worth the width. */
 const awayLabel = computed(() => {
@@ -102,102 +107,50 @@ const awayLabel = computed(() => {
 })
 
 /**
- * The picture of what is being eaten — which on a leftovers night is the picture
- * of the night it came off, as the wall board already has it. Thursday's plate
- * looks like Tuesday's because it is Tuesday's.
- */
-const picture = computed(() =>
-  pictureOf(planned.value?.leftoverSource?.recipe ?? planned.value?.recipe)
-)
-
-/**
- * What the dish costs, in the two units a Tuesday evening is spent in: time at
- * the stove and things to buy. A leftovers night costs neither and says so.
+ * How an empty night draws itself.
  *
- * Icons rather than words because there are two of them on one short line and
- * the card is a quarter of a screen wide. The names are listed in nuxt.config's
- * client bundle: chosen here rather than in a template, the scanner cannot see
- * them, and an unbundled icon on a kitchen tablet with no signal is a blank.
+ * Inside a frame it is a ghost: the card around it is already the box, and a
+ * second one drawn inside it is a border against a border. Frameless there is no
+ * box, so it draws its own — `outline` is the dashed variant in this app's
+ * theme, the same one an empty breakfast beside it uses, which is the shape an
+ * empty slot wants: an outline around somewhere a meal goes rather than a filled
+ * cell pretending something is there.
  */
-const dishMeta = computed<{ icon: string, label: string }[]>(() => {
-  const entry = planned.value
-  if (!entry) return []
-
-  const out: { icon: string, label: string }[] = []
-  // A skipped night says the same thing a leftovers night says — nobody is at
-  // the stove — and the icon is what tells you which kind of evening it is. The
-  // name above already says "Takeaway", so this line does not repeat it.
-  if (entry.skipped) {
-    out.push({ icon: skipIcon(entry.entry.skip_reason), label: 'no cooking' })
-    return out
-  }
-  if (entry.leftover) {
-    out.push({ icon: 'i-lucide-refrigerator', label: 'no cooking' })
-  } else {
-    const minutes = (entry.recipe?.prep_minutes ?? 0) + (entry.recipe?.cook_minutes ?? 0)
-    if (minutes > 0) out.push({ icon: 'i-lucide-clock', label: `${minutes}m` })
-  }
-
-  const items = entry.recipe ? recipes.ingredientsFor(entry.recipe.id).length : 0
-  if (items) out.push({ icon: 'i-lucide-utensils', label: `${items} items` })
-
-  return out
-})
+const emptyVariant = computed(() => frame ? 'ghost' as const : 'outline' as const)
 
 /**
- * The night as somewhere a dish can be dropped, and as a dish that can be
- * picked up.
+ * The night as somewhere a dish can be dropped.
  *
  * Every night is a target, including an empty one and a night that has gone —
  * moving Thursday's dinner onto a Tuesday that has already happened is a
  * correction of the record, and the plan is a record as much as an intention.
- * Only a night with something on it is a source.
+ * Picking a dish *up* belongs to `PlanDishCard`, which is what moves.
  */
-/**
- * At most two, and a count for the rest.
- *
- * A card is a quarter of a screen and the dinner is what it is for. Two lines is
- * enough to know the evening is spoken for; the day itself is where you go to
- * read the whole of it.
- */
-const MAX_EVENTS = 2
-
-const shownEvents = computed(() => events.slice(0, MAX_EVENTS))
-const moreEvents = computed(() => Math.max(0, events.length - MAX_EVENTS))
-
-/** Whoever's event it is, in their colour. Neutral for the household's own. */
-function railStyle(hue: number | null) {
-  return hue === null ? undefined : { background: `oklch(0.72 0.13 ${hue})` }
-}
-
 const drag = usePlanDrag()
 const root = useTemplateRef<{ $el?: HTMLElement } | HTMLElement>('root')
 
-const isOver = computed(() => drag.overDate.value === night.date)
-const isSource = computed(() =>
-  drag.payload.value?.kind === 'night' && drag.payload.value.date === night.date
-)
+/**
+ * This card is the dinner, always — the day's other two slots are
+ * `PlanMealCell`s beside it or under it. So it registers as the dinner cell and
+ * has no `meal` prop: giving it one would invite somebody to render a breakfast
+ * through a card built to be the night.
+ */
+const slot = computed(() => drag.slotKey(night.date, DINNER))
 
-/** `UCard` is a component, so the element to hit-test against is its root node. */
+const isOver = computed(() => drag.overSlot.value === slot.value)
+
+/**
+ * `UCard` is a component, so the element to hit-test against is its root node.
+ * Frameless, the root is already an element and this passes it through.
+ */
 function elementOf(instance: unknown): HTMLElement | null {
   if (!instance) return null
   const el = (instance as { $el?: unknown }).$el ?? instance
   return el instanceof HTMLElement ? el : null
 }
 
-watchEffect(() => drag.registerTarget(night.date, elementOf(root.value)))
-onBeforeUnmount(() => drag.registerTarget(night.date, null))
-
-function pickUp(event: PointerEvent) {
-  if (!planned.value) return
-  drag.press(event, {
-    kind: 'night',
-    entryId: planned.value.entry.id,
-    date: night.date,
-    label: dishLabel(planned.value),
-    image: picture.value
-  })
-}
+watchEffect(() => drag.registerTarget(slot.value, elementOf(root.value)))
+onBeforeUnmount(() => drag.registerTarget(slot.value, null))
 </script>
 
 <template>
@@ -206,27 +159,42 @@ function pickUp(event: PointerEvent) {
     the footer, and the rules between them are the variant's own `divide-y`
     rather than borders written on by hand. Only the two colours a card can be —
     tonight, or a night that has gone — are ours.
+
+    Frameless it is the same component with its skin off: `soft` has no ring,
+    `bg-transparent` takes the fill, and the header and the footer — which are
+    what the rules and the padding are for — do not render. One root either way,
+    so the drop target is registered in one place and cannot go missing at one
+    of the two widths.
   -->
   <UCard
     ref="root"
-    variant="subtle"
+    :variant="frame ? 'subtle' : 'soft'"
     :ui="{
-      root: 'flex min-h-0 flex-col transition-colors',
+      root: frame
+        ? 'flex min-h-0 flex-col transition-colors'
+        : 'flex min-h-0 flex-col transition-colors bg-transparent',
       header: 'flex shrink-0 items-center justify-between gap-2 px-3 py-2.5 sm:px-3',
       body: 'flex min-h-0 flex-1 flex-col p-0 sm:p-0',
       footer: 'flex shrink-0 items-center gap-2 px-3 py-2 sm:px-3'
     }"
     :class="[
       today ? 'ring-primary/60' : '',
-      past && 'opacity-55',
-      // Where it would land, and where it came from. The night being dragged
-      // fades rather than disappearing, so the week keeps its shape while one
-      // of it is in the air.
-      isOver && 'ring-2 ring-primary bg-primary/5',
-      isSource && 'opacity-40'
+      // The same fade for a night that has gone and a night nobody is in for,
+      // because they are the same statement: this one wants nothing from you.
+      // Only while it is empty, though — a dish planned onto a night the roster
+      // says is out is somebody hosting, or a roster that is wrong, and either
+      // way it is a live intention rather than something to fade.
+      (past || (nobodyHome && !planned)) && 'opacity-55',
+      // Where it would land. The dish being carried fades rather than
+      // disappearing — that is `PlanDishCard`'s own — so the week keeps its
+      // shape while one of it is in the air.
+      isOver && 'ring-2 ring-primary bg-primary/5'
     ]"
   >
-    <template #header>
+    <template
+      v-if="frame && header"
+      #header
+    >
       <div class="flex items-center gap-2">
         <span
           class="text-sm font-semibold"
@@ -243,97 +211,33 @@ function pickUp(event: PointerEvent) {
       <span class="text-xs text-dimmed tabular-nums">{{ dateLabel }}</span>
     </template>
 
-    <div class="flex min-h-0 flex-1 flex-col p-3">
+    <!--
+      Frameless, the body is the cell: there is no card around it to be inset
+      from, and the padding it used to spend put the dinner further from its own
+      row than the breakfast beside it.
+    -->
+    <div
+      class="flex min-h-0 flex-1 flex-col"
+      :class="frame && 'p-3'"
+    >
       <!--
         The dish is a card inside the card: on a night that has one, the thing
-        being cooked is the object you act on — open it, or take it off — and the
-        night around it is only the frame holding the date and the table.
+        being cooked is the object you act on — open it, take it off, carry it to
+        another day — and the night around it is only the frame holding the date
+        and the table. It is `PlanDishCard`, which is what a planned breakfast
+        and a planned lunch are as well, so a day's three slots are one answer to
+        "what does a planned meal look like" rather than three.
       -->
-      <!--
-        And the thing you pick up. A dish is what moves between nights — the day
-        and the table around it belong to the night and stay where they are — so
-        the press that starts a drag starts here. A mouse picks it up on the
-        first few pixels of travel; a finger holds it for a moment first, so that
-        scrolling a column of these still scrolls.
-      -->
-      <UCard
+      <PlanDishCard
         v-if="planned"
-        variant="soft"
-        :ui="{ root: 'relative min-h-0 flex-1 touch-manipulation select-none', body: 'h-full p-3 sm:p-3' }"
-        :class="isSource ? 'cursor-grabbing' : 'cursor-grab'"
-        @pointerdown="pickUp"
-      >
-        <!--
-          A raw button, per the card-and-row exception in CLAUDE.md: this is a
-          stacked block — dish, meta, badge — not a label, and a `UButton` lays
-          its content out as a flex row through slots it would take four
-          overrides to undo. It fills the inner card so the whole dish is the
-          target, and keeps its right edge clear of the remove button — which is
-          a sibling rather than a child, because a button inside a button is not
-          a thing a browser will render.
-        -->
-        <button
-          type="button"
-          class="flex h-full w-full items-start gap-3 pr-7 text-left transition-opacity duration-[80ms] active:opacity-85"
-          @click="$emit('open')"
-        >
-          <RecipeThumb
-            :src="picture"
-            :alt="dishLabel(planned)"
-          />
-
-          <!--
-            `min-w-0` is what lets the name wrap beside the picture: a flex child
-            defaults to its content's width, and a long dish name would push the
-            card wider than its column rather than running onto a second line.
-          -->
-          <span class="flex min-w-0 flex-1 flex-col items-start">
-            <span class="line-clamp-3 text-pretty text-[15px] font-medium leading-tight tracking-[-0.01em] text-highlighted">
-              {{ dishLabel(planned) }}
-            </span>
-
-            <span class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-dimmed">
-              <span
-                v-for="fact in dishMeta"
-                :key="fact.label"
-                class="flex items-center gap-1"
-              >
-                <UIcon
-                  :name="fact.icon"
-                  class="size-3.5 shrink-0"
-                />
-                {{ fact.label }}
-              </span>
-
-              <!--
-                Shopped-for is the third fact about the night, and sits on the
-                line with the other two rather than under them — a card is a
-                fixed height with a picture in it now, and a block of its own
-                was the line that fell off the bottom.
-              -->
-              <UBadge
-                v-if="planned.derived"
-                color="primary"
-                variant="soft"
-                size="sm"
-                icon="i-lucide-check"
-                label="On list"
-              />
-            </span>
-          </span>
-        </button>
-
-        <UButton
-          icon="i-lucide-x"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          data-no-drag
-          :aria-label="`Take ${dishLabel(planned)} off ${dayLabel}`"
-          class="absolute right-1.5 top-1.5"
-          @click="$emit('remove')"
-        />
-      </UCard>
+        :planned="planned"
+        :date="night.date"
+        :meal="DINNER"
+        :remove-label="`Take ${dishLabel(planned)} off ${dayLabel}`"
+        class="min-h-0 flex-1"
+        @open="$emit('open')"
+        @remove="$emit('remove')"
+      />
 
       <!-- An empty night that has gone is a fact, and states it rather than asking. -->
       <UEmpty
@@ -344,11 +248,31 @@ function pickUp(event: PointerEvent) {
         :ui="{ root: 'min-h-0 flex-1 p-0 sm:p-0', title: 'text-dimmed font-normal' }"
       />
 
+      <!--
+        A night nobody is eating on states that instead of asking for a dinner.
+        It is not a gap — `fillWeek` and `hasGapsFor` have always passed over it
+        — and an invitation at full strength on five of seven cells is what made
+        a week away read as a week behind.
+
+        Still a button, and still the whole cell: you can be hosting, and the
+        roster can be wrong. It only stops being the first thing the card asks
+        for.
+      -->
+      <UButton
+        v-else-if="nobodyHome"
+        color="neutral"
+        :variant="emptyVariant"
+        icon="i-lucide-house"
+        label="Nobody home"
+        class="min-h-0 flex-1 justify-center text-dimmed"
+        @click="$emit('open')"
+      />
+
       <!-- An empty night is an invitation: one way in, the whole cell as the target. -->
       <UButton
         v-else
         color="neutral"
-        variant="ghost"
+        :variant="emptyVariant"
         icon="i-lucide-plus"
         label="Add dinner"
         class="min-h-0 flex-1 justify-center text-dimmed"
@@ -363,52 +287,22 @@ function pickUp(event: PointerEvent) {
         little rail the board's week strip uses — the answer to "whose is this"
         should look the same wherever it is asked.
       -->
-      <div
-        v-if="shownEvents.length"
-        class="mt-2 flex min-w-0 flex-col gap-1"
-      >
-        <span
-          v-for="event in shownEvents"
-          :key="event.id"
-          class="flex min-w-0 items-center gap-1.5"
-        >
-          <span
-            class="h-3 w-0.5 shrink-0 rounded-sm bg-accented"
-            :style="railStyle(event.hue)"
-          />
-          <span
-            v-if="event.time"
-            class="shrink-0 font-mono text-[11px] text-dimmed tabular-nums"
-          >{{ event.time }}</span>
-          <span class="truncate text-[11px] text-dimmed">{{ event.title }}</span>
-        </span>
-
-        <span
-          v-if="moreEvents"
-          class="pl-2 text-[11px] text-dimmed"
-        >+{{ moreEvents }} more</span>
-      </div>
+      <PlanEventRail
+        v-if="events.length"
+        :events="events"
+        class="mt-2"
+      />
     </div>
 
     <template
-      v-if="table || awayLabel"
+      v-if="frame && (eaters === 'table' || (eaters === 'away' && awayLabel))"
       #footer
     >
-      <template v-if="table">
-        <UAvatarGroup
-          :max="5"
-          size="xs"
-        >
-          <UAvatar
-            v-for="face in faces"
-            :key="face.id"
-            :src="face.avatar ?? undefined"
-            :alt="face.name"
-            :text="face.initial"
-          />
-        </UAvatarGroup>
-        <span class="truncate text-xs text-dimmed">{{ eating }} eating</span>
-      </template>
+      <!-- One answer to "who is at the table", shared with the wide plan's own column. -->
+      <PlanDayEaters
+        v-if="eaters === 'table'"
+        :date="night.date"
+      />
 
       <span
         v-else

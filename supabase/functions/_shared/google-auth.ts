@@ -31,7 +31,7 @@ function encodeJson(value: unknown): string {
 }
 
 /** A PEM private key as the PKCS#8 bytes crypto.subtle wants. */
-function pemToPkcs8(pem: string): Uint8Array {
+function pemToPkcs8(pem: string): Uint8Array<ArrayBuffer> {
   const body = pem
     .replace(/-----BEGIN PRIVATE KEY-----/, '')
     .replace(/-----END PRIVATE KEY-----/, '')

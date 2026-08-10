@@ -97,6 +97,22 @@ function yearsAgo(years) {
 
 const browser = await chromium.launch()
 const ctx = await browser.newContext({ viewport: FRAME })
+
+/**
+ * Six o'clock this evening, whenever this runs.
+ *
+ * The board answers "what's for dinner" until dinner has been and gone and then
+ * switches the hero to tomorrow (`lateEvening` in app/utils/board.ts), so a run
+ * after about nine reads a different screen from a run at lunchtime — and CI
+ * fires on push, at any hour. Starting the clock at six makes "the eyebrow says
+ * Tonight" a fact rather than a time of day.
+ *
+ * `install`, not `setFixedTime`: time still flows from there, so cook mode's
+ * timer counts down like a timer. A frozen clock left it sitting at 8:00.
+ */
+const sixPm = new Date()
+sixPm.setHours(18, 0, 0, 0)
+await ctx.clock.install({ time: sixPm })
 const page = await ctx.newPage()
 page.on('pageerror', e => console.error('     page error:', e.message))
 
@@ -117,6 +133,18 @@ const frame = () => page.locator('body')
 const board = () => page.locator('[data-board-state]')
 const boardText = async () => (await frame().innerText()).replace(/[\n\t]+/g, ' ')
 const boardState = () => board().getAttribute('data-board-state')
+
+/**
+ * The rows of the shopping list view, and their ticks.
+ *
+ * An aisle is a `UCheckboxGroup`: a row is `[data-slot="item"]` and its tick is
+ * a `<button role="checkbox">`. Scoped to the aisle card because the filter
+ * chips above the list are a checkbox group too — and the recipe editor's
+ * ingredient lines are still ordinary `<li>`s.
+ */
+const listRows = () => page.locator('[data-shopping-aisle] [data-slot="item"]')
+const tickBox = row => row.getByRole('checkbox')
+const tickedBox = row => row.locator('[role="checkbox"][data-state="checked"]')
 
 async function openBoard() {
   await page.goto(`${ORIGIN}/`)
@@ -186,6 +214,10 @@ try {
 
   // One box does three jobs on this page — narrow, add, or import a pasted link.
   // Typing a plain name and pressing add creates the recipe and opens it.
+  // On a phone for this stretch, and not only for flavour: the wide library's
+  // one box imports a pasted link and nothing else, so "add a recipe by name"
+  // is a phone-shaped action. The board goes back to its frame below.
+  await page.setViewportSize(PHONE)
   await page.goto(`${ORIGIN}/recipes`)
   await page.getByTestId('recipe-draft').fill('Chicken traybake')
   // Exact: the photo importer beside it is also an "Add recipe from a photo".
@@ -217,6 +249,7 @@ try {
     await page.locator('main').getByText(body.split('\n')[0]).first().waitFor({ timeout: 10_000 })
   }
   log('gave it three ingredients and three steps, from the phone')
+  await page.setViewportSize(FRAME)
 
   await page.goto(`${ORIGIN}/shopping`)
   for (const item of ['Nappies', 'Bin bags']) {
@@ -232,7 +265,7 @@ try {
   text = await boardText()
   assert(text.includes('No plan for tonight'), `the hero says so, saw: ${text.slice(0, 300)}`)
   assert(text.includes('Plan not generated'), 'the header says the plan was never generated')
-  assert(text.includes('Generate this week'), 'the one filled button is offered')
+  assert(text.includes('Plan this week'), 'the one filled action is offered')
   assert((await board().getByText('No meal').count()) >= 6, 'the week strip is six quiet no-meals')
   await shoot('noplan')
   log('with nothing planned Today offers exactly one action')
@@ -245,8 +278,17 @@ try {
   }))
   assert(overflow.scrollW <= overflow.clientW, `nothing overflows sideways: ${JSON.stringify(overflow)}`)
 
-  // --- Pressing it generates a real plan ------------------------------------
-  await board().getByRole('button', { name: /Generate this week/ }).click()
+  // --- Following it plans a real week ---------------------------------------
+  //
+  // The board's one action is a way to the plan now rather than a generator in
+  // the hero: filling a week is a decision with a week's worth of consequences,
+  // and it belongs on the page that shows the week. The board's job is to say
+  // that there is nothing planned and to open the door.
+  await board().getByRole('link', { name: /Plan this week/ }).click()
+  await page.waitForURL('**/plan', { timeout: 20_000 })
+  await page.getByRole('button', { name: 'Fill empty nights' }).click()
+  await page.getByText(/nights? planned/).waitFor({ timeout: 20_000 })
+  await openBoard()
   await board().getByText('Chicken traybake').first().waitFor({ timeout: 20_000 })
 
   const entries = (await readTable('meal_plan_entries')).filter(e => !e.deleted_at)
@@ -261,66 +303,64 @@ try {
   // prep or cook minutes, so there is nothing to count back from. The
   // arithmetic itself is covered in tests/board.test.ts.
   assert(/Tonight \d\d:\d\d/.test(text), `the card badges when to eat, saw: ${text.slice(0, 300)}`)
-  assert(text.includes('Luke') && text.includes('Tom'), 'both people are on the roster')
-  assert(!text.includes('Adult portion'), 'an adult portion is the default and goes unsaid')
-  assert(text.includes('Toddler portion'), 'the toddler gets a toddler portion, derived from a birth date')
+  assert(/\d+ servings?/.test(text), `the dinner says how many it is for, saw: ${text.slice(0, 300)}`)
+  assert(text.includes('Start cooking'), 'and cook mode is one press from the wall')
   assert(text.includes('Plan generated'), 'the header now says how long ago the plan was made')
   assert(/Week \d+/.test(text), 'and which week of the year this is')
   await shoot('nominal')
-  log('the roster adapts one meal per person, by age, with nobody asked')
+  log('tonight is a dish, a time, a portion count and a way into cooking it')
 
-  // --- Tapping a person chip takes somebody off tonight ---------------------
-  await openBoard()
-  await board().locator('button', { hasText: 'Tom' }).first().click()
-  await page.waitForTimeout(1000)
-  const attendance = (await readTable('attendance')).filter(a => !a.deleted_at)
-  assert(attendance.length === 1, `one row for the one absence, got ${attendance.length}`)
-  assert(attendance[0].present === false, 'and it records the absence')
-  log('tapping a person chip wrote exactly one attendance row')
-
-  // Put them back, so the later states are not about a half-empty table.
-  await board().locator('button', { hasText: 'Tom' }).first().click()
-  await page.waitForTimeout(1000)
+  // No roster on the board, and no person chips to tap: who is eating is asked
+  // and answered on the plan, which is where the week is decided. That move is
+  // covered by acceptance-roster.mjs, on the page that now owns it.
 
   // --- the other three views ------------------------------------------------
   //
   // The header is the one thing that survives a view change, so it is asserted
   // across the move rather than on either side of it.
-  const headerBefore = await page.locator('body > div > header').first().innerText()
+  const headerBefore = await page.locator('header').first().innerText()
   await frame().getByRole('link', { name: 'List', exact: true }).click()
   await page.waitForURL(`${ORIGIN}/shopping`, { timeout: 20_000 })
-  const headerAfter = await page.locator('body > div > header').first().innerText()
+  const headerAfter = await page.locator('header').first().innerText()
   assert(headerBefore === headerAfter, 'the header is unchanged by navigating')
-  assert(!(await page.locator('nav a[href="/plan"]').count()),
+  assert(!(await page.locator('[data-tab-bar]').count()),
     'and the phone tab bar stays away at this width')
 
   text = await boardText()
   assert(/Chicken thighs|Squash|Nappies|Bin bags/.test(text), `the list view shows the list, saw: ${text.slice(0, 300)}`)
 
-  // Ticking is the reason this view exists.
-  const listRows = () => page.locator('main li > button').first()
-  const beforeTick = await page.locator('main li').count()
-  await listRows().click()
-  await page.waitForTimeout(1500)
-  const afterTick = await page.locator('main li').count()
-  assert(afterTick === beforeTick - 1, `ticking removed one line, got ${beforeTick} then ${afterTick}`)
+  // Ticking is the reason this view exists. A ticked row stays where it was,
+  // struck through — where something was is how you check you did not miss it —
+  // so what this asserts is the row's own state, not a shorter list.
+  // By name, not by position: a ticked row sinks below the ones still to get,
+  // so "the first row" is a different row a moment after it is pressed.
+  const firstName = (await listRows().first().innerText()).split('\n')[0].trim()
+  const beforeTick = await listRows().count()
+  await tickBox(listRows().first()).click()
+  await tickedBox(listRows().filter({ hasText: firstName }).first())
+    .waitFor({ timeout: 10_000 })
+  assert(await listRows().count() === beforeTick,
+    'and the row stayed on screen rather than vanishing from under the finger')
   await shoot('view-list')
   log('the list ticks items off at desktop width, and the header never moved')
 
   await frame().getByRole('link', { name: 'Plan', exact: true }).click()
   await page.waitForURL('**/plan', { timeout: 20_000 })
-  // Seven columns rather than seven rows: the wide layout swapped the component,
+  // Seven days down, three meals across: the wide layout swapped the component,
   // not just the widths.
-  assert(await page.locator('main .grid-cols-7 > *').count() === 7,
-    'the wide plan is seven nights across')
+  assert(await page.locator('[data-plan-day]').count() === 7,
+    'the wide plan is seven days down')
+  for (const meal of ['BREAKFAST', 'LUNCH', 'DINNER']) {
+    assert((await boardText()).includes(meal), `and ${meal.toLowerCase()} is a column of its own`)
+  }
 
-  const empties = page.locator('main button').filter({ hasText: 'Add dinner' })
+  const empties = page.locator('[data-plan-day] button').filter({ hasText: 'Add dinner' })
   if (await empties.count()) {
     await empties.first().click()
     await page.waitForTimeout(800)
     await press(page.getByRole('dialog').getByText('Chicken traybake', { exact: true }).first())
     await page.waitForTimeout(1500)
-    assert((await page.locator('main').innerText()).includes('Chicken traybake'),
+    assert((await boardText()).includes('Chicken traybake'),
       'tapping an empty night and choosing a recipe plans it')
     log('the wide plan plans a night through the same editor the phone uses')
   }
@@ -340,8 +380,13 @@ try {
   assert(await page.url().endsWith('/recipes'), 'and nothing navigated — choosing is not leaving')
 
   text = await boardText()
-  assert(text.includes('chicken thighs'), `the pane reads out the ingredients, saw: ${text.slice(0, 400)}`)
-  assert(/not on the list yet/i.test(text), 'and says which of them nobody has put on the list')
+  // Case-insensitively: an ingredient is shown under the library's own name.
+  assert(/chicken thighs/i.test(text), `the pane reads out the ingredients, saw: ${text.slice(0, 400)}`)
+  // What the pane says about the shop is a button rather than a sentence now:
+  // the dots beside the lines mark what is still to buy, and this is the press
+  // that deals with them.
+  assert(await frame().getByTestId('recipe-send-list').count() === 1,
+    'and offers to put what it needs on the list')
 
   // Searching reaches into the recipes, not just across their names.
   const search = frame().getByTestId('recipe-search')
@@ -368,7 +413,12 @@ try {
     'and having sent them, it stops offering to send them again')
   log('the library picks a recipe, reads it out, and shops for it without leaving')
 
-  await press(frame().getByTestId('recipe-cook'))
+  // Cook mode is entered from the board rather than from the library: the wall
+  // is where somebody stands when they start cooking, and "Start cooking" on
+  // tonight's card is the one door to it. The library's own footer offers the
+  // recipe page, once.
+  await openBoard()
+  await press(board().getByRole('button', { name: 'Start cooking' }))
   await page.waitForURL('**/cook', { timeout: 20_000 })
 
   // --- cook mode: one step at a time, and the header gets out of the way -----
@@ -400,7 +450,10 @@ try {
   await page.waitForTimeout(1500)
   const running = await boardText()
   assert(!running.includes('Start brown 8 min'), 'tapping it starts it')
-  assert(/7:5\d/.test(running), `and it counts down in seconds, saw: ${running.slice(0, 300)}`)
+  // Whitespace stripped: the clock is a digit per element, so innerText reads
+  // it as "7 : 5 9".
+  assert(/7:5\d/.test(running.replace(/\s+/g, '')),
+    `and it counts down in seconds, saw: ${running.slice(0, 300)}`)
   log('cook mode found a timer in the prose, named it and started it')
 
   // Ticking ingredients off is session state — nothing about tonight's cooking
@@ -422,7 +475,8 @@ try {
   const pin = frame().locator('[data-cook-pinned]')
   assert(await pin.count() === 1, 'the running timer opened out of the step bar')
   const pinText = await pin.innerText()
-  assert(/Brown/.test(pinText) && /\d:\d\d/.test(pinText),
+  // Whitespace stripped for the clock, which is a digit per element.
+  assert(/Brown/.test(pinText) && /\d:\d\d/.test(pinText.replace(/\s+/g, '')),
     `named and still counting, saw: ${pinText}`)
 
   await pin.click()
@@ -466,14 +520,18 @@ try {
   // front of while you unpack a bag.
   await openBoard()
   const shoppingCard = board().locator('[data-board-card="shopping"]')
-  assert(/\d+ done · \d+ to buy/.test(await boardText()),
-    'the card counts what is done against what is left')
+  assert(/SHOPPING \d+ items?/i.test(await boardText()),
+    'the card says how much is on the list')
 
   const rowsBefore = await shoppingCard.locator('button').count()
+  // One more than were ticked already: the list view above ticked one of its
+  // own, and it is still ticked, because that is what ticking does.
+  const tickedBefore = (await readTable('items')).filter(i => i.checked && !i.deleted_at).length
   await shoppingCard.locator('button').first().click()
   await page.waitForTimeout(1200)
   const ticked = (await readTable('items')).filter(i => i.checked && !i.deleted_at)
-  assert(ticked.length === 1, `ticking a row from Today wrote it through, got ${ticked.length}`)
+  assert(ticked.length === tickedBefore + 1,
+    `ticking a row from Today wrote it through, got ${ticked.length} after ${tickedBefore}`)
   assert(await shoppingCard.locator('button').count() === rowsBefore,
     'and the row stayed on screen, struck through rather than vanishing')
 
@@ -486,13 +544,19 @@ try {
   // --- emptylist: only the shopping card changes ----------------------------
   await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 20_000 })
+  // Ticking no longer takes a row off the screen, so this walks the rows that
+  // are still unticked and then clears the lot in one press — which is what
+  // somebody unpacking the bags does anyway.
+  const untickedRows = () =>
+    listRows().filter({ has: page.locator('[role="checkbox"][data-state="unchecked"]') })
   for (let guard = 0; guard < 20; guard++) {
-    const left = await page.locator('main li > button').count()
-    if (!left) break
-    await page.locator('main li > button').first().click()
+    if (!(await untickedRows().count())) break
+    await tickBox(untickedRows().first()).click()
     await page.waitForTimeout(700)
   }
-  assert(!(await page.locator('main li > button').count()), 'the list is empty now')
+  await press(page.getByRole('button', { name: 'Clear checked' }))
+  await page.getByText('Nothing on the list').waitFor({ timeout: 10_000 })
+  assert(!(await listRows().count()), 'the list is empty now')
 
   await openBoard()
   text = await boardText()
@@ -505,7 +569,9 @@ try {
   await ctx.setOffline(true)
   // The board notices on its own 30s tick; nudge it rather than wait for one.
   await page.evaluate(() => window.dispatchEvent(new Event('offline')))
-  await board().getByText(/Offline/).first().waitFor({ timeout: 20_000 })
+  // In the header, not the board: staleness is a fact about the device, and it
+  // is said once, beside the day.
+  await frame().getByText(/Offline/).first().waitFor({ timeout: 20_000 })
 
   text = await boardText()
   assert(text.includes('Offline'), 'the header states the staleness in words')
@@ -532,7 +598,7 @@ try {
   // instead of the header.
   await page.setViewportSize(PHONE)
   await openBoard()
-  assert(await page.locator('nav a[href="/plan"]').count() === 1,
+  assert(await page.locator('[data-tab-bar]').count() === 1,
     'at phone width the tab bar is back')
   assert(!(await page.getByRole('link', { name: 'Today', exact: true }).and(page.locator('header a')).count()),
     'and the desktop header is gone')

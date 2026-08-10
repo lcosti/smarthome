@@ -128,12 +128,16 @@ and why. Current sanctioned exceptions:
   a laptop shows a person — the plan, the people page, the person editor — it is
   a stock `UAvatar` on the default size scale.
 - **Card and row tap targets** whose content is a laid-out block rather than a
-  label — `RecipeRow`, `RecipeStepRow`, `IngredientLineRow`, `PlanNightCard`,
+  label — `RecipeRow`, `RecipeStepRow`, `IngredientLineRow`, `PlanDishCard`,
   `BoardRecipeCard`. A `UButton` renders its
   content through `label`/slot inside a flex row; these need their own internal
   grid, and wrapping one in a button is cheaper than overriding four slots.
   A row whose content *is* a label is a `UButton` — see `people.vue`,
   `ingredients.vue`.
+  `PlanDishCard` claims this once for the whole plan: it is every planned slot,
+  breakfast to dinner, at both widths. The cells around it (`PlanMealCell`,
+  `PlanNightCard`) own only what an *empty* slot says and where a dish can land,
+  and both of those are stock.
 - The day grid in `BoardSchedule` — the wide layout only. Nuxt UI has no
   calendar view: `UCalendar` is a date picker, and a day laid out by the minute
   needs absolute offsets computed at runtime from real times, which cannot be
@@ -160,18 +164,167 @@ and why. Current sanctioned exceptions:
   covers mouse, pen and finger. A mouse picks a card up on the first few pixels
   of travel; a finger holds it still for a moment first, because the phone's
   plan is a scrolling column and a card that grabbed every downward swipe would
-  make the page unreadable. Everything a drag does is also reachable by tapping
-  the night, so nothing depends on the gesture.
+  make the page unreadable. Everything a drag does is also reachable without the
+  gesture — tapping the night moves a dish, and the × on the dish card takes it
+  off — so nothing depends on it.
 - The hidden `<input type="file">` wherever a picture is chosen —
   `recipes/index.vue`, `PersonEditor`, `recipes/[id]/index.vue`. Invisible
   plumbing behind a `UButton`, not a control. `UFileUpload` brings a dropzone
   none of them want, and `capture` makes iOS force the camera and silently drop
   `multiple`.
+- The column inside `RecipeSheet` — the height of it only. A drawer with snap
+  points is drawn full height and slid down until a fraction of it shows, so
+  anything at the end of its column is off the screen until the last snap, and
+  the two buttons this sheet exists to offer would need a drag to reach. The
+  column is sized to the visible band instead, which is the active snap point —
+  a number a finger is changing continuously, and so not a Tailwind class. Every
+  control in it is stock, and `title`/`description` stay props so the drawer
+  announces itself the way the library wrote it.
+
+The phone reads a recipe in a `UDrawer` (`RecipeSheet`), where every other bottom
+sheet in the app is a `USlideover`. Those eight are forms — open, type, save,
+shut — and one height suits all of them. This is reading of unknown length: the
+short snap is the decision, and dragging up is the method. The drawer has snap
+points and a grab handle and the slideover has neither.
+
+It is the wide library's detail pane, on a phone: the same `LibraryDetail` off
+the same `buildRecipeLibrary`, by way of `useRecipeDetail`, so "what does a
+recipe look like when you are choosing one" has one answer at both widths.
+`useRecipeSend` is the other half of that — the button that puts what a recipe
+needs on the shopping list, as plain ad-hoc items with no plan provenance, and
+the reasoning for that lives in one place now rather than beside each button.
+The sheet's footer offers `/recipes/:id` once, not twice: that route is the
+editor, so "view" and "edit" are the same door.
 
 `PlanNightRow` used to be on this list and no longer exists. Both shapes of the
-plan show a night as `PlanNightCard` — a phone gets the same card in a column,
-with `:table="false"` dropping the roll-call along the bottom — so there is one
-answer to "what does a night look like" rather than two that drift.
+plan show a night as `PlanNightCard` — the phone shows one night at a time
+rather than a week of them, with `:header="false"` dropping the day the page
+heading already says and `eaters` saying how much of the roll-call belongs along
+the bottom — so there is one answer to "what does a night look like" rather than
+two that drift. `eaters` has three answers because there are three questions:
+`table` is the whole roll-call for a card standing alone, `away` is the exception
+only for the phone's column, and `none` is for the wide week, where the day's
+table is in the gutter of the row the card sits in (`PlanDayEaters`, which is
+that footer extracted so both places say it the same way).
+
+A day is three slots. `meal` has been a column on `meal_plan_entries` and
+`attendance` since the first plan migration, unconstrained, so that lunches would
+be a code change rather than a migration — `app/utils/meal.ts` is that change.
+**Dinner stays primary and the rest of the app is built on that**: the week's
+fraction, "Fill empty nights", the generator, the phone's walk and the wall board
+all mean dinner when they say night, and `plan.entriesOn(date, meal = DINNER)`
+defaults to it so they go on meaning it without every call site naming it.
+`PlannedNight.entries` is the dinner and only the dinner for the same reason —
+breakfast and lunch live in `meals` — because widening it would light the day's
+dot for a bowl of porridge with nothing failing to compile. What is *not*
+dinner-only is the trip to the shop: `derive` keys on the plan entry and always
+has, so every slot buys, and `entryIdsIn` is what both "to buy" counts read.
+
+A recipe can say which meals it is one of — `recipes.suits_breakfast` and its two
+neighbours, three booleans on the nutrition migration's precedent (typed fields
+over a blob, and a flat row of primitives, which is what `plainCopy` says it
+copies). **All three false means no opinion, not "suits nothing"**: that is the
+state every recipe is in until somebody labels one, which is why the column
+landed with no backfill and why an unlabelled library behaves exactly as it did
+before. This is the one thing about a recipe that is *stored* rather than derived
+— deriving "is a breakfast" from what it has been planned as is circular for the
+case that matters, since a recipe added this morning has been planned as nothing.
+It is read in one place, the plan's recipe list, which **orders** by `mealFitRank`
+and never filters: three tiers, so a labelled match leads, an unlabelled recipe
+follows (nobody said it was a poor breakfast), and another meal's sinks. Hiding
+would make labelling a thing you could regret. The library's own facets stay
+derived and do not read it — see the docblock on `buildRecipeLibrary`.
+
+Breakfast and lunch are `PlanMealCell` at both widths — the wide grid's small
+cells and the two rows under the phone's dinner. **A planned meal is
+`PlanDishCard` in every slot**: the same photograph, name and two cost lines the
+dinner has, because a lunch that is a recipe costs the same minutes at the stove
+and the same trip to the shop, and a day drawing its three slots three ways read
+as three unrelated widgets rather than as one day. This used to say the opposite
+— that porridge is a name and a cell is a label — and that was a claim about
+breakfast rather than about the row it sits in. An **empty** cell is still a
+stock `UButton`, and needs no exception: there is nothing to lay out, and an
+invitation is a label. Taking a meal off is the × on the dish card now, wherever
+the dish is, rather than a trip through the editor; `removeNight` already took a
+`meal`. They open the same `PlanNightEditor`, which takes a
+`meal` beside its `date` and drops two of its blocks for the slots they make no
+sense in — no skip outside dinner, because a skip is a decision the board and
+the generator read and an empty breakfast is the ordinary case rather than a
+gap; no leftovers at breakfast. Its "Who's home" block does not take the meal
+and says so in a comment: the roster is kept once per day, against the dinner,
+and passing a breakfast there would find no rows and read everybody as away.
+
+The wide plan is days down and meals across (`PlanWeekWide`), a plain grid rather
+than a `UTable` — a table's cells are column definitions given rows, and every
+cell here registers itself as a drop target. **The day is the card and the meals
+are cells inside it**, which is the way round it had to go once a day had parts.
+Nothing inside a day draws a frame of its own — the dinner passes
+`:frame="false"`, which takes `PlanNightCard`'s ring, fill and padding off and
+leaves the dish, the empty state and the diary sitting in the row's grid. It was
+a card inside a card before that, costing a second border and a second inset and
+leaving the dinner further from its own row than the breakfast beside it.
+The rows share the height that is left (`flex-1 basis-0`, equal because `basis-0`
+distributes all of it rather than only the spare), so the week ends where the
+screen does and there is nothing below the fold to go looking for. `min-h-20` is
+a floor and not a height — a very short window scrolls rather than crushing seven
+days into slivers, and at the floor the dinner card keeps its dish name and drops
+its cost line. A day nobody is home for keeps its natural height instead of a
+share: there is nothing on it to make room for. Who is eating rides in the day's
+gutter under the date, stacked, rather than in a column of its own out on the
+right: it is four small faces and two words, and as a column it was the widest
+fixed thing on a row whose meals were sharing what was left — a pixel spent there
+came off a dish name that is already truncating. It is still `PlanDayEaters`, a
+`stack` prop apart from the row `PlanNightCard`'s footer draws, because "who is
+at the table" gets one answer. Which is also why `usePlanDrag` keys
+targets by `${date}|${meal}`: three cells sharing a bare date would overwrite
+each other in the map. **Anything may be dropped into any slot** — a suggestion,
+and a dish already planned, which `planMove` rewrites the `meal` of along with
+the date, because "that chilli would do for Wednesday's lunch" is a thing
+households say. A dish already in that slot goes back the other way, meal and
+all; a drop on a slot never deletes anything.
+
+The one drop that does is the shortlist, which registers itself under
+`SHORTLIST_SLOT` — not a slot key, deliberately, so `parseSlot` refuses it.
+Dragging a dinner onto `PlanSuggestions` takes it off the plan, because that
+panel is where the dish came from and where it reappears once the week stops
+claiming it, so the bin is the shortlist without either word being written
+anywhere. A suggestion dropped there is refused in the hit test, so the panel
+never lights rather than the drop doing nothing.
+
+**No drop toasts, including that one.** It used to say "X off the plan" and offer
+a "Put it back" undo, and rearranging a week was a column of them. A drag is the
+most deliberate gesture in the app — picked up, carried, released — and you watch
+the card leave the night and land in the panel, so a notification is the app
+narrating a press somebody just made and watched land. That is the same rule
+`pick` in `plan.vue` already states for planning, skipping and removing a night;
+dragging was the one place breaking it. Toasts stay for what happens out of
+sight: filling a week, clearing one, putting it on the list. What the undo really
+bought was `restoreEntry`, which clears `deleted_at` and so puts back the night
+that was there — its day, its slot, its servings, anything eating its leftovers —
+where dragging the dish out of the shortlist again plans a fresh one under a new
+id. It is still on the store, uncalled, for the day something wants a real undo.
+
+The phone's plan is a guided walk through the week: a day heading, `PlanDayStrip`
+above the night on screen, and a footer whose one button names the next night
+still open — or, once there is none, the review. The strip's dot and that button
+both mean dinner, and the dot deliberately does not light for a breakfast: a
+strip and a footer that disagreed about which nights were dealt with is worse
+than either behaviour on its own. **The dot is the tile's only mark.** Today used
+to be underlined beside it, which put two marks in the same accent on one small
+pill answering two different questions and read as decoration rather than as
+either; the week opens on today and the label above says which one it is. That
+last step (`PlanReview`) is
+component state inside `plan.vue` rather than a route, for the same reason the
+week offset is: it is the end of one task, and Android back landing on Thursday
+would be a surprise. No horizontal swipe between nights; `usePlanDrag` already
+owns touch on these cards, and the strip and the button reach every night
+without a gesture.
+
+Unticking a line in the review writes the shopping row **soft-deleted** rather
+than not writing it. That is the shape a person deleting an item off the list
+already leaves behind, and `derive` has always refused to resurrect one — so the
+decision survives filling the week again, the other phone deriving it, and next
+Tuesday, with no new table and nothing to reconcile. See `app/utils/review.ts`.
 
 `BoardPersonChip` used to be on this list and no longer exists. Today shows the
 day rather than the dinner, and the roster went with the redesign — who is eating

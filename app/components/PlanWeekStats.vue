@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useListStore } from '../stores/list'
-import type { PlannedNight } from '../stores/plan'
+import { usePlanStore, type PlannedNight } from '../stores/plan'
+import { duration, entryIdsIn, weekStats } from '../utils/plan-stats'
 
 /**
  * The week in five numbers, at the top of the aside.
@@ -21,37 +22,14 @@ import type { PlannedNight } from '../stores/plan'
 const { nights } = defineProps<{ nights: PlannedNight[] }>()
 
 const list = useListStore()
+const plan = usePlanStore()
 
-/** Cooking minutes per night. A leftovers night is reheating, and costs nothing. */
-const efforts = computed(() =>
-  nights
-    .map((night) => {
-      const planned = night.entries[0]
-      if (!planned || planned.leftover) return null
-      const minutes = (planned.recipe?.prep_minutes ?? 0) + (planned.recipe?.cook_minutes ?? 0)
-      return minutes > 0 ? { date: night.date, minutes, name: planned.recipe?.name ?? null } : null
-    })
-    .filter(effort => effort !== null)
-)
-
-const plannedCount = computed(() => nights.filter(night => night.entries.length).length)
-
-/** "2h 10m", "45m" — hours only once there are any. */
-function duration(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  const rest = minutes % 60
-  return rest ? `${hours}h ${rest}m` : `${hours}h`
-}
-
-const totalMinutes = computed(() => efforts.value.reduce((sum, effort) => sum + effort.minutes, 0))
-
-const longest = computed(() =>
-  efforts.value.reduce<{ date: string, minutes: number, name: string | null } | null>(
-    (worst, effort) => (!worst || effort.minutes > worst.minutes ? effort : worst),
-    null
-  )
-)
+// The same arithmetic the phone's progress bar and the review summary run, so
+// none of the three can quietly disagree about how full the week is — including
+// which nights it is counting: a week the house is away for four nights of is
+// "3 of 3", not "3 of 7" with four holes nobody is going to fill.
+const stats = computed(() => weekStats(nights, date => plan.nobodyEatingOn(date)))
+const plannedCount = computed(() => stats.value.plannedCount)
 
 /**
  * "Chicken · 55m" — the dish, not the day.
@@ -61,32 +39,26 @@ const longest = computed(() =>
  * it in a column this narrow.
  */
 const longestLabel = computed(() => {
-  if (!longest.value) return '—'
-  const name = longest.value.name?.split(' ')[0]
-  const time = duration(longest.value.minutes)
+  const longest = stats.value.longest
+  if (!longest) return '—'
+  const name = longest.name?.split(' ')[0]
+  const time = duration(longest.minutes)
   return name ? `${name} · ${time}` : time
 })
 
 /**
- * What is still outstanding at the shop for this week's nights.
+ * What is still outstanding at the shop for this week.
  *
- * Only items the plan itself put there, and only the ones nobody has ticked —
- * an ad-hoc "bin bags" is a real errand but it is not something this week's
- * dinners are waiting on.
+ * Every slot, where the numbers above it are dinners: "Nights planned" is about
+ * nights, and this is about the trip to the shop, which a breakfast puts things
+ * on the list for just as a dinner does.
  */
-const toBuy = computed(() => {
-  const entryIds = new Set(
-    nights.flatMap(night => night.entries.map(planned => planned.entry.id))
-  )
-  return list.liveItems.filter(
-    item => !item.checked && item.plan_entry_id && entryIds.has(item.plan_entry_id)
-  ).length
-})
+const toBuy = computed(() => list.outstandingForEntries(entryIdsIn(nights)))
 
 const blocks = computed(() => [
   {
     label: 'Time at the stove',
-    value: totalMinutes.value ? duration(totalMinutes.value) : '—'
+    value: stats.value.totalMinutes ? duration(stats.value.totalMinutes) : '—'
   },
   {
     label: 'Longest cook',
@@ -98,7 +70,7 @@ const blocks = computed(() => [
   },
   {
     label: 'Empty nights',
-    value: `${nights.length - plannedCount.value}`
+    value: `${stats.value.emptyCount}`
   }
 ])
 </script>
@@ -106,7 +78,10 @@ const blocks = computed(() => [
 <template>
   <UCard
     variant="subtle"
-    :ui="{ body: 'flex flex-col gap-4 px-4 py-3.5 sm:p-4' }"
+    :ui="{
+      body: 'flex flex-col gap-3 px-4 py-3 sm:p-4',
+      footer: 'px-4 py-3 sm:px-4 sm:py-3'
+    }"
   >
     <div>
       <div class="flex items-baseline justify-between gap-2">
@@ -114,18 +89,19 @@ const blocks = computed(() => [
           Nights planned
         </h3>
         <p class="text-sm text-dimmed tabular-nums">
-          {{ plannedCount }} of {{ nights.length }}
+          {{ plannedCount }} of {{ stats.total }}
         </p>
       </div>
+      <!-- `|| 1` for the week the whole house is away for: nothing to divide by. -->
       <UProgress
         :model-value="plannedCount"
-        :max="nights.length"
+        :max="stats.total || 1"
         size="sm"
-        class="mt-2.5"
+        class="mt-2"
       />
     </div>
 
-    <dl class="grid grid-cols-2 gap-x-4 gap-y-3">
+    <dl class="grid grid-cols-2 gap-x-4 gap-y-2">
       <div
         v-for="block in blocks"
         :key="block.label"
@@ -134,10 +110,25 @@ const blocks = computed(() => [
         <dt class="truncate text-xs text-dimmed">
           {{ block.label }}
         </dt>
-        <dd class="mt-0.5 truncate text-sm font-medium text-highlighted">
+        <dd class="truncate text-sm font-medium text-highlighted">
           {{ block.value }}
         </dd>
       </div>
     </dl>
+
+    <!--
+      Whatever else belongs to the same week, under the card's own rule rather
+      than in a card of its own. The aside puts the roster here: who is eating is
+      the fact these five numbers are about — a week that is "3 of 3" is that
+      because the house is away — and two stacked cards spent a heading, a gap
+      and a second border saying so, in the column where the shortlist is what
+      anybody is scrolling for. The review passes nothing and is unchanged.
+    -->
+    <template
+      v-if="$slots.footer"
+      #footer
+    >
+      <slot name="footer" />
+    </template>
   </UCard>
 </template>

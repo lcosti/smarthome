@@ -210,6 +210,23 @@ export const useListStore = defineStore('list', () => {
   })
 
   /**
+   * How much of a set of nights is still outstanding at the shop.
+   *
+   * Only items the plan itself put there, and only the ones nobody has ticked —
+   * an ad-hoc "bin bags" is a real errand but it is not something this week's
+   * dinners are waiting on.
+   *
+   * Here rather than in the plan, because it is a fact about the list, and asked
+   * of the list by three surfaces now: the aside's summary, the review's, and
+   * the chip along the top of the phone's plan.
+   */
+  function outstandingForEntries(entryIds: Set<string>): number {
+    return liveItems.value.filter(
+      item => !item.checked && item.plan_entry_id && entryIds.has(item.plan_entry_id)
+    ).length
+  }
+
+  /**
    * The aisle this item was filed under last time. Nobody should have to tell the
    * app that milk lives in Chilled more than once.
    */
@@ -401,12 +418,17 @@ export const useListStore = defineStore('list', () => {
     items,
     aisles,
     sortedAisles,
+    // Exposed so the plan's review step can add its week up the same way the
+    // list does — same staples, same cupboard, same totals — over rows that are
+    // not on the list yet.
+    aggregateContext,
     liveItems,
     checkedItems,
     sections,
     groups,
     progress,
     neededByIngredient,
+    outstandingForEntries,
     rememberedAisle,
     suggestedAisle,
     sourceLabelFor,

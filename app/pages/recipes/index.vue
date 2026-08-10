@@ -25,10 +25,25 @@ const swapDate = computed(() => {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
 })
 
+/**
+ * What a tap opens: the recipe, to read.
+ *
+ * The route behind a row is the editor, which is the wrong screen for deciding
+ * what to cook — so a tap opens the sheet, and the sheet offers the editor. The
+ * wide tree has answered this with its detail pane all along.
+ *
+ * Swap mode is the exception and stays a straight assignment: that errand
+ * arrived with its answer already chosen, and a sheet in front of it is a tap
+ * spent confirming something nobody was unsure about.
+ */
+const sheetOpen = ref(false)
+const sheetId = ref<string | null>(null)
+
 async function pick(recipeId: string) {
   const date = swapDate.value
   if (!date) {
-    await navigateTo(`/recipes/${recipeId}`)
+    sheetId.value = recipeId
+    sheetOpen.value = true
     return
   }
   await plan.setNight(date, recipeId)
@@ -186,5 +201,10 @@ async function land(recipeId: string | null) {
         />
       </ul>
     </main>
+
+    <RecipeSheet
+      v-model:open="sheetOpen"
+      :recipe-id="sheetId"
+    />
   </div>
 </template>

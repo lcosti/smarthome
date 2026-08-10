@@ -4,8 +4,8 @@ import { useListStore } from '../stores/list'
 import { usePeopleStore } from '../stores/people'
 import { useSyncStore } from '../stores/sync'
 import { relativeTime } from '../utils/board'
+import { choreScheduleLabel } from '../utils/chores'
 import type { AisleRow, ChoreRow } from '../utils/db'
-import { dayLabel } from '../utils/week'
 
 const store = useListStore()
 const sync = useSyncStore()
@@ -25,15 +25,9 @@ const drafts = ref(new Map<string, string>())
 const editingChore = ref<string | null>(null)
 const choreEditorOpen = ref(false)
 
-const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
 /** "Tue, Fri · Maya · 19:00" — when it happens, whose it is, and at what time. */
 function choreMeta(chore: ChoreRow): string {
-  const when = chore.weekdays?.length
-    ? chore.weekdays.map(day => WEEKDAY_LABELS[day - 1]).join(', ')
-    : chore.due_date
-      ? dayLabel(chore.due_date)
-      : ''
+  const when = choreScheduleLabel(chore)
   const whose = chore.person_id
     ? people.personById(chore.person_id)?.name ?? null
     : 'Everyone'
@@ -393,7 +387,14 @@ async function copyInviteCode() {
             v-if="household"
             class="mt-2 flex items-center gap-2"
           >
+            <!--
+              `data-invite-code` is a handle for the acceptance scripts, as
+              `data-shopping-aisle` is on the list. The code used to be a
+              `<code>` element they could find on its own; as a badge it is a
+              six-character span on a page that also says AISLES and PEOPLE.
+            -->
             <UBadge
+              data-invite-code
               color="neutral"
               variant="subtle"
               size="xl"

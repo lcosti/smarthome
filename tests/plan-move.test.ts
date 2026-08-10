@@ -38,7 +38,7 @@ describe('daysBetween', () => {
 
 describe('moving a night', () => {
   it('moves a dish onto an empty night', () => {
-    const rows = planMove([entry()], 'entry-mon', '2026-08-07', NOW)
+    const rows = planMove([entry()], 'entry-mon', '2026-08-07', 'dinner', NOW)
 
     expect(rows).toHaveLength(1)
     expect(rows[0]!.date).toBe('2026-08-07')
@@ -46,11 +46,11 @@ describe('moving a night', () => {
   })
 
   it('does nothing when a night is dropped on itself', () => {
-    expect(planMove([entry()], 'entry-mon', '2026-08-03', NOW)).toEqual([])
+    expect(planMove([entry()], 'entry-mon', '2026-08-03', 'dinner', NOW)).toEqual([])
   })
 
   it('does nothing for an entry it cannot see', () => {
-    expect(planMove([entry()], 'entry-gone', '2026-08-07', NOW)).toEqual([])
+    expect(planMove([entry()], 'entry-gone', '2026-08-07', 'dinner', NOW)).toEqual([])
   })
 
   it('swaps the two nights when the target already has a dinner', () => {
@@ -59,6 +59,7 @@ describe('moving a night', () => {
       [entry(), entry({ id: 'entry-fri', date: '2026-08-07', recipe_id: 'recipe-pasta' })],
       'entry-mon',
       '2026-08-07',
+      'dinner',
       NOW
     ))
 
@@ -67,15 +68,138 @@ describe('moving a night', () => {
     expect(rows.get('entry-fri')!.date).toBe('2026-08-03')
   })
 
+  it('swaps with the target date’s dinner and leaves its lunch alone', () => {
+    // A day is three slots now, and a move stays within its own. Swapping a
+    // dinner with whatever happened to be first on the target date would sit
+    // Friday's lunch on Monday's dinner and rename both.
+    const rows = byId(planMove(
+      [
+        entry(),
+        entry({ id: 'entry-fri-lunch', date: '2026-08-07', meal: 'lunch', recipe_id: 'recipe-soup' }),
+        entry({ id: 'entry-fri', date: '2026-08-07', recipe_id: 'recipe-pasta' })
+      ],
+      'entry-mon',
+      '2026-08-07',
+      'dinner',
+      NOW
+    ))
+
+    expect(rows.size).toBe(2)
+    expect(rows.get('entry-mon')!.date).toBe('2026-08-07')
+    expect(rows.get('entry-fri')!.date).toBe('2026-08-03')
+    expect(rows.has('entry-fri-lunch')).toBe(false)
+  })
+
+  it('moves onto a date whose only entry is another meal without swapping it', () => {
+    const rows = planMove(
+      [entry(), entry({ id: 'entry-fri-lunch', date: '2026-08-07', meal: 'lunch' })],
+      'entry-mon',
+      '2026-08-07',
+      'dinner',
+      NOW
+    )
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.id).toBe('entry-mon')
+    expect(rows[0]!.date).toBe('2026-08-07')
+  })
+
   it('ignores a deleted night sitting on the target date', () => {
     const rows = planMove(
       [entry(), entry({ id: 'entry-fri', date: '2026-08-07', deleted_at: NOW })],
       'entry-mon',
       '2026-08-07',
+      'dinner',
       NOW
     )
 
     expect(rows).toHaveLength(1)
+  })
+})
+
+describe('moving a dish between meals', () => {
+  it('rewrites the meal along with the date', () => {
+    // Tuesday's dinner becomes Friday's lunch. The row has to arrive calling
+    // itself what the column it landed in says, or the plan reads one way and
+    // the data another.
+    const rows = planMove([entry()], 'entry-mon', '2026-08-07', 'lunch', NOW)
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.date).toBe('2026-08-07')
+    expect(rows[0]!.meal).toBe('lunch')
+  })
+
+  it('changes meal on the same day', () => {
+    // Same date, different slot: still a move, and the old code called it a
+    // no-op because it only ever compared dates.
+    const rows = planMove([entry()], 'entry-mon', '2026-08-03', 'lunch', NOW)
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.meal).toBe('lunch')
+  })
+
+  it('does nothing when dropped back on the slot it is already in', () => {
+    expect(planMove([entry()], 'entry-mon', '2026-08-03', 'dinner', NOW)).toEqual([])
+  })
+
+  it('sends the displaced dish back to the slot the dragged one came from', () => {
+    // Monday dinner onto Friday lunch, so Friday's lunch takes Monday's dinner —
+    // both halves of the swap change day and meal, or one of them lands in a
+    // slot that is already occupied.
+    const rows = byId(planMove(
+      [
+        entry(),
+        entry({ id: 'entry-fri-lunch', date: '2026-08-07', meal: 'lunch', recipe_id: 'recipe-soup' })
+      ],
+      'entry-mon',
+      '2026-08-07',
+      'lunch',
+      NOW
+    ))
+
+    expect(rows.size).toBe(2)
+    expect(rows.get('entry-mon')).toMatchObject({ date: '2026-08-07', meal: 'lunch' })
+    expect(rows.get('entry-fri-lunch')).toMatchObject({ date: '2026-08-03', meal: 'dinner' })
+  })
+
+  it('leaves the target date’s other meals where they are', () => {
+    const rows = planMove(
+      [entry(), entry({ id: 'entry-fri', date: '2026-08-07', recipe_id: 'recipe-pasta' })],
+      'entry-mon',
+      '2026-08-07',
+      'breakfast',
+      NOW
+    )
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.id).toBe('entry-mon')
+  })
+
+  it('cuts a leftovers link when the two ends land on one day', () => {
+    // Lunch eating what dinner cooked the same day is not what the gap rule
+    // models, and the safe answer is the documented one: the night keeps its own
+    // copy of the recipe and cooks it.
+    const rows = byId(planMove(
+      [entry(), entry({ id: 'entry-tue', date: '2026-08-04', leftover_of_entry_id: 'entry-mon' })],
+      'entry-tue',
+      '2026-08-03',
+      'lunch',
+      NOW
+    ))
+
+    expect(rows.get('entry-tue')!.leftover_of_entry_id).toBeNull()
+  })
+
+  it('keeps a leftovers link that changes meal but stays a day apart', () => {
+    const rows = byId(planMove(
+      [entry(), entry({ id: 'entry-tue', date: '2026-08-04', leftover_of_entry_id: 'entry-mon' })],
+      'entry-tue',
+      '2026-08-04',
+      'lunch',
+      NOW
+    ))
+
+    expect(rows.get('entry-tue')).toMatchObject({ meal: 'lunch', leftover_of_entry_id: 'entry-mon' })
   })
 })
 
@@ -87,7 +211,7 @@ describe('leftovers links across a move', () => {
   ]
 
   it('keeps the link when the two nights stay within a couple of days', () => {
-    const rows = byId(planMove(pair(), 'entry-tue', '2026-08-05', NOW))
+    const rows = byId(planMove(pair(), 'entry-tue', '2026-08-05', 'dinner', NOW))
 
     expect(rows.get('entry-tue')!.leftover_of_entry_id).toBe('entry-mon')
   })
@@ -95,13 +219,13 @@ describe('leftovers links across a move', () => {
   it('cuts the link when the leftovers night moves out of reach', () => {
     // Three days later is not leftovers any more. The night keeps its own copy
     // of the recipe and goes back to cooking it, which is what that copy is for.
-    const rows = byId(planMove(pair(), 'entry-tue', '2026-08-06', NOW))
+    const rows = byId(planMove(pair(), 'entry-tue', '2026-08-06', 'dinner', NOW))
 
     expect(rows.get('entry-tue')!.leftover_of_entry_id).toBeNull()
   })
 
   it('cuts the link when the leftovers night lands before its source', () => {
-    const rows = byId(planMove(pair(), 'entry-tue', '2026-08-02', NOW))
+    const rows = byId(planMove(pair(), 'entry-tue', '2026-08-02', 'dinner', NOW))
 
     expect(rows.get('entry-tue')!.leftover_of_entry_id).toBeNull()
   })
@@ -109,7 +233,7 @@ describe('leftovers links across a move', () => {
   it('cuts the link when the night that cooked moves away instead', () => {
     // Same broken claim from the other end: dragging Monday to Friday leaves
     // Tuesday eating something that will not be cooked until after it.
-    const rows = byId(planMove(pair(), 'entry-mon', '2026-08-07', NOW))
+    const rows = byId(planMove(pair(), 'entry-mon', '2026-08-07', 'dinner', NOW))
 
     expect(rows.get('entry-mon')!.date).toBe('2026-08-07')
     expect(rows.get('entry-tue')!.leftover_of_entry_id).toBeNull()
@@ -123,7 +247,7 @@ describe('leftovers links across a move', () => {
       entry({ id: 'entry-far', date: '2026-08-09', leftover_of_entry_id: 'entry-mon' }),
       entry({ id: 'entry-sat', date: '2026-08-08', recipe_id: 'recipe-pasta' })
     ]
-    const rows = byId(planMove(stale, 'entry-sat', '2026-08-05', NOW))
+    const rows = byId(planMove(stale, 'entry-sat', '2026-08-05', 'dinner', NOW))
 
     expect(rows.has('entry-far')).toBe(false)
   })
@@ -135,6 +259,7 @@ describe('leftovers links across a move', () => {
       [entry({ id: 'entry-tue', date: '2026-08-04', leftover_of_entry_id: 'entry-elsewhere' })],
       'entry-tue',
       '2026-08-08',
+      'dinner',
       NOW
     )
 
@@ -147,6 +272,7 @@ describe('leftovers links across a move', () => {
       [...pair(), entry({ id: 'entry-sat', date: '2026-08-08', recipe_id: 'recipe-pasta' })],
       'entry-mon',
       '2026-08-08',
+      'dinner',
       NOW
     ))
 

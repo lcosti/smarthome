@@ -82,6 +82,15 @@ function applied(planItems: ItemRow[], result: ReturnType<typeof derive>): ItemR
   return [...byId.values()]
 }
 
+/**
+ * What a derive would write, without the read-only `wanted` map beside it.
+ * That map is the review step's view of the week and says nothing about whether
+ * this run has any work to do.
+ */
+function writes(result: ReturnType<typeof derive>) {
+  return { creates: result.creates, updates: result.updates, removes: result.removes }
+}
+
 describe('servingsHint', () => {
   it('leaves the quantity alone when the servings match', () => {
     expect(servingsHint('2 tins', 2, 2)).toBe('2 tins')
@@ -130,7 +139,7 @@ describe('derive', () => {
     const first = derive(input())
     const second = derive(input({ planItems: applied([], first) }))
 
-    expect(second).toEqual({ creates: [], updates: [], removes: [] })
+    expect(writes(second)).toEqual({ creates: [], updates: [], removes: [] })
   })
 
   it('lands on the same ids on two devices that never spoke', () => {
@@ -161,7 +170,7 @@ describe('derive', () => {
       planItems: existing
     }))
 
-    expect(result).toEqual({ creates: [], updates: [], removes: [] })
+    expect(writes(result)).toEqual({ creates: [], updates: [], removes: [] })
   })
 
   it('swaps the ingredients over when the night changes recipe', () => {
@@ -186,7 +195,7 @@ describe('derive', () => {
     const existing = applied([], derive(input())).map(i => ({ ...i, deleted_at: NOW }))
     const result = derive(input({ planItems: existing }))
 
-    expect(result).toEqual({ creates: [], updates: [], removes: [] })
+    expect(writes(result)).toEqual({ creates: [], updates: [], removes: [] })
   })
 
   it('refreshes an unchecked item when the recipe line is edited', () => {
@@ -282,7 +291,7 @@ describe('derive', () => {
     it('is still a strict no-op the second time', () => {
       const existing = applied([], derive(input(resolved)))
       const again = derive(input({ ...resolved, planItems: existing }))
-      expect(again).toEqual({ creates: [], updates: [], removes: [] })
+      expect(writes(again)).toEqual({ creates: [], updates: [], removes: [] })
     })
 
     it('prefers the ingredient aisle over the one on the recipe line', () => {
@@ -343,6 +352,21 @@ describe('derive', () => {
     expect(new Set(result.creates.map(i => i.id)).size).toBe(2)
   })
 
+  it('buys for a breakfast and a dinner on one day as two separate sets of items', () => {
+    // Deriving keys items on the plan entry, never on the date, so the day's
+    // three slots have never been able to collide — but breakfast and lunch are
+    // reachable now, and the shopping list is the whole reason they are worth
+    // planning.
+    const result = derive(input({
+      entries: [entry(), entry({ id: 'entry-tuesday-breakfast', meal: 'breakfast' })]
+    }))
+
+    expect(result.creates).toHaveLength(2)
+    expect(new Set(result.creates.map(i => i.id)).size).toBe(2)
+    expect(new Set(result.creates.map(i => i.plan_entry_id)))
+      .toEqual(new Set(['entry-tuesday', 'entry-tuesday-breakfast']))
+  })
+
   it('buys nothing for a night nobody is cooking on', () => {
     const result = derive(input({
       entries: [entry({ recipe_id: null, skip_reason: 'takeaway' })]
@@ -377,7 +401,7 @@ describe('derive', () => {
     }
     const result = derive(input({ entries: [], planItems: [adhoc] }))
 
-    expect(result).toEqual({ creates: [], updates: [], removes: [] })
+    expect(writes(result)).toEqual({ creates: [], updates: [], removes: [] })
   })
 })
 
@@ -454,7 +478,7 @@ describe('leftovers nights', () => {
       planItems: applied([], cookingWeek)
     }))
     // Sunday's item belongs to a night outside this range, so it is left alone.
-    expect(nextWeek).toEqual({ creates: [], updates: [], removes: [] })
+    expect(writes(nextWeek)).toEqual({ creates: [], updates: [], removes: [] })
   })
 
   it('shops for itself when the night it came from is gone', () => {
