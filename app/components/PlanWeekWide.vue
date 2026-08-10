@@ -8,16 +8,23 @@ import { isoDate, mondayOf, weekLabel } from '../utils/week'
 /**
  * The week as a screenful, for a screen with the room for it.
  *
- * Days down, meals across: breakfast, lunch, dinner and who is at the table,
- * one row each. The week used to run the other way — a row of night cards, as
+ * Days down, meals across: breakfast, lunch and dinner, one row each, with the
+ * date and who is at the table in the gutter. The week used to run the other way — a row of night cards, as
  * wide as what was left of the week — and that was the right shape while a day
  * had one meal on it. It is the wrong shape for three: a day is now a thing with
  * parts, and the parts of Tuesday belong on the line that says Tuesday.
  *
- * The columns are not equal, because the meals are not. Dinner is what the week
- * is decided around and gets a full card — a picture, what it costs at the
- * stove and at the shop, who is at the table under it — while breakfast and
- * lunch are one row each, empty most weeks and saying only what they are.
+ * Every planned slot is drawn the same way — `PlanDishCard`, a picture and a
+ * name and what it costs at the stove and at the shop — because a lunch that is
+ * a recipe costs those same things. The columns are still not equal: dinner is
+ * what the week is decided around and is the one most likely to have a long name
+ * and a full line of facts, so it gets the width, while breakfast and lunch are
+ * empty most weeks and want only enough room to be pressed.
+ *
+ * Nothing inside a day draws a frame of its own. The day is the card; the three
+ * slots sit in its grid. The dinner used to be a card inside that card, which
+ * cost a second border and a second inset and left it further from its own row
+ * than the breakfast beside it — hence `:frame="false"`.
  *
  * Only the days still ahead get a row. A week is read forwards: on a Friday,
  * Monday to Thursday are a record and Friday to Sunday are the decisions still
@@ -26,8 +33,9 @@ import { isoDate, mondayOf, weekLabel } from '../utils/week'
  *
  * A plain grid rather than a `UTable`: a table's cells are column definitions
  * given rows of data, and every cell here is a drop target that registers
- * itself. Nothing in it is hand-rolled — the cells are `PlanNightCard` and
- * `PlanMealCell`, which are a card and a `UButton`.
+ * itself. The cells themselves are `PlanNightCard` and `PlanMealCell`, and what
+ * they draw is a `UCard`, a `UButton`, or the one hand-rolled block in the plan
+ * — `PlanDishCard`, which carries the card-and-row exception for all three.
  *
  * Nothing on this screen scrolls the page as a whole: the week and the aside
  * scroll separately, so pressing "fill" never moves the thing you were looking
@@ -59,7 +67,8 @@ const { cards, weekStart, events, canFill, canDerive, canClear, filling, derivin
 
 const emit = defineEmits<{
   open: [date: string, meal?: Meal]
-  remove: [night: PlannedNight]
+  /** Take the dish off one slot. Every slot can be emptied from its own card. */
+  remove: [night: PlannedNight, meal: Meal]
   pick: [recipeId: string, meal: Meal]
   fill: []
   derive: []
@@ -83,15 +92,19 @@ const thisWeek = computed(() => weekStart === isoDate(mondayOf(new Date())))
 const SIDE_MEALS = ['breakfast', 'lunch'] as const
 
 /**
- * The day and its four columns, written once and used by both the headings and
+ * The day and its three meals, written once and used by both the headings and
  * every row, so a heading can never end up over the wrong cell.
  *
  * Dinner is the wide one because it is the only cell with a card's worth to say.
- * "Eating" is fixed rather than a fraction: it holds up to five faces and a
- * short count, which is a known width, and letting it flex would take room off
- * the meals to leave a gap beside four avatars.
+ *
+ * Who is eating had a fixed `9rem` column of its own out on the right, and does
+ * not any more: it is a line of small faces and two words, and it was the widest
+ * fixed cost on a row whose meals were sharing what was left — a pixel spent
+ * there is a pixel off a dish name that is already truncating. It rides in the
+ * gutter under the date now, which costs the `2rem` this line grew by and gives
+ * the rest back.
  */
-const COLUMNS = '6rem minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr) 9rem'
+const COLUMNS = '8rem minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr)'
 
 function dayOf(date: string) {
   const [year, month, day] = date.split('-').map(Number)
@@ -248,9 +261,6 @@ function isAway(night: PlannedNight): boolean {
           >
             {{ MEAL_LABELS[meal] }}
           </p>
-          <p class="text-xs font-medium uppercase tracking-wide text-dimmed">
-            Eating
-          </p>
         </div>
 
         <!--
@@ -275,23 +285,44 @@ function isAway(night: PlannedNight): boolean {
               :style="{ gridTemplateColumns: COLUMNS }"
             >
               <!--
-                The day, in the gutter. Today says so in a badge under its name
-                rather than in the accent alone — the row is already ringed, and
-                the word is what somebody scanning a column of seven is looking
-                for.
+                The day, in the gutter, and who is at it. Today says so in a
+                badge beside its name rather than in the accent alone — the row
+                is already ringed, and the word is what somebody scanning a
+                column of seven is looking for.
+
+                The roll-call sits here rather than in a column of its own,
+                stacked to the gutter's width. It is once for the day rather than
+                once per meal — the roster is kept per day, and three copies of
+                the same four faces across a row would be the same fact three
+                times. A day nobody is home for says so across the row instead,
+                so it is not repeated here.
               -->
-              <div class="flex flex-col justify-center gap-1">
-                <span
-                  class="text-sm font-semibold"
-                  :class="night.date === today ? 'text-primary' : 'text-highlighted'"
-                >{{ dayLabelOf(night.date) }} {{ dateLabelOf(night.date) }}</span>
-                <UBadge
-                  v-if="night.date === today"
-                  color="primary"
-                  variant="subtle"
-                  size="sm"
-                  label="Today"
-                  class="self-start"
+              <div class="flex min-w-0 flex-col justify-center gap-1">
+                <!--
+                  The date and the badge on one line, as `PlanNightCard`'s own
+                  header has them. Under it, the badge was a third line in a
+                  gutter with three lines' room, and today — the row anybody is
+                  most likely to be reading — was the one row whose roll-call
+                  fell off the bottom.
+                -->
+                <div class="flex min-w-0 items-center gap-1.5">
+                  <span
+                    class="truncate text-sm font-semibold"
+                    :class="night.date === today ? 'text-primary' : 'text-highlighted'"
+                  >{{ dayLabelOf(night.date) }} {{ dateLabelOf(night.date) }}</span>
+                  <UBadge
+                    v-if="night.date === today"
+                    color="primary"
+                    variant="subtle"
+                    size="sm"
+                    label="Today"
+                    class="shrink-0"
+                  />
+                </div>
+                <PlanDayEaters
+                  v-if="!isAway(night)"
+                  :date="night.date"
+                  stack
                 />
               </div>
 
@@ -307,7 +338,7 @@ function isAway(night: PlannedNight): boolean {
                 variant="ghost"
                 icon="i-lucide-house"
                 label="Nobody home"
-                class="col-span-4 justify-start text-dimmed"
+                class="col-span-3 justify-start text-dimmed"
                 @click="emit('open', night.date, DINNER)"
               />
 
@@ -320,34 +351,27 @@ function isAway(night: PlannedNight): boolean {
                   :planned="night.meals[meal]"
                   tall
                   @open="emit('open', night.date, meal)"
+                  @remove="emit('remove', night, meal)"
                 />
 
                 <!--
-                  The dinner is the one cell with a card's worth to say, so it
-                  keeps being one. `today` is false here because the band around
-                  it already carries the ring, and two of them a padding's width
-                  apart is one too many.
+                  The dinner keeps its own component — it is the slot with the
+                  empty states and the diary — but not its own frame. `today` is
+                  false here and `frame` is off for the same reason: the band
+                  around it already carries the ring and the border, and a second
+                  set of both a padding's width inside them is one too many.
                 -->
                 <PlanNightCard
                   :night="night"
                   :today="false"
                   :past="night.date < today"
                   :header="false"
+                  :frame="false"
                   eaters="none"
                   :events="events.get(night.date)"
                   class="min-h-0"
                   @open="emit('open', night.date, DINNER)"
-                  @remove="emit('remove', night)"
-                />
-
-                <!--
-                  Who is at the table, once for the day rather than once per meal
-                  — the roster is kept per day, and three copies of the same four
-                  faces across a row would be the same fact three times.
-                -->
-                <PlanDayEaters
-                  :date="night.date"
-                  class="self-center"
+                  @remove="emit('remove', night, DINNER)"
                 />
               </template>
             </div>

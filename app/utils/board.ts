@@ -1166,12 +1166,21 @@ function shortDate(date: string): string {
 /**
  * The recipe library, as the board reads it.
  *
- * Everything the mockup asks for is derived rather than stored. There is still no
- * tags column and this is deliberately not the change that adds one: how long a
- * recipe takes, how many it serves, how often it has been cooked, what is already
- * on the list and what is already in the cupboard are all facts the app has, and
- * they answer the same questions — quick tonight? feeds everyone? had it
- * recently? what would I have to buy, if anything?
+ * Every facet here is derived rather than stored: how long a recipe takes, how
+ * many it serves, how often it has been cooked, what is already on the list and
+ * what is already in the cupboard are all facts the app has, and they answer the
+ * same questions — quick tonight? feeds everyone? had it recently? what would I
+ * have to buy, if anything?
+ *
+ * `recipes.suits_breakfast` and its two neighbours are the one thing about a
+ * recipe that is stored, and they are not facets and are not read here. They had
+ * to be stored because deriving "is a breakfast" from what a recipe has been
+ * planned as is circular exactly when it matters — a recipe added this morning
+ * has been planned as nothing. They are not read here because the library is
+ * browsed rather than filled in: the place a slot is being decided is the plan's
+ * own recipe list, which orders by them (`mealFitRank`). A Breakfast chip beside
+ * "Quick" would be offering to narrow a library nobody is standing in front of
+ * with a meal in mind.
  *
  * Cooked counts come from the plan rather than from a counter, so they are true
  * of what actually happened without anything having to be recorded. A future

@@ -247,8 +247,12 @@ async function skip(reason: string) {
   setTimeout(advance, SETTLE_MS)
 }
 
-async function remove(night: PlannedNight) {
-  await removeNight(night)
+/**
+ * Take the dish off one slot. Any of the three — every planned meal is drawn as
+ * `PlanDishCard` now, and every one of those carries the ×.
+ */
+async function remove(night: PlannedNight, meal: Meal = DINNER) {
+  await removeNight(night, meal)
 }
 
 async function derive() {
@@ -423,18 +427,29 @@ async function derive() {
         that is almost never there beats reading the roll-call through the
         shortlist.
       -->
-      <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-hidden px-3 pb-3">
-        <LoadingState v-if="!sync.hydrated" />
+      <!--
+        The gutter is on the scroller rather than here, and that is not a tidy-up:
+        `overflow-y-auto` forces the other axis to `auto` too, so the column
+        clips horizontally at its own content edge. A card in it is exactly as
+        wide as that edge, and a `ring` is a box-shadow drawn *outside* the
+        border box — so the night's ring lost its left and right sides and the
+        selected dinner looked cut off down both edges. Padding inside the
+        clipping box is what gives the ring somewhere to be drawn.
+      -->
+      <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-hidden pb-3">
+        <LoadingState
+          v-if="!sync.hydrated"
+          class="px-3"
+        />
 
         <div
           v-else
-          class="flex h-full flex-col gap-3 overflow-y-auto pt-3"
+          class="flex h-full flex-col gap-3 overflow-y-auto px-3 pt-3"
         >
           <PlanDayStrip
             :nights="nights"
             :no-one-eating="noOneEating"
             :selected="selected"
-            :today="today"
             class="shrink-0"
             @select="chosenDate = $event"
           />
@@ -460,6 +475,7 @@ async function derive() {
             @open="openSlot(selected)"
             @open-meal="openSlot(selected, $event)"
             @remove="remove(selectedNight)"
+            @remove-meal="remove(selectedNight, $event)"
             @skip="skip"
           />
 

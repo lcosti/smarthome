@@ -109,6 +109,11 @@ export const useRecipesStore = defineStore('recipes', () => {
       protein_g: null,
       salt_g: null,
       shortlisted_at: null,
+      // Unlabelled, which is "no opinion" and not "suits nothing": a new recipe
+      // is offered at every meal until somebody says otherwise on its page.
+      suits_breakfast: false,
+      suits_lunch: false,
+      suits_dinner: false,
       deleted_at: null,
       created_at: timestamp,
       updated_at: timestamp
@@ -117,7 +122,8 @@ export const useRecipesStore = defineStore('recipes', () => {
 
   type RecipePatch = Partial<Pick<RecipeRow,
     'name' | 'source_url' | 'base_servings' | 'prep_minutes' | 'cook_minutes' | 'method' | 'image_url' | 'photo'
-    | 'kcal' | 'fat_g' | 'saturates_g' | 'carbs_g' | 'sugars_g' | 'fibre_g' | 'protein_g' | 'salt_g'>>
+    | 'kcal' | 'fat_g' | 'saturates_g' | 'carbs_g' | 'sugars_g' | 'fibre_g' | 'protein_g' | 'salt_g'
+    | 'suits_breakfast' | 'suits_lunch' | 'suits_dinner'>>
 
   async function updateRecipe(id: string, patch: RecipePatch) {
     const current = all.value.get(id)

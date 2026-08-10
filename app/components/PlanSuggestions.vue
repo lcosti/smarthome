@@ -84,6 +84,24 @@ function pickUp(event: PointerEvent, candidate: RankedCandidate) {
   })
 }
 
+/**
+ * And carried back. This panel is where a dish came from and where it reappears
+ * once the week stops claiming it, so dropping one here is how you take it off —
+ * the gesture people reach for, and the only one in the plan that removes
+ * anything.
+ *
+ * The whole panel is the target, empty state included: a week with nothing left
+ * to suggest is exactly the week somebody is about to take something off.
+ */
+const root = useTemplateRef<HTMLElement>('root')
+
+/** A dish is in the air, so the panel says what it would do with it. */
+const offering = computed(() => drag.payload.value?.kind === 'night')
+const isOver = computed(() => drag.overSlot.value === drag.shortlistSlot)
+
+watchEffect(() => drag.registerTarget(drag.shortlistSlot, root.value ?? null))
+onBeforeUnmount(() => drag.registerTarget(drag.shortlistSlot, null))
+
 const dayName = computed(() => {
   if (!target) return null
   const [year, month, day] = target.split('-').map(Number)
@@ -123,24 +141,41 @@ function reasonFor(candidate: RankedCandidate): string {
 </script>
 
 <template>
-  <div>
-    <div class="flex items-baseline justify-between gap-2">
-      <h3
-        v-if="tiles"
-        class="text-sm font-semibold text-highlighted"
-      >
+  <div
+    ref="root"
+    class="transition-colors"
+    :class="[
+      offering && 'rounded-lg p-2 -m-2 ring-1 ring-default ring-dashed',
+      isOver && 'ring-2 ring-primary ring-solid bg-primary/5'
+    ]"
+  >
+    <!--
+      What dropping here would do, said only while something is in the air. A
+      standing "drag things here to remove them" would be an instruction on a
+      panel whose job is to offer dinners; this is the panel answering the
+      gesture that is already happening.
+    -->
+    <p
+      v-if="offering"
+      class="mb-2 flex items-center gap-1.5 text-xs text-dimmed"
+    >
+      <UIcon
+        name="i-lucide-undo-2"
+        class="size-3.5 shrink-0"
+      />
+      Drop to take it off the plan
+    </p>
+
+    <div
+      v-if="tiles"
+      class="flex items-baseline justify-between gap-2"
+    >
+      <h3 class="text-sm font-semibold text-highlighted">
         Recommended for {{ dayName }}
-      </h3>
-      <h3
-        v-else
-        class="text-xs text-dimmed"
-      >
-        Recommended meals
       </h3>
 
       <!-- Four is a shortlist, not the library. This is the way to the rest of it. -->
       <UButton
-        v-if="tiles"
         color="neutral"
         variant="link"
         size="xs"
@@ -152,27 +187,31 @@ function reasonFor(candidate: RankedCandidate): string {
 
     <!--
       Which slot "Use Wed" plants into. Three fixed options, one of them chosen,
-      so a radio group — `card` with the indicator hidden is this app's chip, the
-      same one the review's grouping and the list's aisle filters are drawn as.
-      Not tabs, which would promise panels underneath, and not a select, which
-      would hide two of three answers behind a press.
+      and the list under it re-reads as offers for that slot — so a tab set, on
+      the same terms as the nutrition panel's scope toggle: no panels of its own,
+      because the shortlist below is the panel. Not a select, which would hide
+      two of three answers behind a press.
+
+      It was three chips in a row and is now a segmented control across the
+      column, which is what makes the chosen slot read as the state the panel is
+      in rather than as one of three buttons that happens to be lit.
+
+      No label beside it, and no heading over the column either: three meal names
+      above a list of dinners, in the panel the plan opens to add one, do not
+      need saying twice. The name it answers to is on `aria-label`, which is
+      where a label that is only worth having when you cannot see the tabs
+      belongs.
     -->
-    <div
+    <UTabs
       v-if="!tiles"
-      class="mt-2 flex items-center gap-2"
-    >
-      <span class="shrink-0 text-xs uppercase tracking-wide text-dimmed">Add to</span>
-      <URadioGroup
-        v-model="addTo"
-        :items="mealItems"
-        variant="card"
-        indicator="hidden"
-        orientation="horizontal"
-        size="xs"
-        color="primary"
-        :ui="{ fieldset: 'gap-1.5' }"
-      />
-    </div>
+      v-model="addTo"
+      :items="mealItems"
+      :content="false"
+      size="xs"
+      class="w-full"
+      :ui="{ list: 'rounded-lg' }"
+      aria-label="Which meal to add to"
+    />
 
     <!--
       A rail, picture on top. The tile is the same offer the column makes —

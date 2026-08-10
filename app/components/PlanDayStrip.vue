@@ -15,11 +15,18 @@ import type { PlannedNight } from '../stores/plan'
  * it, so the dot would be claiming one, and it is the fade that says the week is
  * not waiting on that day. The card under it wears the same fade.
  *
+ * One mark per tile, and the dot is it. Today used to be underlined as well,
+ * which put two marks of the same colour on one small pill answering two
+ * different questions — is this dealt with, and is this today — and read as
+ * decoration rather than as either. The week opens on today, and the week
+ * label above says which one it is; what the strip is for is what has been
+ * decided and where you are in it.
+ *
  * The tile is a stock `UButton` with its content stacked, the same shape the
  * wall board's week strip uses — a day is a thing you press, and the selected
  * one wears the accent everything else on this page is wearing.
  */
-const { nights, noOneEating, selected, today } = defineProps<{
+const { nights, noOneEating, selected } = defineProps<{
   nights: PlannedNight[]
   /**
    * The nights nobody is eating on, passed in rather than looked up, so the
@@ -27,7 +34,6 @@ const { nights, noOneEating, selected, today } = defineProps<{
    */
   noOneEating: Set<string>
   selected: string
-  today: string
 }>()
 
 const emit = defineEmits<{ select: [date: string] }>()
@@ -47,7 +53,6 @@ const days = computed(() =>
       // Faded like the card it stands for. Not "planned", though — that dot
       // means a dinner exists, and there isn't one.
       away: noOneEating.has(night.date) && !night.entries.length,
-      isToday: night.date === today,
       isSelected: night.date === selected
     }
   })
@@ -84,17 +89,9 @@ function labelOf(date: string): string {
         :class="entry.isSelected ? 'text-primary' : 'text-dimmed'"
       >{{ entry.weekday }}</span>
 
-      <!--
-        Today is underlined rather than filled. The fill means "this is the night
-        on screen", and a Monday wearing both would be saying two things with one
-        mark.
-      -->
       <span
         class="text-sm font-semibold tabular-nums"
-        :class="[
-          entry.isSelected ? 'text-primary' : 'text-highlighted',
-          entry.isToday && !entry.isSelected ? 'underline decoration-primary decoration-2 underline-offset-4' : ''
-        ]"
+        :class="entry.isSelected ? 'text-primary' : 'text-highlighted'"
       >{{ entry.day }}</span>
 
       <!--

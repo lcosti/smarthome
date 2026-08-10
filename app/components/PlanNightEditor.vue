@@ -3,7 +3,7 @@ import { useAttendanceStore } from '../stores/attendance'
 import { usePeopleStore } from '../stores/people'
 import { dishLabel, usePlanStore } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
-import { DINNER, MEAL_LABELS, type Meal } from '../utils/meal'
+import { DINNER, MEAL_LABELS, mealFitRank, type Meal } from '../utils/meal'
 import { pictureOf } from '../utils/photo'
 import { SKIP_REASONS } from '../utils/skip'
 import { dayLabel } from '../utils/week'
@@ -50,10 +50,32 @@ watch(open, (isOpen) => {
   if (isOpen) search.value = ''
 })
 
+/**
+ * The library, with the ones that suit this meal at the top.
+ *
+ * Ordered and never filtered. Hiding a recipe from a slot would make labelling
+ * one a thing you could regret — the roast you fancy for Saturday lunch is still
+ * a roast — and it would leave nothing on screen to explain where it went.
+ * Sinking it costs a labelled recipe nothing that typing three letters does not
+ * get back.
+ *
+ * A library nobody has labelled sorts exactly as it did before: everything is
+ * unlabelled, every rank is the same, and the alphabetical order the store hands
+ * over survives untouched. That is deliberate — labelling has to be worth doing
+ * to five recipes rather than compulsory across four hundred.
+ *
+ * `[...]` because the no-search branch is the store's own array by reference,
+ * and sorting in place would quietly reorder the library for everything else
+ * reading it.
+ */
 const matches = computed(() => {
   const needle = search.value.trim().toLowerCase()
-  const all = recipes.recipes
-  return needle ? all.filter(r => r.name.toLowerCase().includes(needle)) : all
+  const all = needle
+    ? recipes.recipes.filter(r => r.name.toLowerCase().includes(needle))
+    : [...recipes.recipes]
+  return all.sort((a, b) =>
+    mealFitRank(a, meal) - mealFitRank(b, meal) || a.name.localeCompare(b.name)
+  )
 })
 
 /** Quantities are free text, so a different serving count is a hint, not maths. */

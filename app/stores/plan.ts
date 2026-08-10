@@ -416,15 +416,18 @@ export const usePlanStore = defineStore('plan', () => {
   }
 
   /**
-   * Move a night onto another night, swapping with whatever is already there.
+   * Move a dish into another slot, swapping with whatever is already there.
+   *
+   * Any slot on any day: the meal is rewritten with the date, so last night's
+   * chilli can become Wednesday's lunch without being retyped.
    *
    * The whole rearrangement is worked out first and committed second, so a drop
-   * that touches three rows — the two nights and a leftovers night whose claim
-   * it broke — reaches the queue as one coherent set rather than as a week that
-   * is briefly wrong.
+   * that touches three rows — the two slots and a leftovers night whose claim it
+   * broke — reaches the queue as one coherent set rather than as a week that is
+   * briefly wrong.
    */
-  async function moveEntry(entryId: string, toDate: string) {
-    const rows = planMove([...allEntries.value.values()], entryId, toDate, nowIso())
+  async function moveEntry(entryId: string, toDate: string, toMeal: Meal) {
+    const rows = planMove([...allEntries.value.values()], entryId, toDate, toMeal, nowIso())
     for (const row of rows) await sync.commit('meal_plan_entries', row)
     return rows.length > 0
   }
@@ -449,6 +452,22 @@ export const usePlanStore = defineStore('plan', () => {
     const current = allEntries.value.get(id)
     if (!current) return
     await sync.commit('meal_plan_entries', { ...plainCopy(current), deleted_at: nowIso() })
+  }
+
+  /**
+   * Put a night back exactly as it was — the undo behind dragging a dish off the
+   * plan and onto the shortlist.
+   *
+   * Clearing `deleted_at` rather than planning it again, because the row is
+   * still here: a soft delete leaves the date, the meal, the servings and any
+   * leftovers link intact, and re-adding would rebuild a worse copy of all four
+   * under a new id that the night eating its leftovers no longer points at.
+   * The shopping list reconciles on the next `deriveWeek` either way.
+   */
+  async function restoreEntry(id: string) {
+    const current = allEntries.value.get(id)
+    if (!current || !current.deleted_at) return
+    await sync.commit('meal_plan_entries', { ...plainCopy(current), deleted_at: null, updated_at: nowIso() })
   }
 
   /**
@@ -839,6 +858,7 @@ export const usePlanStore = defineStore('plan', () => {
     moveEntry,
     updateEntry,
     removeEntry,
+    restoreEntry,
     clearNight,
     clearWeek,
     fillWeek,

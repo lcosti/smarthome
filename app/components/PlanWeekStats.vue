@@ -78,7 +78,10 @@ const blocks = computed(() => [
 <template>
   <UCard
     variant="subtle"
-    :ui="{ body: 'flex flex-col gap-4 px-4 py-3.5 sm:p-4' }"
+    :ui="{
+      body: 'flex flex-col gap-3 px-4 py-3 sm:p-4',
+      footer: 'px-4 py-3 sm:px-4 sm:py-3'
+    }"
   >
     <div>
       <div class="flex items-baseline justify-between gap-2">
@@ -94,11 +97,11 @@ const blocks = computed(() => [
         :model-value="plannedCount"
         :max="stats.total || 1"
         size="sm"
-        class="mt-2.5"
+        class="mt-2"
       />
     </div>
 
-    <dl class="grid grid-cols-2 gap-x-4 gap-y-3">
+    <dl class="grid grid-cols-2 gap-x-4 gap-y-2">
       <div
         v-for="block in blocks"
         :key="block.label"
@@ -107,10 +110,25 @@ const blocks = computed(() => [
         <dt class="truncate text-xs text-dimmed">
           {{ block.label }}
         </dt>
-        <dd class="mt-0.5 truncate text-sm font-medium text-highlighted">
+        <dd class="truncate text-sm font-medium text-highlighted">
           {{ block.value }}
         </dd>
       </div>
     </dl>
+
+    <!--
+      Whatever else belongs to the same week, under the card's own rule rather
+      than in a card of its own. The aside puts the roster here: who is eating is
+      the fact these five numbers are about — a week that is "3 of 3" is that
+      because the house is away — and two stacked cards spent a heading, a gap
+      and a second border saying so, in the column where the shortlist is what
+      anybody is scrolling for. The review passes nothing and is unchanged.
+    -->
+    <template
+      v-if="$slots.footer"
+      #footer
+    >
+      <slot name="footer" />
+    </template>
   </UCard>
 </template>

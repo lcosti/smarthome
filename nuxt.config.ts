@@ -121,6 +121,10 @@ export default defineNuxtConfig({
         'lucide:search-x',
         // Named in a toast when a chosen photo will not decode.
         'lucide:image-off',
+        // Named in the toast that follows dragging a dish onto the shortlist,
+        // where the scanner does not look — the one drop that takes a night off
+        // the plan, and offers to put it back.
+        'lucide:undo-2',
         // Built in a computed on the plan's night cards, where the scanner does
         // not look: what a dish costs in time and in things to buy.
         'lucide:clock',

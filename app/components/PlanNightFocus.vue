@@ -25,12 +25,17 @@ import { SKIP_REASONS } from '../utils/skip'
  * cooking" is not one of them — there is nothing to not cook, and a takeaway
  * logged for an empty house is a decision about nothing.
  *
- * Breakfast and lunch sit under all of that, as two rows, in both cases — a day
- * with no dinner still has a breakfast somebody might plan. They are under the
- * dinner rather than beside or above it because the walk this page is a walk of
- * is a walk through the week's nights: the heading, the strip and the footer all
- * mean dinner, and these two are the same day's other meals rather than two more
+ * Breakfast and lunch sit under all of that, in both cases — a day with no
+ * dinner still has a breakfast somebody might plan. They are under the dinner
+ * rather than beside or above it because the walk this page is a walk of is a
+ * walk through the week's nights: the heading, the strip and the footer all mean
+ * dinner, and these two are the same day's other meals rather than two more
  * steps in the sequence.
+ *
+ * A planned one is the same block the dinner above it is — `PlanDishCard`, by
+ * way of `PlanMealCell`. An empty one is a row: there is nothing to draw, and an
+ * empty breakfast is the ordinary case rather than something the page is waiting
+ * on.
  */
 const { night, today, past = false, events = [] } = defineProps<{
   night: PlannedNight
@@ -45,6 +50,8 @@ const emit = defineEmits<{
   skip: [reason: string]
   /** Open one of the day's other two slots. */
   openMeal: [meal: Meal]
+  /** Take the dish off one of the day's other two slots. */
+  removeMeal: [meal: Meal]
 }>()
 
 const plan = usePlanStore()
@@ -133,10 +140,10 @@ const reasonItems = computed(() =>
     </template>
 
     <!--
-      The day's other two meals, quieter than the dinner above them and in the
-      order the day happens. Nothing here is asked for — an empty breakfast is
-      the ordinary case, not a hole in the week — so they sit as two plain rows
-      rather than as anything the page is waiting on.
+      The day's other two meals, in the order the day happens. Nothing here is
+      asked for — an empty breakfast is the ordinary case, not a hole in the week
+      — so an empty one is a quiet row. A planned one is the dinner's own block,
+      because a lunch that is a recipe is the same kind of thing the dinner is.
     -->
     <div class="flex flex-col gap-2">
       <PlanMealCell
@@ -146,6 +153,7 @@ const reasonItems = computed(() =>
         :meal="meal"
         :planned="night.meals[meal]"
         @open="emit('openMeal', meal)"
+        @remove="emit('removeMeal', meal)"
       />
     </div>
   </div>

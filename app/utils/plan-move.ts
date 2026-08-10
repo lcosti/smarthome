@@ -1,19 +1,29 @@
 import type { PlanEntryRow } from './db'
+import type { Meal } from './meal'
 
 /**
- * Moving a night to another night.
+ * Moving a dish to another slot.
  *
  * Pure, and separate from the store for the same reason `derive` is: what a drop
  * costs is a set of rules about dates and leftovers, and rules are worth testing
  * without Pinia, Dexie or a pointer.
  *
- * Two of them, and the second is the one that bites. Dropping Tuesday's dinner
- * on Friday moves it, and if Friday already had one the two change places rather
- * than one of them being lost — a drag is a rearrangement, never a delete. And a
- * leftovers night is a claim about time: it eats what was cooked one or two
- * nights before it. Drag either end of that pair far enough apart and the claim
- * stops being true, so the link is cut and the night goes back to cooking for
- * itself, which is exactly what its own copy of the recipe is for.
+ * A slot, not a night: a dish moves to any day and any meal, because what a
+ * household actually does with last night's plan is decide the chilli would do
+ * for Wednesday's lunch instead. So the row's `meal` is rewritten along with its
+ * date. That is the whole of why this used to be day-only — nothing about the
+ * schema said a dinner had to stay one.
+ *
+ * Two rules, and the second is the one that bites. Dropping Tuesday's dinner on
+ * Friday's lunch moves it, and if that lunch was taken the two change places
+ * rather than one of them being lost — a drag is a rearrangement, never a
+ * delete. And a leftovers night is a claim about time: it eats what was cooked
+ * one or two days before it. Drag either end of that pair far enough apart and
+ * the claim stops being true, so the link is cut and the night goes back to
+ * cooking for itself, which is exactly what its own copy of the recipe is for.
+ * The gap is still counted in days, so a dinner dragged onto its own source's
+ * day — lunch eating what lunch cooked — cuts the link too. That is the safe
+ * answer rather than a special case: the night keeps the recipe and buys for it.
  */
 
 /**
@@ -39,31 +49,34 @@ export function isLeftoverGap(days: number): boolean {
 }
 
 /**
- * What dropping a night on another night changes.
+ * What dropping a dish on a slot changes.
  *
  * Returns the rows to commit and nothing else — the caller owns every write, and
- * an empty array means the drop was a no-op (onto itself, or onto a night that
- * is not there).
+ * an empty array means the drop was a no-op (onto the slot it is already in, or
+ * onto a dish that is not there).
  */
 export function planMove(
   entries: PlanEntryRow[],
   entryId: string,
   toDate: string,
+  toMeal: Meal,
   now: string
 ): PlanEntryRow[] {
   const live = entries.filter(entry => !entry.deleted_at)
   const moved = live.find(entry => entry.id === entryId)
-  if (!moved || moved.date === toDate) return []
+  if (!moved || (moved.date === toDate && moved.meal === toMeal)) return []
 
   const fromDate = moved.date
+  const fromMeal = moved.meal
   const changed = new Map<string, PlanEntryRow>()
 
-  changed.set(moved.id, { ...moved, date: toDate, updated_at: now })
-  // Whatever was on the target night goes back the other way. Two nights change
-  // places; nothing is displaced onto a third night and nothing is dropped.
+  changed.set(moved.id, { ...moved, date: toDate, meal: toMeal, updated_at: now })
+  // Whatever was in the target slot goes back the other way — into the slot this
+  // one came from, meal and all. Two slots change places; nothing is displaced
+  // onto a third and nothing is dropped.
   for (const entry of live) {
-    if (entry.id === moved.id || entry.date !== toDate || entry.meal !== moved.meal) continue
-    changed.set(entry.id, { ...entry, date: fromDate, updated_at: now })
+    if (entry.id === moved.id || entry.date !== toDate || entry.meal !== toMeal) continue
+    changed.set(entry.id, { ...entry, date: fromDate, meal: fromMeal, updated_at: now })
   }
 
   // The week as it will be, so a leftovers link is judged against where both of

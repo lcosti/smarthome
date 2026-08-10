@@ -4,6 +4,7 @@ import { useListStore } from '../../../stores/list'
 import { useRecipesStore } from '../../../stores/recipes'
 import { useSyncStore } from '../../../stores/sync'
 import type { IngredientRow } from '../../../utils/db'
+import { MEALS, MEAL_COLUMNS, MEAL_LABELS } from '../../../utils/meal'
 import { NUTRITION_FIELDS, type NutritionKey } from '../../../utils/nutrition'
 import { photoForRecipe, pictureOf } from '../../../utils/photo'
 
@@ -89,6 +90,30 @@ async function addStep() {
 async function setServings(next: number) {
   if (!recipe.value || !Number.isFinite(next)) return
   await store.updateRecipe(id.value, { base_servings: Math.max(1, next) })
+}
+
+/**
+ * Which meals this is one of, as three independent yes/nos.
+ *
+ * The group hands back the whole set, and the row is upserted whole anyway, so
+ * the patch is built from what came back rather than by working out which box
+ * moved. Written per change like every other field on this page — there is no
+ * save button here and never has been.
+ */
+const suitsMeals = computed(() =>
+  recipe.value ? MEALS.filter(meal => recipe.value![MEAL_COLUMNS[meal]]) : []
+)
+
+const mealItems = MEALS.map(meal => ({ label: MEAL_LABELS[meal], value: meal }))
+
+async function setMeals(next: (string | number)[]) {
+  if (!recipe.value) return
+  const chosen = new Set(next.map(String))
+  await store.updateRecipe(id.value, {
+    suits_breakfast: chosen.has('breakfast'),
+    suits_lunch: chosen.has('lunch'),
+    suits_dinner: chosen.has('dinner')
+  })
 }
 
 async function setNutrition(key: NutritionKey, next: number | null | undefined) {
@@ -320,6 +345,35 @@ async function removeRecipe() {
               What the quantities above are written for.
             </p>
           </div>
+        </section>
+
+        <!--
+          Which meals this is one of. Nothing ticked is the honest default and
+          means no opinion rather than "suits nothing" — the plan goes on
+          offering it at every slot, and the description says so, because a row
+          of empty boxes otherwise reads as a question you have failed to answer.
+
+          Checkboxes because these are three independent yes/nos: a soup is a
+          lunch and a dinner, and porridge is only ever one thing.
+        -->
+        <section>
+          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
+            Meals
+          </h2>
+          <p class="mb-2 text-sm text-dimmed">
+            {{ suitsMeals.length
+              ? 'Offered first when you plan one of these.'
+              : 'Nothing chosen, so it is offered at every meal.' }}
+          </p>
+          <UCheckboxGroup
+            :model-value="suitsMeals"
+            :items="mealItems"
+            value-key="value"
+            variant="card"
+            orientation="horizontal"
+            :ui="{ fieldset: 'flex-wrap gap-2', item: 'flex-1 basis-32' }"
+            @update:model-value="setMeals"
+          />
         </section>
 
         <!--

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { dishLabel, type PlannedEntry } from '../stores/plan'
-import { MEAL_ICONS, MEAL_LABELS, type Meal } from '../utils/meal'
+import { MEAL_LABELS, type Meal } from '../utils/meal'
 
 /**
  * Breakfast or lunch on one day — the day's other two slots.
@@ -10,16 +10,19 @@ import { MEAL_ICONS, MEAL_LABELS, type Meal } from '../utils/meal'
  * question asked in two layouts, and two components would drift over what
  * tapping one does.
  *
- * A stock `UButton` rather than a card, and that is a claim about breakfast
- * rather than a shortcut. A dinner is a block — a photograph, a name, minutes at
- * the stove, what it costs at the shop — and needs its own grid, which is what
- * puts `PlanNightCard` under the card-and-row exception in CLAUDE.md. Porridge
- * is a name. Nothing here needs a layout a label cannot do, so nothing here
- * needs an exception.
+ * A slot with something in it is `PlanDishCard`, which is what the dinner beside
+ * it is too. A lunch that is a recipe costs the same two things a dinner does —
+ * minutes at the stove and things to buy — and it was the row drawing its three
+ * slots three different ways, rather than anything about breakfast, that made a
+ * day read as three unrelated widgets. So this component owns only the empty
+ * state and the drop target; the dish itself has one answer, in one place.
  *
- * There is no way to take a meal off from here. Removal lives in the editor,
- * which is one tap away and already has the button — a cross on a cell this
- * small would be most of the cell.
+ * Empty is still a stock `UButton`: there is nothing to lay out, and an
+ * invitation is a label.
+ *
+ * Taking a meal off used to mean opening the editor, because a one-line cell had
+ * no room for a × that was not most of the cell. The dish card has the room and
+ * already has the button, so a breakfast comes off the way a dinner does.
  */
 const { date, meal, planned = null, tall = false } = defineProps<{
   date: string
@@ -27,13 +30,12 @@ const { date, meal, planned = null, tall = false } = defineProps<{
   /** The slot's entry, or null when it is empty. */
   planned?: PlannedEntry | null
   /**
-   * Fill the cell rather than being one row high.
+   * Fill the cell rather than sitting at its natural height.
    *
-   * For the wide grid, where a day is a band of equal height and a button one
-   * line tall floating in the top of a cell reads as something that failed to
-   * load. An empty cell drops its label there as well — the column heading two
-   * inches above it already says "Breakfast", and the cell repeating it is the
-   * same word twice.
+   * For the wide grid, where a day is a band of equal height and a cell floating
+   * in the top of a column reads as something that failed to load. An empty cell
+   * drops its label there as well — the column heading two inches above it
+   * already says "Breakfast", and the cell repeating it is the same word twice.
    *
    * False on the phone, where these are two rows under the dinner with no
    * headings over them and no band to fill.
@@ -41,94 +43,80 @@ const { date, meal, planned = null, tall = false } = defineProps<{
   tall?: boolean
 }>()
 
-defineEmits<{ open: [] }>()
+defineEmits<{ open: [], remove: [] }>()
 
 /**
- * Somewhere a dish can be dropped, and — when it has one — something that can be
- * picked up and carried to another day's cell of the same slot.
+ * Somewhere a dish can be dropped. Every cell is a target, including an empty
+ * one — which is why this lives on the cell and not on the dish inside it.
+ * Picking up is `PlanDishCard`'s.
  */
 const drag = usePlanDrag()
-const root = useTemplateRef<{ $el?: HTMLElement } | HTMLElement>('root')
+const root = useTemplateRef<HTMLElement>('root')
 
 const slot = computed(() => drag.slotKey(date, meal))
 const isOver = computed(() => drag.overSlot.value === slot.value)
-const isSource = computed(() =>
-  drag.payload.value?.kind === 'night' && drag.payload.value.entryId === planned?.entry.id
-)
 
-/** `UButton` is a component, so the element to hit-test against is its root node. */
-function elementOf(instance: unknown): HTMLElement | null {
-  if (!instance) return null
-  const el = (instance as { $el?: unknown }).$el ?? instance
-  return el instanceof HTMLElement ? el : null
-}
+/**
+ * What an empty cell is called when it is not saying it out loud.
+ *
+ * The tall empty cell drops its label — the column heading above it already says
+ * "Breakfast" — which leaves a button whose entire content is a plus sign, and
+ * seven of those on a screen are indistinguishable to anything that is not
+ * looking at the grid.
+ */
+const ariaLabel = computed(() => `Add ${MEAL_LABELS[meal].toLowerCase()}`)
 
-watchEffect(() => drag.registerTarget(slot.value, elementOf(root.value)))
+watchEffect(() => drag.registerTarget(slot.value, root.value ?? null))
 onBeforeUnmount(() => drag.registerTarget(slot.value, null))
-
-function pickUp(event: PointerEvent) {
-  if (!planned) return
-  drag.press(event, {
-    kind: 'night',
-    entryId: planned.entry.id,
-    date,
-    meal,
-    label: dishLabel(planned),
-    image: null
-  })
-}
 </script>
 
 <template>
   <!--
-    Empty says which slot it is, because that is the only thing an empty cell
-    knows and the column heading is not always above it — on a phone these two
-    are a pair of rows under a dinner, with no table around them. In the grid,
-    where there is a heading, it is a plus and a space to put something in.
-
-    `outline` is the dashed variant in this app's theme, which is the shape an
-    empty cell wants: an outline around somewhere a meal goes, rather than a
-    filled box pretending something is already there.
-
-    Planned says the dish, and the slot becomes the icon: the name is the fact
-    worth the width, and a cell reading "Lunch · Leftovers · Chilli" spends half
-    of itself on the label of the box it is already in.
+    The cell is the drop target and nothing else, so it is a plain element rather
+    than a card: whichever of the two states is inside it draws its own edges,
+    and a frame here would be a second border a padding's width outside the
+    first.
   -->
-  <UButton
+  <div
     ref="root"
-    color="neutral"
-    :variant="planned ? 'soft' : (tall ? 'outline' : 'ghost')"
-    :icon="planned ? MEAL_ICONS[meal] : 'i-lucide-plus'"
-    :label="planned || !tall ? (planned ? dishLabel(planned) : MEAL_LABELS[meal]) : undefined"
-    block
-    class="touch-manipulation select-none transition-colors"
+    class="flex min-h-0 flex-col transition-colors"
     :class="[
       tall && 'h-full',
-      planned ? 'items-start justify-start' : 'justify-center text-dimmed',
-      isOver && 'ring-2 ring-primary bg-primary/5',
-      isSource && 'opacity-40'
+      isOver && 'rounded-lg ring-2 ring-primary bg-primary/5'
     ]"
-    :ui="{ label: 'truncate' }"
-    @pointerdown="pickUp"
-    @click="$emit('open')"
   >
-    <template
-      v-if="planned?.derived"
-      #trailing
-    >
-      <!--
-        Shopped-for, in the one place a cell this size has for a second fact.
-        Same badge the night card carries, so "on the list" looks the same
-        wherever the plan says it.
-      -->
-      <UBadge
-        color="primary"
-        variant="soft"
-        size="sm"
-        icon="i-lucide-check"
-        label="On list"
-        class="ms-auto shrink-0"
-      />
-    </template>
-  </UButton>
+    <!-- The dish, drawn the way every planned slot in the app draws one. -->
+    <PlanDishCard
+      v-if="planned"
+      :planned="planned"
+      :date="date"
+      :meal="meal"
+      :remove-label="`Take ${dishLabel(planned)} off ${MEAL_LABELS[meal].toLowerCase()}`"
+      class="min-h-0 flex-1"
+      @open="$emit('open')"
+      @remove="$emit('remove')"
+    />
+
+    <!--
+      Empty says which slot it is, because that is the only thing an empty cell
+      knows and the column heading is not always above it — on a phone these two
+      are a pair of rows under a dinner, with no table around them. In the grid,
+      where there is a heading, it is a plus and a space to put something in.
+
+      `outline` is the dashed variant in this app's theme, which is the shape an
+      empty cell wants: an outline around somewhere a meal goes, rather than a
+      filled box pretending something is already there.
+    -->
+    <UButton
+      v-else
+      color="neutral"
+      :variant="tall ? 'outline' : 'ghost'"
+      icon="i-lucide-plus"
+      :label="tall ? undefined : MEAL_LABELS[meal]"
+      :aria-label="ariaLabel"
+      block
+      class="min-h-0 flex-1 justify-center text-dimmed"
+      @click="$emit('open')"
+    />
+  </div>
 </template>
