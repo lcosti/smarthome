@@ -107,11 +107,16 @@ const readTable = table => page.evaluate(name => new Promise((resolve) => {
 
 const mainText = async () => (await page.locator('main').innerText()).replace(/[\n\t]+/g, ' ')
 
+/** Tom's chip in the night's roll-call, in the state it claims to be in. */
+const tomChip = state => page.getByRole('button', { name: `Tom is ${state} — press to change` })
+
 /** Open the first night of the plan, whatever is or is not on it. */
 async function openFirstNight() {
   await page.getByRole('link', { name: 'Plan', exact: true }).click()
   await page.waitForURL('**/plan')
-  await page.locator('main ul li button').first().click()
+  // The phone shows one night at a time now: the night on screen is the first
+  // one still open, and its empty state is the way into the editor.
+  await page.getByRole('button', { name: 'Add dinner' }).first().click()
   await page.locator('[role="dialog"]').getByText('Who\'s home').waitFor({ timeout: 10_000 })
 }
 
@@ -178,11 +183,15 @@ try {
   assert(emptyRoster === 0, `nobody home is written until somebody says otherwise, got ${emptyRoster}`)
   log('opening a night wrote no attendance rows at all')
 
-  await page.locator('[role="dialog"] button', { hasText: 'Tom' }).first().click()
+  // "Who's home" is a checkbox group, so each person is a checkbox with their
+  // name — not a button.
+  await page.locator('[role="dialog"]').getByRole('checkbox', { name: 'Tom' }).click()
   await page.waitForTimeout(500)
   await page.getByRole('button', { name: 'Done' }).click()
 
-  await page.locator('main').getByText('Tom away').first().waitFor({ timeout: 10_000 })
+  // The phone's roll-call is a row of chips under the night, one per person,
+  // each saying what is true about tonight rather than what pressing it does.
+  await tomChip('out').waitFor({ timeout: 10_000 })
   log('marked Tom out, and the night says so')
 
   // The contract the generator will read: exactly one row, for the one person
@@ -196,18 +205,20 @@ try {
 
   // --- And it stays said ----------------------------------------------------
   await page.reload()
-  await page.locator('main').getByText('Tom away').first().waitFor({ timeout: 15_000 })
+  await tomChip('out').waitFor({ timeout: 15_000 })
   log('the absence survived a reload, so it round-tripped through the server')
 
   // --- Marking somebody back in updates, never deletes ---------------------
   await openFirstNight()
-  await page.locator('[role="dialog"] button', { hasText: 'Tom' }).first().click()
+  // "Who's home" is a checkbox group, so each person is a checkbox with their
+  // name — not a button.
+  await page.locator('[role="dialog"]').getByRole('checkbox', { name: 'Tom' }).click()
   await page.waitForTimeout(500)
   await page.getByRole('button', { name: 'Done' }).click()
   await page.waitForTimeout(1000)
 
-  const home = await mainText()
-  assert(!home.includes('Tom away'), `nobody is away now, saw: ${home.slice(0, 200)}`)
+  await tomChip('eating in').waitFor({ timeout: 10_000 })
+  assert(!(await tomChip('out').count()), 'nobody is away now')
   const flipped = (await readTable('attendance'))
   assert(flipped.length === 1, `the same row was reused, got ${flipped.length}`)
   assert(flipped[0].present === true, 'coming back is the row flipping, not a delete')

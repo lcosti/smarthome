@@ -83,7 +83,11 @@ function assert(condition, message) {
 }
 
 const browser = await chromium.launch()
-const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+// A phone, except for the two presses that are about the whole week rather than
+// a night in it — see deriveTheWeek.
+const PHONE = { width: 390, height: 844 }
+const WIDE = { width: 1280, height: 900 }
+const ctx = await browser.newContext({ viewport: PHONE })
 const page = await ctx.newPage()
 page.on('pageerror', e => console.error('     page error:', e.message))
 
@@ -98,6 +102,20 @@ const readTable = table => page.evaluate(name => new Promise((resolve) => {
 }), table)
 
 const mainText = async () => (await page.locator('main').innerText()).replace(/[\n\t]+/g, ' ')
+
+/**
+ * One row of the shopping list, and its tick.
+ *
+ * An aisle is a `UCheckboxGroup`: the row is `[data-slot="item"]` and the tick
+ * is a `<button role="checkbox">` — so the first *button* in a row is the edit
+ * pencil, not the tick. Scoped to the aisle card because the filter chips above
+ * the list are a checkbox group too. The recipe editor's ingredient lines below
+ * are still ordinary `<li>`s.
+ */
+const itemNamed = name =>
+  page.locator('[data-shopping-aisle] [data-slot="item"]', { hasText: name }).first()
+const tickBox = row => row.getByRole('checkbox')
+const tickedBox = row => row.locator('[role="checkbox"][data-state="checked"]')
 
 /** Add one ingredient to the open recipe and give it a quantity. */
 async function addLine(name, quantity) {
@@ -119,13 +137,42 @@ async function newRecipe(name) {
   await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 15_000 })
 }
 
-/** Assign the recipe to the first night that is still free. */
-async function planANight(recipeName) {
+/** The seven pills of the week strip, by the full date each one reads out. */
+const dayTiles = () => page.getByRole('button', {
+  name: /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), /
+})
+
+/**
+ * Assign the recipe to one named night.
+ *
+ * The phone shows one night at a time, so which night is a press on the strip
+ * rather than "the first free one" — and choosing from the editor deliberately
+ * does not move the walk on, so the night stays on screen to be checked.
+ */
+async function planANight(recipeName, tile) {
   await page.getByRole('link', { name: 'Plan', exact: true }).click()
   await page.waitForURL('**/plan')
-  await page.locator('main ul li button', { hasText: 'Add dinner' }).first().click()
+  await dayTiles().nth(tile).click()
+  await page.getByRole('button', { name: 'Add dinner' }).first().click()
   await page.locator('[role="dialog"] button', { hasText: recipeName }).first().click()
   await page.locator('main').getByText(recipeName).first().waitFor({ timeout: 10_000 })
+}
+
+/**
+ * Put the week on the shopping list, from the week aside, then back to a phone.
+ *
+ * The phone's own route to the list is the last step of its walk
+ * (`PlanReview`), which is only reached once every night is planned or skipped.
+ * This script plans two of seven, so the wide layout's derive button is the
+ * honest way to ask for the same thing.
+ */
+async function deriveTheWeek() {
+  await page.setViewportSize(WIDE)
+  await page.getByRole('link', { name: 'Plan', exact: true }).click()
+  await page.waitForURL('**/plan')
+  await page.getByRole('button', { name: /^(Add to shopping list|Add \d+ to list)$/ }).click()
+  await page.getByText(/items? added|Already on the list/).first().waitFor({ timeout: 15_000 })
+  await page.setViewportSize(PHONE)
 }
 
 try {
@@ -173,10 +220,9 @@ try {
   log('a name with nothing in common coined a second ingredient')
 
   // --- Both nights on the plan, then derive --------------------------------
-  await planANight('Chilli con carne')
-  await planANight('Pasta bake')
-  await page.getByRole('button', { name: 'Add to shopping list' }).click()
-  await page.getByText('On list').first().waitFor({ timeout: 15_000 })
+  await planANight('Chilli con carne', 0)
+  await planANight('Pasta bake', 1)
+  await deriveTheWeek()
   log('planned both nights and derived the week')
 
   await page.getByRole('link', { name: 'List', exact: true }).click()
@@ -245,15 +291,14 @@ try {
   log('the line now reads 800g and 2 tins')
 
   // --- Ticking the line takes every row behind it --------------------------
-  await page.locator('main li', { hasText: 'tomatoes' }).first().getByRole('button').first().click()
-  await page.getByRole('button', { name: /^Done \(2\)/ }).waitFor({ timeout: 10_000 })
+  await tickBox(itemNamed('tomatoes')).click()
+  await tickedBox(itemNamed('tomatoes')).waitFor({ timeout: 10_000 })
   const ticked = (await readTable('items')).filter(i => i.ingredient_id && !i.deleted_at)
   assert(ticked.length === 2 && ticked.every(i => i.checked), 'both rows behind the line are ticked')
   log('ticking the one line ticked both rows behind it')
 
   // --- And it is all still idempotent -------------------------------------
-  await page.getByRole('link', { name: 'Plan', exact: true }).click()
-  await page.getByRole('button', { name: 'Add to shopping list' }).click()
+  await deriveTheWeek()
   await page.getByText('Already on the list').first().waitFor({ timeout: 15_000 })
   log('deriving again still changes nothing')
 
@@ -270,8 +315,10 @@ try {
 
   const finalIngredients = (await readTable('ingredients')).filter(i => !i.deleted_at)
   assert(finalIngredients.length === 1, `still one canonical ingredient, got ${finalIngredients.length}`)
+  // Case-insensitively: a line is stored under the name the library shows for
+  // it, and what is being proved here is which ingredient it resolved to.
   const soupLines = (await readTable('recipe_ingredients'))
-    .filter(l => !l.deleted_at && l.name === 'tinned tomatoes')
+    .filter(l => !l.deleted_at && l.name.toLowerCase() === 'tinned tomatoes')
   assert(
     soupLines.some(l => l.ingredient_id === finalIngredients[0].id),
     'the name kept by the merge resolved silently on enter'

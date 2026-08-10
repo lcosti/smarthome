@@ -387,7 +387,14 @@ async function copyInviteCode() {
             v-if="household"
             class="mt-2 flex items-center gap-2"
           >
+            <!--
+              `data-invite-code` is a handle for the acceptance scripts, as
+              `data-shopping-aisle` is on the list. The code used to be a
+              `<code>` element they could find on its own; as a badge it is a
+              six-character span on a page that also says AISLES and PEOPLE.
+            -->
             <UBadge
+              data-invite-code
               color="neutral"
               variant="subtle"
               size="xl"

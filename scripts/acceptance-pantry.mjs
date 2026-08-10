@@ -78,7 +78,11 @@ function assert(condition, message) {
 }
 
 const browser = await chromium.launch()
-const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+// A phone, except for the presses that are about the whole week — see
+// deriveTheWeek.
+const PHONE = { width: 390, height: 844 }
+const WIDE = { width: 1280, height: 900 }
+const ctx = await browser.newContext({ viewport: PHONE })
 const page = await ctx.newPage()
 page.on('pageerror', e => console.error('     page error:', e.message))
 
@@ -116,9 +120,26 @@ async function newRecipe(name) {
 async function planANight(recipeName) {
   await page.getByRole('link', { name: 'Plan', exact: true }).click()
   await page.waitForURL('**/plan')
-  await page.locator('main ul li button', { hasText: 'Add dinner' }).first().click()
+  // The phone shows one night at a time, and its empty state is the way in.
+  await page.getByRole('button', { name: 'Add dinner' }).first().click()
   await page.locator('[role="dialog"] button', { hasText: recipeName }).first().click()
   await page.locator('main').getByText(recipeName).first().waitFor({ timeout: 10_000 })
+}
+
+/**
+ * Put the week on the shopping list, from the week aside, then back to a phone.
+ *
+ * The phone's own route to the list is the last step of its walk (`PlanReview`),
+ * reached only once every night is planned or skipped. This script plans one
+ * night of seven, so the wide layout's derive button is the honest way to ask.
+ */
+async function deriveTheWeek() {
+  await page.setViewportSize(WIDE)
+  await page.getByRole('link', { name: 'Plan', exact: true }).click()
+  await page.waitForURL('**/plan')
+  await page.getByRole('button', { name: /^(Add to shopping list|Add \d+ to list)$/ }).click()
+  await page.getByText(/items? added|Already on the list/).first().waitFor({ timeout: 20_000 })
+  await page.setViewportSize(PHONE)
 }
 
 async function openList() {
@@ -160,8 +181,7 @@ try {
 
   // --- Derive: the list asks for one, not three -----------------------------
   await planANight('Onion soup')
-  await page.getByRole('button', { name: 'Add to shopping list' }).click()
-  await page.getByText('On list').first().waitFor({ timeout: 15_000 })
+  await deriveTheWeek()
   log('planned the night and derived the week')
 
   await openList()
@@ -181,8 +201,7 @@ try {
   assert(reservedOnce.length === 1, `one reservation, got ${reservedOnce.length}`)
   assert(Number(reservedOnce[0].amount) === 3, `it holds three, got ${reservedOnce[0].amount}`)
 
-  await page.getByRole('link', { name: 'Plan', exact: true }).click()
-  await page.getByRole('button', { name: 'Add to shopping list' }).click()
+  await deriveTheWeek()
   await page.getByText('Already on the list').first().waitFor({ timeout: 15_000 })
 
   const reservedTwice = (await readTable('pantry_reservations')).filter(r => !r.deleted_at)

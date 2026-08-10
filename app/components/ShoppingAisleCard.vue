@@ -156,8 +156,14 @@ function onStapleUpdate(next: unknown) {
     `subtle` rather than a hand-mixed background: it is the variant that already
     means "lifted off the page and outlined", and the divider between the header
     and the rows comes with it.
+
+    `data-shopping-aisle` is a handle for the acceptance scripts, the same trick
+    the wall board's `data-board-card` plays. A row is a `[data-slot="item"]`
+    inside a checkbox group, and so is an aisle filter chip on the page above —
+    without something to scope to, a script counting rows counts chips too.
   -->
   <UCard
+    data-shopping-aisle
     variant="subtle"
     :ui="{
       header: 'px-3.5 py-3 sm:px-3.5',

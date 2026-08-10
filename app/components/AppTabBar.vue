@@ -25,7 +25,16 @@ function isActive(to: string) {
     A plain flex child of the shell, not fixed: it is the bottom of a column that
     is exactly one viewport tall, so nothing can scroll it away.
   -->
-  <nav class="shrink-0 border-t border-default bg-default pb-[env(safe-area-inset-bottom)]">
+  <!--
+    `data-tab-bar` is a handle for the acceptance scripts, as
+    `data-shopping-aisle` is on the list: the wide header's navigation is a
+    `<nav>` of the same links, so "is the phone's bar here" cannot be asked by
+    looking for a link to the plan.
+  -->
+  <nav
+    data-tab-bar
+    class="shrink-0 border-t border-default bg-default pb-[env(safe-area-inset-bottom)]"
+  >
     <div class="mx-auto flex max-w-xl">
       <NuxtLink
         v-for="tab in tabs"

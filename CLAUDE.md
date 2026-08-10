@@ -288,12 +288,21 @@ The one drop that does is the shortlist, which registers itself under
 Dragging a dinner onto `PlanSuggestions` takes it off the plan, because that
 panel is where the dish came from and where it reappears once the week stops
 claiming it, so the bin is the shortlist without either word being written
-anywhere. It is the only drop that removes, so it is the only one that says so
-and offers the way back: `restoreEntry` clears `deleted_at` rather than planning
-the recipe again, which puts back the night that was there — its day, its slot,
-its servings, anything eating its leftovers — instead of a fresh copy under a new
-id. A suggestion dropped there is refused in the hit test, so the panel never
-lights rather than the drop doing nothing.
+anywhere. A suggestion dropped there is refused in the hit test, so the panel
+never lights rather than the drop doing nothing.
+
+**No drop toasts, including that one.** It used to say "X off the plan" and offer
+a "Put it back" undo, and rearranging a week was a column of them. A drag is the
+most deliberate gesture in the app — picked up, carried, released — and you watch
+the card leave the night and land in the panel, so a notification is the app
+narrating a press somebody just made and watched land. That is the same rule
+`pick` in `plan.vue` already states for planning, skipping and removing a night;
+dragging was the one place breaking it. Toasts stay for what happens out of
+sight: filling a week, clearing one, putting it on the list. What the undo really
+bought was `restoreEntry`, which clears `deleted_at` and so puts back the night
+that was there — its day, its slot, its servings, anything eating its leftovers —
+where dragging the dish out of the shortlist again plans a fresh one under a new
+id. It is still on the store, uncalled, for the day something wants a real undo.
 
 The phone's plan is a guided walk through the week: a day heading, `PlanDayStrip`
 above the night on screen, and a footer whose one button names the next night

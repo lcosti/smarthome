@@ -92,7 +92,6 @@ const targets = new Map<SlotKey, DropTarget>()
 
 export function usePlanDrag() {
   const plan = usePlanStore()
-  const toast = useToast()
 
   /**
    * Register a slot as somewhere a drag can land.
@@ -164,27 +163,25 @@ export function usePlanDrag() {
     /**
      * Onto the shortlist: off the plan.
      *
-     * The one drop that removes something, so the one drop that says so and
-     * offers the way back. `restoreEntry` un-deletes the row rather than
-     * planning it again, so "put it back" puts back the night that was there —
-     * its day, its slot, its servings and anything eating its leftovers — and
-     * not a fresh copy that resembles it.
+     * Silent, like every other drop, and like everything else the plan page
+     * does to a night — see the note on `pick` in plan.vue. A drag is the most
+     * deliberate gesture the app has: you picked the dish up, carried it to the
+     * panel and let go, watching the card leave the night and land back in the
+     * shortlist. A toast repeating that is the app narrating a press somebody
+     * just made and watched land, and a week of rearranging is a column of
+     * them. Toasts are kept for what happens out of sight — filling a week,
+     * clearing one, putting it on the list.
+     *
+     * This used to carry a "Put it back" undo, which is what it really cost:
+     * `restoreEntry` un-deletes the row, so it put back the night that was
+     * there — its day, its slot, its servings, anything eating its leftovers —
+     * where dragging the dish out of the shortlist again plans a fresh one. The
+     * dish is back where it came from either way, which is the ordinary way
+     * back and the one that needs no button.
      */
     if (key === SHORTLIST_SLOT) {
       if (dragged.kind !== 'night') return
-      const { entryId, label } = dragged
-      await plan.removeEntry(entryId)
-      toast.add({
-        title: `${label} off the plan`,
-        icon: 'i-lucide-undo-2',
-        color: 'neutral',
-        actions: [{
-          label: 'Put it back',
-          color: 'neutral',
-          variant: 'outline',
-          onClick: () => plan.restoreEntry(entryId)
-        }]
-      })
+      await plan.removeEntry(dragged.entryId)
       return
     }
 
@@ -193,10 +190,9 @@ export function usePlanDrag() {
     const { date, meal } = slot
 
     if (dragged.kind === 'suggestion') {
-      const row = await plan.setNight(date, dragged.recipeId, meal)
-      if (row) {
-        toast.add({ title: `${dragged.label} planned`, icon: 'i-lucide-check', color: 'success' })
-      }
+      // Also silent: the empty slot becomes the dish, which is the same thing
+      // the toast was going to say, a beat later and over the top of it.
+      await plan.setNight(date, dragged.recipeId, meal)
       return
     }
 

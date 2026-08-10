@@ -268,9 +268,16 @@ function isAway(night: PlannedNight): boolean {
           other way round while a day had one meal on it — the night was the
           card, and there was nothing else on the row for it to be part of.
         -->
+        <!--
+          `data-plan-day` is a handle for the acceptance scripts, as
+          `data-shopping-aisle` is on the list. The week is days down and meals
+          across, and both of those are runtime grid templates rather than
+          classes anything can look for.
+        -->
         <UCard
           v-for="night in cards"
           :key="night.date"
+          :data-plan-day="night.date"
           variant="subtle"
           :ui="{ root: 'flex flex-col transition-colors', body: 'min-h-0 flex-1 p-3 sm:p-3' }"
           :class="[

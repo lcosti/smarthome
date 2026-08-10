@@ -123,7 +123,7 @@ const BOLOGNESE = {
 }
 
 let cannedRecipe = SOUP
-let failNextPost = false
+let failPosts = false
 const seenPayloads = []
 
 await page.route('**/functions/v1/import-recipe-photo', async (route) => {
@@ -134,10 +134,11 @@ await page.route('**/functions/v1/import-recipe-photo', async (route) => {
   if (route.request().method() === 'OPTIONS') {
     return route.fulfill({ status: 200, headers, body: 'ok' })
   }
-  if (failNextPost) {
-    failNextPost = false
-    return route.abort('failed')
-  }
+  // Every POST while this is set, not just the first: a fetch that dies on the
+  // wire is retried once under supabase-js, and failing only the first attempt
+  // means the retry succeeds and the error path this is here to check never
+  // runs. Cleared by the step that sets it.
+  if (failPosts) return route.abort('failed')
   seenPayloads.push(route.request().postDataJSON())
   return route.fulfill({
     status: 200,
@@ -217,7 +218,9 @@ try {
     (await page.getByLabel('Recipe name').inputValue()) === 'Lentil soup',
     'the recipe page shows the extracted name'
   )
-  assert(soupText.includes('chopped tomatoes'), 'the ingredient lines are shown')
+  // Case-insensitively: an ingredient is shown under the library's own name for
+  // it, which is capitalised, not under the words the photo happened to use.
+  assert(/chopped tomatoes/i.test(soupText), 'the ingredient lines are shown')
   assert(soupText.includes('Soften the onion.'), 'the first step is shown')
   assert(soupText.includes('Add everything else and simmer.'), 'and so is the second')
   // The method must not have landed back in the notes box it was moved out of.
@@ -240,7 +243,7 @@ try {
   assert(lines.every(l => l.ingredient_id), 'every line was stamped with a canonical ingredient')
   const canonical = (await readTable('ingredients')).filter(i => !i.deleted_at)
   assert(canonical.length === 3, `three canonical ingredients coined, got ${canonical.length}`)
-  const tomatoes = canonical.find(i => i.name === 'chopped tomatoes')
+  const tomatoes = canonical.find(i => i.name.toLowerCase() === 'chopped tomatoes')
   assert(tomatoes?.base_unit === 'g', `unit inferred from "400g", got ${tomatoes?.base_unit}`)
   log('every line canonicalised, units inferred — exactly as if typed')
 
@@ -252,7 +255,7 @@ try {
   log('imported a second recipe that also wants chopped tomatoes')
 
   const after = (await readTable('ingredients')).filter(i => !i.deleted_at)
-  const tomatoRows = after.filter(i => i.name === 'chopped tomatoes')
+  const tomatoRows = after.filter(i => i.name.toLowerCase() === 'chopped tomatoes')
   assert(tomatoRows.length === 1, `imports share one canonical tomatoes row, got ${tomatoRows.length}`)
   assert(after.length === 4, `only the genuinely new ingredient was coined, got ${after.length}`)
   log('the shared ingredient resolved to the existing row, coining nothing')
@@ -261,13 +264,17 @@ try {
   // A failed fetch yields a FunctionsFetchError whose context is the raw
   // network error, not a Response; assuming a readable body once surfaced as
   // "t.context.json is not a function" in the toast.
-  failNextPost = true
+  failPosts = true
   await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
   await page.setInputFiles('[data-testid="recipe-photo-input"]', [await makePhoto('unreachable')])
+  // `.last()`, because a toast says itself twice: once in the live region a
+  // screen reader hears and once on screen, and only the second is visible.
   await page
     .getByText('Could not read the photo — check your signal and try again.')
+    .last()
     .waitFor({ timeout: 20_000 })
+  failPosts = false
   log('a request that never got a response surfaced the friendly signal message')
 
   console.log('\n  PASS — a photo became a recipe, canonicalised like a typed one\n')

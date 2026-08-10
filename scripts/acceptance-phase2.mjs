@@ -75,7 +75,12 @@ function assert(condition, message) {
 }
 
 const browser = await chromium.launch()
-const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+// A phone, because that is where a week gets planned. The two steps that are
+// about the week rather than a night in it — putting it on the list, and taking
+// a night back off — switch to the wide layout and say why.
+const PHONE = { width: 390, height: 844 }
+const WIDE = { width: 1280, height: 900 }
+const ctx = await browser.newContext({ viewport: PHONE })
 const page = await ctx.newPage()
 page.on('pageerror', e => console.error('     page error:', e.message))
 
@@ -90,6 +95,41 @@ const readTable = table => page.evaluate(name => new Promise((resolve) => {
 }), table)
 
 const mainText = async () => (await page.locator('main').innerText()).replace(/[\n\t]+/g, ' ')
+
+/**
+ * One row of the shopping list, and its tick.
+ *
+ * An aisle is a `UCheckboxGroup`: the row is `[data-slot="item"]` and the tick
+ * is a `<button role="checkbox">` — so the first *button* in a row is the edit
+ * pencil, not the tick. Scoped to the aisle card because the filter chips above
+ * the list are a checkbox group too.
+ */
+const itemNamed = name =>
+  page.locator('[data-shopping-aisle] [data-slot="item"]', { hasText: name }).first()
+const tickBox = row => row.getByRole('checkbox')
+const tickedBox = row => row.locator('[role="checkbox"][data-state="checked"]')
+
+/** The seven pills of the week strip, by the full date each one reads out. */
+const dayTiles = () => page.getByRole('button', {
+  name: /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), /
+})
+
+/**
+ * Put the week on the shopping list, from the week aside.
+ *
+ * At this width the plan is the whole week with a derive button beside it. The
+ * phone's own route to the list is the last step of its walk (`PlanReview`),
+ * which is only reached once every night is planned or skipped — a week with one
+ * dinner on it never gets there, and this script is about what one dinner does
+ * to the list.
+ */
+async function deriveTheWeek() {
+  await page.setViewportSize(WIDE)
+  await page.getByRole('link', { name: 'Plan' }).click()
+  await page.waitForURL('**/plan')
+  await page.getByRole('button', { name: /^(Add to shopping list|Add \d+ to list)$/ }).click()
+  await page.getByText(/items? added|Already on the list/).first().waitFor({ timeout: 15_000 })
+}
 
 try {
   await page.goto(link.action_link)
@@ -133,16 +173,16 @@ try {
 
   await page.getByRole('link', { name: 'Plan' }).click()
   await page.waitForURL('**/plan')
-  assert(((await mainText()).match(/Add dinner/g) ?? []).length === 7, 'seven empty nights invite a dinner')
-  log('plan shows seven empty nights')
+  assert(await dayTiles().count() === 7, 'the week strip offers seven days')
+  assert((await mainText()).includes('Add dinner'), 'and the night on screen invites a dinner')
+  log('plan walks the week a night at a time, starting on an empty one')
 
-  await page.locator('main ul li button').first().click()
+  await page.getByRole('button', { name: 'Add dinner' }).first().click()
   await page.locator('[role="dialog"] button', { hasText: 'Chilli con carne' }).first().click()
   await page.locator('main').getByText('Chilli con carne').first().waitFor({ timeout: 10_000 })
   log('assigned the recipe to a night in one tap')
 
-  await page.getByRole('button', { name: 'Add to shopping list' }).click()
-  await page.getByText('On list').first().waitFor({ timeout: 15_000 })
+  await deriveTheWeek()
   log('derived the week onto the shopping list')
 
   await page.getByRole('link', { name: 'List' }).click()
@@ -154,22 +194,30 @@ try {
   log('every ingredient is on the list, labelled with its recipe')
 
   await page.getByRole('link', { name: 'Plan' }).click()
-  await page.getByRole('button', { name: 'Add to shopping list' }).click()
+  await deriveTheWeek()
   await page.getByText('Already on the list').first().waitFor({ timeout: 15_000 })
   log('deriving a second time changes nothing')
 
   // Tick one item, then take the night off the plan: the ticked one has to
   // survive, everything else it put on the list has to go.
   await page.getByRole('link', { name: 'List' }).click()
-  await page.locator('main li', { hasText: 'Rice' }).first().getByRole('button').first().click()
-  await page.getByRole('button', { name: /^Done \(1\)/ }).waitFor({ timeout: 10_000 })
+  await tickBox(itemNamed('Rice')).click()
+  await tickedBox(itemNamed('Rice')).waitFor({ timeout: 10_000 })
   log('ticked one derived item')
 
+  // The wide layout for this one step, deliberately. Taking the last night off
+  // leaves a week with nothing selected to review, and the phone's flow ends on
+  // a review — so the button that reconciles the list with an emptied week is
+  // the one in the week aside. What is being checked is what the removal does to
+  // the list, and that is the same code either way.
+  await page.setViewportSize(WIDE)
   await page.getByRole('link', { name: 'Plan' }).click()
   await page.waitForURL('**/plan')
-  await page.locator('main ul li button').first().click()
+  // No <main> in the wide layout — the week is the screen. The dish card itself
+  // is the button that opens the night.
+  await page.locator('button', { hasText: 'Chilli con carne' }).first().click()
   await page.locator('[role="dialog"]').getByRole('button', { name: 'Remove' }).click()
-  await page.getByRole('button', { name: 'Add to shopping list' }).click()
+  await page.getByRole('button', { name: /^(Add to shopping list|Add \d+ to list)$/ }).click()
   await page.waitForTimeout(3000)
   log('removed the night and re-derived')
 
@@ -178,8 +226,10 @@ try {
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 10_000 })
   const after = await mainText()
   assert(!after.includes('Beef mince'), 'unticked derived items came off with the night')
-  // The heading is uppercased in CSS, so innerText reports it that way.
-  assert(/done \(1\)/i.test(after), 'the ticked item survived')
+  // Still there and still ticked — the row stays where it was, struck through,
+  // rather than collapsing behind a counter.
+  assert(after.includes('Rice'), 'the ticked item survived')
+  await tickedBox(itemNamed('Rice')).waitFor({ timeout: 10_000 })
   log('unticked items cleared, the ticked one kept')
 
   const entries = await readTable('meal_plan_entries')
