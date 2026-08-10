@@ -2,6 +2,7 @@
 import { usePlanStore, type PlannedNight } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
 import { suggestionReason, type RankedCandidate } from '../utils/generator'
+import { DINNER, MEALS, MEAL_LABELS, type Meal } from '../utils/meal'
 import { pictureOf } from '../utils/photo'
 
 /**
@@ -42,11 +43,28 @@ const { suggestions, nights, target, tiles = false } = defineProps<{
   tiles?: boolean
 }>()
 
-const emit = defineEmits<{ pick: [recipeId: string], seeAll: [] }>()
+const emit = defineEmits<{ pick: [recipeId: string, meal: Meal], seeAll: [] }>()
 
 const plan = usePlanStore()
 const recipes = useRecipesStore()
 const pantryCovers = usePantryCovers()
+
+/**
+ * Which slot the button plants into.
+ *
+ * Offered on the wide aside only. The phone's rail is part of a walk through the
+ * week's nights — the heading, the strip and the footer all mean dinner — and a
+ * meal selector in the middle of it would be a second question inside the one
+ * being asked.
+ *
+ * `target` below is still the first empty *dinner*, so with this on Lunch, "Use
+ * Wed" plants a lunch on the day that was chosen for having no dinner. That is
+ * right under "dinner is what the week is planned around": the day is the offer,
+ * and the slot is what you just said.
+ */
+const addTo = ref<Meal>(DINNER)
+
+const mealItems = MEALS.map(meal => ({ label: MEAL_LABELS[meal], value: meal }))
 
 /**
  * An offer can be carried to the night you want it on.
@@ -72,9 +90,16 @@ const dayName = computed(() => {
   return new Date(year!, month! - 1, day!).toLocaleDateString(undefined, { weekday: 'short' })
 })
 
-/** Every recipe already on this week, so a suggestion can admit it is spoken for. */
+/**
+ * Every recipe already on this week, so a suggestion can admit it is spoken for.
+ *
+ * All three slots. A recipe put on Tuesday lunch is on the week, and offering it
+ * again as though it were not is the panel disagreeing with the grid beside it.
+ */
 const onPlan = computed(() =>
-  new Set(nights.flatMap(night => night.entries.map(planned => planned.entry.recipe_id)))
+  new Set(
+    nights.flatMap(night => MEALS.map(meal => night.meals[meal]?.entry.recipe_id ?? null))
+  )
 )
 
 /** What it costs to cook, for the badge on the offer. Zero reads as no badge. */
@@ -122,6 +147,30 @@ function reasonFor(candidate: RankedCandidate): string {
         label="See all"
         class="-me-2 shrink-0"
         @click="emit('seeAll')"
+      />
+    </div>
+
+    <!--
+      Which slot "Use Wed" plants into. Three fixed options, one of them chosen,
+      so a radio group — `card` with the indicator hidden is this app's chip, the
+      same one the review's grouping and the list's aisle filters are drawn as.
+      Not tabs, which would promise panels underneath, and not a select, which
+      would hide two of three answers behind a press.
+    -->
+    <div
+      v-if="!tiles"
+      class="mt-2 flex items-center gap-2"
+    >
+      <span class="shrink-0 text-xs uppercase tracking-wide text-dimmed">Add to</span>
+      <URadioGroup
+        v-model="addTo"
+        :items="mealItems"
+        variant="card"
+        indicator="hidden"
+        orientation="horizontal"
+        size="xs"
+        color="primary"
+        :ui="{ fieldset: 'gap-1.5' }"
       />
     </div>
 
@@ -213,7 +262,7 @@ function reasonFor(candidate: RankedCandidate): string {
             block
             data-no-drag
             :label="`Use ${dayName}`"
-            @click="emit('pick', candidate.recipe.id)"
+            @click="emit('pick', candidate.recipe.id, addTo)"
           />
         </UCard>
       </li>
@@ -283,7 +332,7 @@ function reasonFor(candidate: RankedCandidate): string {
               data-no-drag
               :label="`Use ${dayName}`"
               class="ml-auto"
-              @click="emit('pick', candidate.recipe.id)"
+              @click="emit('pick', candidate.recipe.id, addTo)"
             />
           </div>
         </UCard>

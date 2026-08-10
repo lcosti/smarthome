@@ -2,7 +2,7 @@
 import { useAttendanceStore } from '../stores/attendance'
 import { dishLabel, usePlanStore, type PlannedNight } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
-import { initialOf } from '../utils/person-colors'
+import { DINNER } from '../utils/meal'
 import { pictureOf } from '../utils/photo'
 import { skipIcon } from '../utils/skip'
 
@@ -22,7 +22,7 @@ import { skipIcon } from '../utils/skip'
  * Presentational: the week above owns which night is being edited, so the phone
  * rows and these cards cannot drift apart over what changing a night does.
  */
-const { night, today, past = false, header = true, table = true, events = [] } = defineProps<{
+const { night, today, past = false, header = true, eaters = 'table', events = [] } = defineProps<{
   night: PlannedNight
   today: boolean
   /** The night is before today. */
@@ -36,15 +36,21 @@ const { night, today, past = false, header = true, table = true, events = [] } =
    */
   header?: boolean
   /**
-   * Show the whole table — the faces and the portion count — along the bottom.
+   * How much of who is eating the card says along the bottom.
    *
-   * False on a phone, where the cards are a column and the same four faces on
-   * every one of them is a roll-call nobody reads. What survives is the
-   * exception: a night somebody is missing says who, and a night with everybody
-   * there says nothing. Everybody being home is the normal case and needs no
-   * ink.
+   * `table` is the whole roll-call — the faces and the portion count — for a
+   * card standing on its own.
+   *
+   * `away` is the exception only, for the phone: the cards are a column there
+   * and the same four faces on every one of them is a roll-call nobody reads,
+   * so a night somebody is missing says who and a night with everybody there
+   * says nothing. Everybody being home is the normal case and needs no ink.
+   *
+   * `none` is for the wide week, where the day's table is a column of the row
+   * this card sits in. The roster is kept per day, so anything here would be the
+   * same fact twice on one line.
    */
-  table?: boolean
+  eaters?: 'table' | 'away' | 'none'
   /**
    * What else the day is already spoken for by.
    *
@@ -76,29 +82,9 @@ const dateLabel = computed(() =>
 )
 
 /**
- * Only who is eating. A night is a list of the people at the table, not a
- * register of the household with some of it crossed out — the count beside the
- * faces is what says how many are missing, and it says it in one number.
+ * Whether the night is asking for anything. The faces and the count that go with
+ * it are `PlanDayEaters`, which the wide plan shows in a column of its own.
  */
-const faces = computed(() =>
-  attendance.presentOn(night.date).map(person => ({
-    id: person.id,
-    name: person.name,
-    initial: initialOf(person.name),
-    avatar: person.avatar
-  }))
-)
-
-/**
- * How many portions the night is for, and whether it is for anybody at all.
- *
- * Both come off the store rather than being counted here, so that the number on
- * the card and the nights "Fill empty nights" is willing to touch are the same
- * arithmetic. A pre-weaning baby is at the table and eating nothing off it,
- * exactly as the generator counts it — otherwise the card promises a portion
- * nobody plates.
- */
-const eating = computed(() => plan.eatersOn(night.date))
 const nobodyHome = computed(() => plan.nobodyEatingOn(night.date))
 
 /** Only who is out — the shorter list, and the one worth the width. */
@@ -164,9 +150,20 @@ const dishMeta = computed<{ icon: string, label: string }[]>(() => {
 const drag = usePlanDrag()
 const root = useTemplateRef<{ $el?: HTMLElement } | HTMLElement>('root')
 
-const isOver = computed(() => drag.overDate.value === night.date)
+/**
+ * This card is the dinner, always — the day's other two slots are
+ * `PlanMealCell`s beside it or under it. So it registers as the dinner cell and
+ * has no `meal` prop: giving it one would invite somebody to render a breakfast
+ * through a card built to be the night.
+ */
+const slot = computed(() => drag.slotKey(night.date, DINNER))
+
+const isOver = computed(() => drag.overSlot.value === slot.value)
+
+// The entry rather than the date: a day has three slots now, and a lunch in the
+// air must not fade the dinner underneath it.
 const isSource = computed(() =>
-  drag.payload.value?.kind === 'night' && drag.payload.value.date === night.date
+  drag.payload.value?.kind === 'night' && drag.payload.value.entryId === planned.value?.entry.id
 )
 
 /** `UCard` is a component, so the element to hit-test against is its root node. */
@@ -176,8 +173,8 @@ function elementOf(instance: unknown): HTMLElement | null {
   return el instanceof HTMLElement ? el : null
 }
 
-watchEffect(() => drag.registerTarget(night.date, elementOf(root.value)))
-onBeforeUnmount(() => drag.registerTarget(night.date, null))
+watchEffect(() => drag.registerTarget(slot.value, elementOf(root.value)))
+onBeforeUnmount(() => drag.registerTarget(slot.value, null))
 
 function pickUp(event: PointerEvent) {
   if (!planned.value) return
@@ -185,6 +182,7 @@ function pickUp(event: PointerEvent) {
     kind: 'night',
     entryId: planned.value.entry.id,
     date: night.date,
+    meal: DINNER,
     label: dishLabel(planned.value),
     image: picture.value
   })
@@ -390,25 +388,14 @@ function pickUp(event: PointerEvent) {
     </div>
 
     <template
-      v-if="table || awayLabel"
+      v-if="eaters === 'table' || (eaters === 'away' && awayLabel)"
       #footer
     >
-      <template v-if="table">
-        <UAvatarGroup
-          :max="5"
-          size="xs"
-        >
-          <UAvatar
-            v-for="face in faces"
-            :key="face.id"
-            :src="face.avatar ?? undefined"
-            :alt="face.name"
-            :text="face.initial"
-          />
-        </UAvatarGroup>
-        <!-- "0 eating" is a count of nothing beside a row of nobody. Say it. -->
-        <span class="truncate text-xs text-dimmed">{{ nobodyHome ? 'Nobody home' : `${eating} eating` }}</span>
-      </template>
+      <!-- One answer to "who is at the table", shared with the wide plan's own column. -->
+      <PlanDayEaters
+        v-if="eaters === 'table'"
+        :date="night.date"
+      />
 
       <span
         v-else

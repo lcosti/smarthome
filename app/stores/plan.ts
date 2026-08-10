@@ -9,6 +9,7 @@ import {
   type GenerateInput,
   type RankedCandidate
 } from '../utils/generator'
+import { DINNER, MEALS, mealRank, type Meal } from '../utils/meal'
 import { derivePantryReservations } from '../utils/pantry'
 import { deriveLifeStage } from '../utils/people'
 import { LEFTOVER_MAX_AGE_DAYS, planMove } from '../utils/plan-move'
@@ -58,10 +59,31 @@ export interface PlannedEntry {
 
 export interface PlannedNight {
   date: string
+  /**
+   * The night's dinner, and deliberately nothing else.
+   *
+   * Plural because the database tolerates two rows on one slot — two phones
+   * planning offline mint different ids — and this collapses them by showing
+   * the first rather than by rejecting either.
+   *
+   * Every reader of this field means the dinner: the card, the strip's dot, the
+   * week's fraction, "Earlier this week", the button that walks the week.
+   * Widening it to all three meals would light Monday's dot for a bowl of
+   * porridge, count that porridge in "3 of 7 nights", and record Monday as
+   * "Porridge" — and none of it would fail to compile, because a
+   * `PlannedEntry[]` is still a `PlannedEntry[]`. Breakfast and lunch live in
+   * `meals` for that reason.
+   */
   entries: PlannedEntry[]
+  /**
+   * Every slot of the day, dinner included.
+   *
+   * `meals.dinner` is `entries[0]` by construction rather than by coincidence —
+   * both are filled in the same pass — so the two cannot come to disagree about
+   * what is for dinner.
+   */
+  meals: Record<Meal, PlannedEntry | null>
 }
-
-const DINNER = 'dinner'
 
 // Re-exported so callers keep asking the plan about the plan's own rules, while
 // the rule itself lives next to the code that has to enforce it on a drop.
@@ -109,8 +131,21 @@ export const usePlanStore = defineStore('plan', () => {
     return ids
   })
 
-  function entriesOn(date: string): PlanEntryRow[] {
-    return liveEntries.value.filter(e => e.date === date && e.meal === DINNER)
+  /**
+   * One slot of one day, which for almost every caller is a dinner.
+   *
+   * The default is what keeps the rest of the app honest. Fifteen callers — the
+   * generator, the week's suggestions, "fill empty nights", the wall board, the
+   * search for a night to have leftovers of — mean dinner and only dinner, and
+   * a default means they go on meaning it without being touched, rather than
+   * silently acquiring two more meals the day this column opened up.
+   *
+   * Every mutator below passes its meal explicitly instead of leaning on the
+   * default. One that leans on it is correct today and wrong the first time it
+   * is called for a lunch.
+   */
+  function entriesOn(date: string, meal: Meal = DINNER): PlanEntryRow[] {
+    return liveEntries.value.filter(e => e.date === date && e.meal === meal)
   }
 
   /**
@@ -154,10 +189,18 @@ export const usePlanStore = defineStore('plan', () => {
 
   /** The seven nights of a week, empty ones included — the shape the page renders. */
   function week(weekStart: string): PlannedNight[] {
-    return weekDatesFrom(weekStart).map(date => ({
-      date,
-      entries: entriesOn(date).map(plannedEntry)
-    }))
+    return weekDatesFrom(weekStart).map((date) => {
+      const entries = entriesOn(date, DINNER).map(plannedEntry)
+      return {
+        date,
+        entries,
+        meals: {
+          breakfast: entriesOn(date, 'breakfast').map(plannedEntry)[0] ?? null,
+          lunch: entriesOn(date, 'lunch').map(plannedEntry)[0] ?? null,
+          dinner: entries[0] ?? null
+        }
+      }
+    })
   }
 
   function isDerived(entryId: string) {
@@ -185,7 +228,13 @@ export const usePlanStore = defineStore('plan', () => {
   }
 
   /** Returns the row it wrote, so a caller chaining a leftovers night can point at it. */
-  async function addEntry(date: string, recipeId: string, servings?: number, leftoverOf?: string) {
+  async function addEntry(
+    date: string,
+    recipeId: string,
+    meal: Meal = DINNER,
+    servings?: number,
+    leftoverOf?: string
+  ) {
     if (!sync.householdId) return null
     const recipe = recipesStore.recipeById(recipeId)
     if (!recipe) return null
@@ -194,7 +243,7 @@ export const usePlanStore = defineStore('plan', () => {
       id: crypto.randomUUID(),
       household_id: sync.householdId,
       date,
-      meal: DINNER,
+      meal,
       recipe_id: recipeId,
       servings: servings ?? recipe.base_servings,
       note: null,
@@ -213,19 +262,24 @@ export const usePlanStore = defineStore('plan', () => {
   }
 
   /**
-   * One recipe per night, enforced here rather than by a unique constraint.
+   * One recipe per slot, enforced here rather than by a unique constraint.
    *
-   * The database deliberately tolerates two entries on a night, because two
+   * The database deliberately tolerates two entries on a slot, because two
    * phones planning offline mint different ids and a constraint would turn the
    * loser's write into a permanent rejection. Replacing on this side gives the
-   * one-per-night behaviour people expect without that risk.
+   * one-per-slot behaviour people expect without that risk.
+   *
+   * The slot, not the day. Replacing everything on the date is what this used to
+   * do, when a date had one meal on it and the two were the same statement;
+   * planning Tuesday's dinner must not now quietly take Tuesday's breakfast off
+   * the plan with it.
    */
-  async function setNight(date: string, recipeId: string, servings?: number) {
-    const replaced = entriesOn(date)
+  async function setNight(date: string, recipeId: string, meal: Meal = DINNER, servings?: number) {
+    const replaced = entriesOn(date, meal)
     for (const existing of replaced) {
       await sync.commit('meal_plan_entries', { ...plainCopy(existing), deleted_at: nowIso() })
     }
-    const row = await addEntry(date, recipeId, servings)
+    const row = await addEntry(date, recipeId, meal, servings)
 
     // Swapping a night replaces its row rather than editing it, so any night
     // eating its leftovers has to be walked over to the new one. Left alone,
@@ -256,11 +310,18 @@ export const usePlanStore = defineStore('plan', () => {
    * The row keeps a servings count because the column is not null and because it
    * is still true — that many people are eating, whoever cooks it. Nothing reads
    * it: a night with no recipe has no ingredients to scale.
+   *
+   * Dinner only, and deliberately not offered for the other two slots. A skip is
+   * a decision the rest of the app reads — the board says so, the generator
+   * stops offering, the week's fraction counts the night as dealt with — and
+   * none of that exists for a breakfast. An empty breakfast is the ordinary
+   * case rather than a gap, so there is nothing for "not cooking" to distinguish
+   * it from.
    */
   async function skipNight(date: string, reason: string) {
     if (!sync.householdId) return null
 
-    for (const existing of entriesOn(date)) {
+    for (const existing of entriesOn(date, DINNER)) {
       await sync.commit('meal_plan_entries', { ...plainCopy(existing), deleted_at: nowIso() })
     }
 
@@ -308,13 +369,19 @@ export const usePlanStore = defineStore('plan', () => {
     return people.people.length > 0 && eatersOn(date) === 0
   }
 
-  /** The nights this one could reasonably be leftovers of, most recent first. */
+  /**
+   * The nights this one could reasonably be leftovers of, most recent first.
+   *
+   * Dinners, whatever slot is going to eat them: yesterday's roast for today's
+   * lunch is the commonest case in a house, and nobody cooks a breakfast to have
+   * leftovers of.
+   */
   function leftoverSourcesFor(date: string): PlannedEntry[] {
     const sources: PlannedEntry[] = []
     const [year, month, day] = date.split('-').map(Number)
     const night = new Date(year!, month! - 1, day!)
     for (let back = 1; back <= LEFTOVER_MAX_AGE_DAYS; back++) {
-      for (const entry of entriesOn(isoDate(addDays(night, -back)))) {
+      for (const entry of entriesOn(isoDate(addDays(night, -back)), DINNER)) {
         // Leftovers of leftovers is the same food twice removed, and the chain
         // it would create has no answer for what happens when the middle night
         // is deleted. Point at the night it was cooked on.
@@ -337,15 +404,15 @@ export const usePlanStore = defineStore('plan', () => {
    * the night still shows if the source is deleted later, and it costs nothing:
    * every view prefers the source's recipe while the source is there.
    */
-  async function setLeftovers(date: string, sourceEntryId: string) {
+  async function setLeftovers(date: string, sourceEntryId: string, meal: Meal = DINNER) {
     const source = allEntries.value.get(sourceEntryId)
     if (!source || source.deleted_at || source.leftover_of_entry_id || !source.recipe_id) return null
     if (!leftoverSourcesFor(date).some(planned => planned.entry.id === sourceEntryId)) return null
 
-    for (const existing of entriesOn(date)) {
+    for (const existing of entriesOn(date, meal)) {
       await sync.commit('meal_plan_entries', { ...plainCopy(existing), deleted_at: nowIso() })
     }
-    return addEntry(date, source.recipe_id, eatersOn(date) || source.servings, sourceEntryId)
+    return addEntry(date, source.recipe_id, meal, eatersOn(date) || source.servings, sourceEntryId)
   }
 
   /**
@@ -384,8 +451,18 @@ export const usePlanStore = defineStore('plan', () => {
     await sync.commit('meal_plan_entries', { ...plainCopy(current), deleted_at: nowIso() })
   }
 
-  async function clearNight(date: string) {
-    for (const existing of entriesOn(date)) await removeEntry(existing.id)
+  /**
+   * Clear one slot, or — with no meal named — the whole day.
+   *
+   * The two callers want different things and both are right. The editor is open
+   * on a slot and clears that slot; a week being emptied is emptying days, and
+   * "cleared 3 nights" that left three breakfasts behind would be a lie.
+   */
+  async function clearNight(date: string, meal?: Meal) {
+    const slots = meal ? [meal] : MEALS
+    for (const slot of slots) {
+      for (const existing of entriesOn(date, slot)) await removeEntry(existing.id)
+    }
   }
 
   /**
@@ -399,7 +476,9 @@ export const usePlanStore = defineStore('plan', () => {
   async function clearWeek(dates: string[]) {
     let cleared = 0
     for (const date of dates) {
-      if (!entriesOn(date).length) continue
+      // Days, not slots: the count is what the toast says, and "cleared 3
+      // nights" is the sentence somebody expects after emptying three days.
+      if (!MEALS.some(meal => entriesOn(date, meal).length)) continue
       await clearNight(date)
       cleared++
     }
@@ -530,7 +609,8 @@ export const usePlanStore = defineStore('plan', () => {
       // over from, and a night claiming to be leftovers of nothing is worse than
       // an empty one.
       if (pick.leftoverOfDate && !leftoverOf) continue
-      const row = await addEntry(pick.date, pick.recipeId, pick.servings, leftoverOf)
+      // Dinners. The generator fills nights, and breakfast is not one.
+      const row = await addEntry(pick.date, pick.recipeId, DINNER, pick.servings, leftoverOf)
       if (row) created.set(pick.date, row.id)
     }
 
@@ -690,10 +770,18 @@ export const usePlanStore = defineStore('plan', () => {
   }
 
   /**
-   * The night a derived row is for, as a heading: "Mon · Chilli".
+   * The meal a derived row is for, as a heading: "Mon · Chilli".
    *
    * Resolved through the entry rather than stored on the item, exactly as the
    * list's own provenance is, so renaming a recipe renames it here too.
+   *
+   * Dinner goes unnamed. It is the slot the week is about, and "Mon dinner ·
+   * Chilli" on six headings out of seven would be six words spent saying the
+   * usual thing. The other two say which they are.
+   *
+   * `order` carries the slot as well as the date, because two meals on one day
+   * would otherwise tie and fall back to sorting by dish name — which would file
+   * Monday's chilli above Monday's porridge.
    */
   function nightOf(item: ItemRow) {
     if (!item.plan_entry_id) return null
@@ -701,7 +789,12 @@ export const usePlanStore = defineStore('plan', () => {
     if (!entry) return null
     const [year, month, day] = entry.date.split('-').map(Number)
     const weekday = new Date(year!, month! - 1, day!).toLocaleDateString(undefined, { weekday: 'short' })
-    return { id: entry.id, name: `${weekday} · ${dishLabel(plannedEntry(entry))}`, order: entry.date }
+    const slot = entry.meal === DINNER ? '' : ` ${entry.meal}`
+    return {
+      id: entry.id,
+      name: `${weekday}${slot} · ${dishLabel(plannedEntry(entry))}`,
+      order: `${entry.date}#${mealRank(entry.meal)}`
+    }
   }
 
   /**

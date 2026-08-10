@@ -3,6 +3,7 @@ import { usePlanStore, type PlannedNight } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
 import { useSyncStore } from '../stores/sync'
 import { useToday } from '../composables/useToday'
+import { DINNER, type Meal } from '../utils/meal'
 import { duration } from '../utils/plan-stats'
 import { addDays, isoDate, mondayOf, weekLabel } from '../utils/week'
 
@@ -22,7 +23,15 @@ const isWide = useWide()
 // Week offset rather than a route param: deep-linking a week is not a real use
 // case, and back should leave the page rather than walk backwards through weeks.
 const weekOffset = ref(0)
-const editingDate = ref<string | null>(null)
+
+/**
+ * The slot the editor is open on — a day and one of its three meals.
+ *
+ * A slot rather than a date, where `selected` below stays a date: the editor is
+ * opened by tapping a particular cell, and the walk is still a walk through
+ * nights.
+ */
+const editingSlot = ref<{ date: string, meal: Meal } | null>(null)
 const editorOpen = ref(false)
 const deriving = ref(false)
 const filling = ref(false)
@@ -195,8 +204,8 @@ async function clear() {
   }
 }
 
-function openNight(date: string) {
-  editingDate.value = date
+function openSlot(date: string, meal: Meal = DINNER) {
+  editingSlot.value = { date, meal }
   editorOpen.value = true
 }
 
@@ -222,12 +231,15 @@ function advance() {
  * kept for the things you cannot see happen: filling a week, clearing one, and
  * putting it on the list.
  */
-async function pick(recipeId: string) {
+async function pick(recipeId: string, meal: Meal = DINNER) {
   const date = pickTarget.value
   if (!date) return
-  const row = await plan.setNight(date, recipeId)
+  const row = await plan.setNight(date, recipeId, meal)
   if (!row) return
-  if (!isWide.value) setTimeout(advance, SETTLE_MS)
+  // Only a dinner moves the walk on. The footer names the next unplanned night,
+  // so advancing after somebody planned a lunch would answer a question they
+  // had not asked.
+  if (!isWide.value && meal === DINNER) setTimeout(advance, SETTLE_MS)
 }
 
 async function skip(reason: string) {
@@ -279,7 +291,7 @@ async function derive() {
       :derive-label="deriveLabel"
       :filling="filling"
       :deriving="deriving"
-      @open="openNight"
+      @open="openSlot"
       @remove="remove"
       @pick="pick"
       @fill="fill"
@@ -445,7 +457,8 @@ async function derive() {
             :past="selected < today"
             :events="events.get(selected)"
             class="shrink-0"
-            @open="openNight(selected)"
+            @open="openSlot(selected)"
+            @open-meal="openSlot(selected, $event)"
             @remove="remove(selectedNight)"
             @skip="skip"
           />
@@ -463,7 +476,7 @@ async function derive() {
             tiles
             class="shrink-0"
             @pick="pick"
-            @see-all="openNight(selected)"
+            @see-all="openSlot(selected)"
           />
         </div>
       </main>
@@ -477,7 +490,8 @@ async function derive() {
 
     <PlanNightEditor
       v-model:open="editorOpen"
-      :date="editingDate"
+      :date="editingSlot?.date ?? null"
+      :meal="editingSlot?.meal"
     />
 
     <!--

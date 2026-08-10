@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { usePlanStore, type PlannedNight } from '../stores/plan'
+import type { Meal } from '../utils/meal'
 import { SKIP_REASONS } from '../utils/skip'
 
 /**
@@ -23,6 +24,13 @@ import { SKIP_REASONS } from '../utils/skip'
  * ask: it says so and offers the one answer that still means anything. "Not
  * cooking" is not one of them — there is nothing to not cook, and a takeaway
  * logged for an empty house is a decision about nothing.
+ *
+ * Breakfast and lunch sit under all of that, as two rows, in both cases — a day
+ * with no dinner still has a breakfast somebody might plan. They are under the
+ * dinner rather than beside or above it because the walk this page is a walk of
+ * is a walk through the week's nights: the heading, the strip and the footer all
+ * mean dinner, and these two are the same day's other meals rather than two more
+ * steps in the sequence.
  */
 const { night, today, past = false, events = [] } = defineProps<{
   night: PlannedNight
@@ -31,7 +39,13 @@ const { night, today, past = false, events = [] } = defineProps<{
   events?: PlanEvent[]
 }>()
 
-const emit = defineEmits<{ open: [], remove: [], skip: [reason: string] }>()
+const emit = defineEmits<{
+  open: []
+  remove: []
+  skip: [reason: string]
+  /** Open one of the day's other two slots. */
+  openMeal: [meal: Meal]
+}>()
 
 const plan = usePlanStore()
 
@@ -55,7 +69,7 @@ const reasonItems = computed(() =>
       :today="night.date === today"
       :past="past"
       :header="false"
-      :table="false"
+      eaters="away"
       :events="events"
       @open="emit('open')"
       @remove="emit('remove')"
@@ -117,5 +131,22 @@ const reasonItems = computed(() =>
         :max="4"
       />
     </template>
+
+    <!--
+      The day's other two meals, quieter than the dinner above them and in the
+      order the day happens. Nothing here is asked for — an empty breakfast is
+      the ordinary case, not a hole in the week — so they sit as two plain rows
+      rather than as anything the page is waiting on.
+    -->
+    <div class="flex flex-col gap-2">
+      <PlanMealCell
+        v-for="meal in (['breakfast', 'lunch'] as const)"
+        :key="meal"
+        :date="night.date"
+        :meal="meal"
+        :planned="night.meals[meal]"
+        @open="emit('openMeal', meal)"
+      />
+    </div>
   </div>
 </template>

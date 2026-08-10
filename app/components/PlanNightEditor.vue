@@ -3,12 +3,22 @@ import { useAttendanceStore } from '../stores/attendance'
 import { usePeopleStore } from '../stores/people'
 import { dishLabel, usePlanStore } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
+import { DINNER, MEAL_LABELS, type Meal } from '../utils/meal'
 import { pictureOf } from '../utils/photo'
 import { SKIP_REASONS } from '../utils/skip'
 import { dayLabel } from '../utils/week'
 
+/**
+ * One slot of one day, opened from wherever it was tapped.
+ *
+ * The same slideover for all three meals rather than a smaller one for
+ * breakfast, on the principle that both shapes of the plan already share one
+ * `PlanNightCard`: a lunch is a slot with a dish and a portion count and a
+ * search box, which is what this is. Two of its blocks are dinner's alone and
+ * say why below.
+ */
 const open = defineModel<boolean>('open', { required: true })
-const { date } = defineProps<{ date: string | null }>()
+const { date, meal = DINNER } = defineProps<{ date: string | null, meal?: Meal }>()
 
 const plan = usePlanStore()
 const recipes = useRecipesStore()
@@ -17,7 +27,7 @@ const attendance = useAttendanceStore()
 
 const search = ref('')
 
-const first = computed(() => (date ? plan.entriesOn(date)[0] ?? null : null))
+const first = computed(() => (date ? plan.entriesOn(date, meal)[0] ?? null : null))
 const planned = computed(() => (first.value ? plan.plannedEntry(first.value) : null))
 const plannedRecipe = computed(() => planned.value?.recipe ?? null)
 
@@ -27,8 +37,14 @@ const plannedRecipe = computed(() => planned.value?.recipe ?? null)
  * Offered above the recipe list rather than inside it, because "we're finishing
  * Sunday's chilli" is a different sentence from "we're cooking chilli" and the
  * shopping list treats them as opposites.
+ *
+ * Not offered at breakfast. Yesterday's roast for today's lunch is the case this
+ * exists for; leftovers of it at seven in the morning is a block of permanent
+ * noise at the top of a slot nobody would use it in.
  */
-const leftoverSources = computed(() => (date ? plan.leftoverSourcesFor(date) : []))
+const leftoverSources = computed(() =>
+  date && meal !== 'breakfast' ? plan.leftoverSourcesFor(date) : []
+)
 
 watch(open, (isOpen) => {
   if (isOpen) search.value = ''
@@ -50,13 +66,13 @@ const showScalingNote = computed(() =>
 // cost of the most common action on the page.
 async function choose(recipeId: string) {
   if (!date) return
-  await plan.setNight(date, recipeId)
+  await plan.setNight(date, recipeId, meal)
   open.value = false
 }
 
 async function chooseLeftovers(sourceEntryId: string) {
   if (!date) return
-  await plan.setLeftovers(date, sourceEntryId)
+  await plan.setLeftovers(date, sourceEntryId, meal)
   open.value = false
 }
 
@@ -71,6 +87,16 @@ async function setServings(next: number) {
   await plan.updateEntry(planned.value.entry.id, { servings: Math.max(1, next) })
 }
 
+/**
+ * The day's roll-call, whichever slot this editor was opened for.
+ *
+ * The surprising thing in this file, and deliberate: attendance is kept once per
+ * day, against the dinner, and breakfast and lunch read the same answer. Somebody
+ * out for lunch and home for dinner is a real household and not this one, and a
+ * roster asked three times a night would cost more than it told anybody. Passing
+ * `meal` here would also find nothing — the rows that exist are dinner rows —
+ * and everybody would read as away.
+ */
 function isHome(personId: string) {
   return date ? attendance.isPresent(personId, date) : true
 }
@@ -97,7 +123,7 @@ async function applyHome(next: (string | number)[]) {
 
 async function clear() {
   if (!date) return
-  await plan.clearNight(date)
+  await plan.clearNight(date, meal)
   open.value = false
 }
 </script>
@@ -106,7 +132,7 @@ async function clear() {
   <USlideover
     v-model:open="open"
     side="bottom"
-    :title="date ? dayLabel(date) : 'Dinner'"
+    :title="date ? `${dayLabel(date)} · ${MEAL_LABELS[meal]}` : MEAL_LABELS[meal]"
   >
     <template #body>
       <div class="space-y-4">
@@ -192,8 +218,16 @@ async function clear() {
           other answers rather than under the recipe list — a night getting a
           takeaway is decided before anybody scrolls a library they are not going
           to cook from.
+
+          Dinner's alone. A skip is a decision the rest of the app reads — the
+          board says so, the generator stops offering, the week's fraction counts
+          the night as dealt with — and none of that exists for a breakfast,
+          where an empty slot is the ordinary case rather than a gap.
         -->
-        <div class="rounded-lg border border-default p-3">
+        <div
+          v-if="meal === 'dinner'"
+          class="rounded-lg border border-default p-3"
+        >
           <p class="text-xs font-medium uppercase tracking-wide text-dimmed">
             Not cooking
           </p>

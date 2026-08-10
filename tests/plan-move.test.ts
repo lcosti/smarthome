@@ -67,6 +67,40 @@ describe('moving a night', () => {
     expect(rows.get('entry-fri')!.date).toBe('2026-08-03')
   })
 
+  it('swaps with the target date’s dinner and leaves its lunch alone', () => {
+    // A day is three slots now, and a move stays within its own. Swapping a
+    // dinner with whatever happened to be first on the target date would sit
+    // Friday's lunch on Monday's dinner and rename both.
+    const rows = byId(planMove(
+      [
+        entry(),
+        entry({ id: 'entry-fri-lunch', date: '2026-08-07', meal: 'lunch', recipe_id: 'recipe-soup' }),
+        entry({ id: 'entry-fri', date: '2026-08-07', recipe_id: 'recipe-pasta' })
+      ],
+      'entry-mon',
+      '2026-08-07',
+      NOW
+    ))
+
+    expect(rows.size).toBe(2)
+    expect(rows.get('entry-mon')!.date).toBe('2026-08-07')
+    expect(rows.get('entry-fri')!.date).toBe('2026-08-03')
+    expect(rows.has('entry-fri-lunch')).toBe(false)
+  })
+
+  it('moves onto a date whose only entry is another meal without swapping it', () => {
+    const rows = planMove(
+      [entry(), entry({ id: 'entry-fri-lunch', date: '2026-08-07', meal: 'lunch' })],
+      'entry-mon',
+      '2026-08-07',
+      NOW
+    )
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.id).toBe('entry-mon')
+    expect(rows[0]!.date).toBe('2026-08-07')
+  })
+
   it('ignores a deleted night sitting on the target date', () => {
     const rows = planMove(
       [entry(), entry({ id: 'entry-fri', date: '2026-08-07', deleted_at: NOW })],

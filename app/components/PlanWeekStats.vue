@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useListStore } from '../stores/list'
 import { usePlanStore, type PlannedNight } from '../stores/plan'
-import { duration, weekStats } from '../utils/plan-stats'
+import { duration, entryIdsIn, weekStats } from '../utils/plan-stats'
 
 /**
  * The week in five numbers, at the top of the aside.
@@ -46,12 +46,14 @@ const longestLabel = computed(() => {
   return name ? `${name} · ${time}` : time
 })
 
-/** What is still outstanding at the shop for this week's nights. */
-const toBuy = computed(() =>
-  list.outstandingForEntries(
-    new Set(nights.flatMap(night => night.entries.map(planned => planned.entry.id)))
-  )
-)
+/**
+ * What is still outstanding at the shop for this week.
+ *
+ * Every slot, where the numbers above it are dinners: "Nights planned" is about
+ * nights, and this is about the trip to the shop, which a breakfast puts things
+ * on the list for just as a dinner does.
+ */
+const toBuy = computed(() => list.outstandingForEntries(entryIdsIn(nights)))
 
 const blocks = computed(() => [
   {

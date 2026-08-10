@@ -2,7 +2,8 @@ import type { Ref } from 'vue'
 import { useListStore } from '../stores/list'
 import { usePlanStore, type PlannedNight } from '../stores/plan'
 import type { RankedCandidate } from '../utils/generator'
-import { nextUnplannedDate, weekStats } from '../utils/plan-stats'
+import { DINNER, MEALS, type Meal } from '../utils/meal'
+import { entryIdsIn, nextUnplannedDate, weekStats } from '../utils/plan-stats'
 import { splitWeek } from '../utils/week'
 
 /**
@@ -85,12 +86,8 @@ export function usePlanWeek(weekStart: Ref<string>, today: Ref<string>) {
   /** How full the week is, how much cooking it is, and which night is the long one. */
   const stats = computed(() => weekStats(nights.value, skipNight))
 
-  /** What this week's nights are still waiting on at the shop. */
-  const toBuy = computed(() =>
-    list.outstandingForEntries(
-      new Set(nights.value.flatMap(night => night.entries.map(planned => planned.entry.id)))
-    )
-  )
+  /** What this week is still waiting on at the shop — every slot of it, not just the dinners. */
+  const toBuy = computed(() => list.outstandingForEntries(entryIdsIn(nights.value)))
 
   /**
    * The night the "next" button goes to, or null when there is none left — which
@@ -111,15 +108,21 @@ export function usePlanWeek(weekStart: Ref<string>, today: Ref<string>) {
     return added ? `Add ${added} to list` : 'Add to shopping list'
   })
 
-  /** Take the meal off a night. One entry per night today; the first is it. */
-  async function removeNight(night: PlannedNight) {
-    const planned = night.entries[0]
+  /** Take the meal off one of a day's slots, which for the card that asks is the dinner. */
+  async function removeNight(night: PlannedNight, meal: Meal = DINNER) {
+    const planned = night.meals[meal]
     if (!planned) return
     await plan.removeEntry(planned.entry.id)
   }
 
-  /** Whether there is anything ahead to clear. A week already cooked has not. */
-  const canClear = computed(() => cards.value.some(night => night.entries.length))
+  /**
+   * Whether there is anything ahead to clear. A week already cooked has not.
+   *
+   * Any slot counts: a week somebody has only put breakfasts on is still a week
+   * with something to empty, and a "Clear week" greyed out in front of it would
+   * be the app disagreeing with the screen.
+   */
+  const canClear = computed(() => cards.value.some(night => MEALS.some(meal => night.meals[meal])))
 
   /**
    * Empty the nights still to come, and say how many had a meal on them.

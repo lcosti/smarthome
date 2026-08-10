@@ -3,6 +3,7 @@ import { useAttendanceStore } from '../stores/attendance'
 import { usePeopleStore } from '../stores/people'
 import type { PlannedNight } from '../stores/plan'
 import type { RankedCandidate } from '../utils/generator'
+import type { Meal } from '../utils/meal'
 import { initialOf } from '../utils/person-colors'
 
 /**
@@ -23,7 +24,7 @@ const { nights, suggestions, target } = defineProps<{
   target: string | null
 }>()
 
-const emit = defineEmits<{ pick: [recipeId: string] }>()
+const emit = defineEmits<{ pick: [recipeId: string, meal: Meal] }>()
 
 const people = usePeopleStore()
 const attendance = useAttendanceStore()
@@ -175,7 +176,7 @@ function nightItems(person: { id: string, name: string, nights: { date: string, 
       :nights="nights"
       :target="target"
       class="shrink-0"
-      @pick="emit('pick', $event)"
+      @pick="(recipeId, meal) => emit('pick', recipeId, meal)"
     />
   </div>
 </template>

@@ -330,6 +330,38 @@ describe('reviewByMeal', () => {
     expect(sections[0]!.lines.map(l => l.name)).toEqual(['Chopped tomatoes'])
   })
 
+  it('puts a day’s breakfast above its dinner rather than sorting them by dish', () => {
+    // Two meals on one date tie on the date alone, and the tiebreak is the
+    // section name — which would file "Mon · Chilli" above "Mon breakfast ·
+    // Porridge". `nightOf` carries the slot in `order` for exactly this.
+    const result = derive(input({
+      entries: [
+        entry(),
+        entry({ id: 'entry-mon-breakfast', meal: 'breakfast', recipe_id: 'recipe-porridge' })
+      ],
+      recipes: new Map([
+        ['recipe-chilli', recipe()],
+        ['recipe-porridge', recipe({ id: 'recipe-porridge', name: 'Porridge' })]
+      ]),
+      ingredients: [line(), line({ id: 'line-oats', recipe_id: 'recipe-porridge', name: 'Oats' })]
+    }))
+    const names = new Map([
+      ['entry-mon', { id: 'entry-mon', name: 'Mon · Chilli', order: '2026-08-10#2' }],
+      ['entry-mon-breakfast', {
+        id: 'entry-mon-breakfast',
+        name: 'Mon breakfast · Porridge',
+        order: '2026-08-10#0'
+      }]
+    ])
+    const sections = reviewByMeal(
+      [...result.wanted.values()],
+      item => names.get(item.plan_entry_id!) ?? null,
+      { covered: new Set(), staples: new Set() }
+    )
+
+    expect(sections.map(s => s.name)).toEqual(['Mon breakfast · Porridge', 'Mon · Chilli'])
+  })
+
   it('leaves the staples out, exactly as the aisle read does', () => {
     const result = derive(input())
     const sections = reviewByMeal(

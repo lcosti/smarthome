@@ -7,13 +7,43 @@
  * that is "5 of 7" in one place and "4 of 7" in another is a week nobody trusts.
  */
 
-/** The parts of a planned night these read. */
+/**
+ * The parts of a planned night these read.
+ *
+ * `entries` is the night's dinner and nothing else — `PlannedNight` keeps
+ * breakfast and lunch in a separate field for exactly this reason. Everything
+ * below is deliberately blind to the other two slots: "3 of 7" counts nights,
+ * the longest cook is the night that will ambush you, and the button that walks
+ * the week walks dinners. A breakfast is not a night with a hole in it.
+ */
 export interface NightLike {
   date: string
   entries: {
     leftover: boolean
     recipe: { name: string, prep_minutes: number | null, cook_minutes: number | null } | null
   }[]
+}
+
+/** A day's three slots, for the one function here that does count all of them. */
+export interface DayLike {
+  meals: Record<string, { entry: { id: string } } | null>
+}
+
+/**
+ * Every plan entry on a stretch of days, whichever slot it is in.
+ *
+ * The one question that is about meals rather than nights: what this week still
+ * owes at the shop. Breakfast and lunch derive onto the list like anything else,
+ * so a count taken from the dinners alone would send somebody out short.
+ */
+export function entryIdsIn(days: DayLike[]): Set<string> {
+  const ids = new Set<string>()
+  for (const day of days) {
+    for (const planned of Object.values(day.meals)) {
+      if (planned) ids.add(planned.entry.id)
+    }
+  }
+  return ids
 }
 
 /**

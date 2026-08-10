@@ -193,14 +193,62 @@ editor, so "view" and "edit" are the same door.
 
 `PlanNightRow` used to be on this list and no longer exists. Both shapes of the
 plan show a night as `PlanNightCard` — the phone shows one night at a time
-rather than a grid of seven, with `:header="false"` dropping the day the page
-heading already says and `:table="false"` dropping the roll-call along the
-bottom — so there is one answer to "what does a night look like" rather than two
-that drift.
+rather than a week of them, with `:header="false"` dropping the day the page
+heading already says and `eaters` saying how much of the roll-call belongs along
+the bottom — so there is one answer to "what does a night look like" rather than
+two that drift. `eaters` has three answers because there are three questions:
+`table` is the whole roll-call for a card standing alone, `away` is the exception
+only for the phone's column, and `none` is for the wide week, where the day's
+table is a column of the row the card sits in (`PlanDayEaters`, which is that
+footer extracted so both places say it the same way).
+
+A day is three slots. `meal` has been a column on `meal_plan_entries` and
+`attendance` since the first plan migration, unconstrained, so that lunches would
+be a code change rather than a migration — `app/utils/meal.ts` is that change.
+**Dinner stays primary and the rest of the app is built on that**: the week's
+fraction, "Fill empty nights", the generator, the phone's walk and the wall board
+all mean dinner when they say night, and `plan.entriesOn(date, meal = DINNER)`
+defaults to it so they go on meaning it without every call site naming it.
+`PlannedNight.entries` is the dinner and only the dinner for the same reason —
+breakfast and lunch live in `meals` — because widening it would light the day's
+dot for a bowl of porridge with nothing failing to compile. What is *not*
+dinner-only is the trip to the shop: `derive` keys on the plan entry and always
+has, so every slot buys, and `entryIdsIn` is what both "to buy" counts read.
+
+Breakfast and lunch are `PlanMealCell`, a stock `UButton` at both widths — the
+wide grid's small cells and the two rows under the phone's dinner. Not on the
+exception list and not needing to be: a dinner is a block with a photograph and
+two cost lines, which is what puts `PlanNightCard` under the card-and-row rule,
+and porridge is a name. They open the same `PlanNightEditor`, which takes a
+`meal` beside its `date` and drops two of its blocks for the slots they make no
+sense in — no skip outside dinner, because a skip is a decision the board and
+the generator read and an empty breakfast is the ordinary case rather than a
+gap; no leftovers at breakfast. Its "Who's home" block does not take the meal
+and says so in a comment: the roster is kept once per day, against the dinner,
+and passing a breakfast there would find no rows and read everybody as away.
+
+The wide plan is days down and meals across (`PlanWeekWide`), a plain grid rather
+than a `UTable` — a table's cells are column definitions given rows, and every
+cell here registers itself as a drop target. **The day is the card and the meals
+are cells inside it**, which is the way round it had to go once a day had parts;
+the rows share the height that is left (`flex-1 basis-0`, equal because `basis-0`
+distributes all of it rather than only the spare), so the week ends where the
+screen does and there is nothing below the fold to go looking for. `min-h-20` is
+a floor and not a height — a very short window scrolls rather than crushing seven
+days into slivers, and at the floor the dinner card keeps its dish name and drops
+its cost line. A day nobody is home for keeps its natural height instead of a
+share: there is nothing on it to make room for. Which is also why `usePlanDrag` keys
+targets by `${date}|${meal}`: three cells sharing a bare date would overwrite
+each other in the map. A suggestion may be dropped into any slot, and a dish
+already planned only moves within its own, refused in the hit test so the cell
+never lights rather than at the drop.
 
 The phone's plan is a guided walk through the week: a day heading, `PlanDayStrip`
 above the night on screen, and a footer whose one button names the next night
-still open — or, once there is none, the review. That last step (`PlanReview`) is
+still open — or, once there is none, the review. The strip's dot and that button
+both mean dinner, and the dot deliberately does not light for a breakfast: a
+strip and a footer that disagreed about which nights were dealt with is worse
+than either behaviour on its own. That last step (`PlanReview`) is
 component state inside `plan.vue` rather than a route, for the same reason the
 week offset is: it is the end of one task, and Android back landing on Thursday
 would be a surprise. No horizontal swipe between nights; `usePlanDrag` already

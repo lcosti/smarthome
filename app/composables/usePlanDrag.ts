@@ -1,4 +1,5 @@
 import { usePlanStore } from '../stores/plan'
+import { isMeal, type Meal } from '../utils/meal'
 
 /**
  * Dragging a dinner onto a night.
@@ -27,13 +28,32 @@ import { usePlanStore } from '../stores/plan'
  *    enough to have meant scrolling.
  */
 
-/** What is being dragged: a night already on the plan, or a meal being offered. */
+/** What is being dragged: a slot already on the plan, or a meal being offered. */
 export type DragPayload
-  = | { kind: 'night', entryId: string, date: string, label: string, image: string | null }
+  = | { kind: 'night', entryId: string, date: string, meal: Meal, label: string, image: string | null }
     | { kind: 'suggestion', recipeId: string, label: string, image: string | null }
 
+/**
+ * A slot, as one string: `2026-08-11|lunch`.
+ *
+ * Targets are keyed by slot rather than by date because a day is three cells
+ * now. Three cells registering under one bare date would overwrite each other in
+ * the map, and only whichever mounted last would be findable — a week where
+ * dropping on Tuesday lunch quietly did nothing.
+ */
+export type SlotKey = string
+
+export function slotKey(date: string, meal: Meal): SlotKey {
+  return `${date}|${meal}`
+}
+
+function parseSlot(key: SlotKey): { date: string, meal: Meal } | null {
+  const [date, meal] = key.split('|')
+  return date && meal && isMeal(meal) ? { date, meal } : null
+}
+
 interface DropTarget {
-  date: string
+  key: SlotKey
   el: HTMLElement
 }
 
@@ -51,30 +71,48 @@ const EDGE = 64
 const EDGE_SPEED = 14
 
 const payload = shallowRef<DragPayload | null>(null)
-const overDate = ref<string | null>(null)
+const overSlot = ref<SlotKey | null>(null)
 const pointer = ref({ x: 0, y: 0 })
-const targets = new Map<string, DropTarget>()
+const targets = new Map<SlotKey, DropTarget>()
 
 export function usePlanDrag() {
   const plan = usePlanStore()
   const toast = useToast()
 
   /**
-   * Register a night as somewhere a drag can land.
+   * Register a slot as somewhere a drag can land.
    *
    * Elements rather than rectangles, because both shapes of this page scroll
    * while a drag is in flight and a rectangle measured at pick-up would be
    * pointing at the wrong night by the time the finger got there.
    */
-  function registerTarget(date: string, el: HTMLElement | null) {
-    if (el) targets.set(date, { date, el })
-    else targets.delete(date)
+  function registerTarget(key: SlotKey, el: HTMLElement | null) {
+    if (el) targets.set(key, { key, el })
+    else targets.delete(key)
   }
 
-  function hitTest(x: number, y: number): string | null {
+  /**
+   * Whether what is in hand can land here.
+   *
+   * A recipe being offered can go in any slot — dropping it on the lunch cell is
+   * how you plan a lunch. A dish already on the plan can only move between cells
+   * of its own slot, because `planMove` swaps rows without rewriting `meal`, and
+   * a dinner dropped on a lunch cell would sit in the lunch column still calling
+   * itself a dinner. Refused in the hit test rather than at the drop, so the cell
+   * never lights up and the answer reads as "not there" rather than as a drop
+   * that did nothing.
+   */
+  function landable(key: SlotKey): boolean {
+    const dragged = payload.value
+    if (!dragged || dragged.kind === 'suggestion') return true
+    return parseSlot(key)?.meal === dragged.meal
+  }
+
+  function hitTest(x: number, y: number): SlotKey | null {
     for (const target of targets.values()) {
       const box = target.el.getBoundingClientRect()
-      if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return target.date
+      if (x < box.left || x > box.right || y < box.top || y > box.bottom) continue
+      return landable(target.key) ? target.key : null
     }
     return null
   }
@@ -99,12 +137,14 @@ export function usePlanDrag() {
     else if (box.bottom - y < EDGE) scroller.scrollTop += EDGE_SPEED
   }
 
-  async function drop(date: string) {
+  async function drop(key: SlotKey) {
     const dragged = payload.value
-    if (!dragged) return
+    const slot = parseSlot(key)
+    if (!dragged || !slot) return
+    const { date, meal } = slot
 
     if (dragged.kind === 'suggestion') {
-      const row = await plan.setNight(date, dragged.recipeId)
+      const row = await plan.setNight(date, dragged.recipeId, meal)
       if (row) {
         toast.add({ title: `${dragged.label} planned`, icon: 'i-lucide-check', color: 'success' })
       }
@@ -153,7 +193,7 @@ export function usePlanDrag() {
       dragging = true
       payload.value = next
       pointer.value = { x: startX, y: startY }
-      overDate.value = hitTest(startX, startY)
+      overSlot.value = hitTest(startX, startY)
       // Captured so the drag survives the pointer leaving the card, which it
       // does immediately — the whole point is to be somewhere else.
       el.setPointerCapture(event.pointerId)
@@ -178,7 +218,7 @@ export function usePlanDrag() {
       // Stops the drag turning into a text selection on a desktop.
       moveEvent.preventDefault()
       pointer.value = { x: moveEvent.clientX, y: moveEvent.clientY }
-      overDate.value = hitTest(moveEvent.clientX, moveEvent.clientY)
+      overSlot.value = hitTest(moveEvent.clientX, moveEvent.clientY)
       autoScroll(moveEvent.clientX, moveEvent.clientY)
     }
 
@@ -193,7 +233,7 @@ export function usePlanDrag() {
       cleanup()
       if (landedOn) await drop(landedOn)
       payload.value = null
-      overDate.value = null
+      overSlot.value = null
     }
 
     function swallow(clickEvent: MouseEvent) {
@@ -204,7 +244,7 @@ export function usePlanDrag() {
     function cancel() {
       cleanup()
       payload.value = null
-      overDate.value = null
+      overSlot.value = null
     }
 
     function cleanup() {
@@ -230,12 +270,13 @@ export function usePlanDrag() {
   return {
     /** What is in hand, or null. Every visual cue reads this. */
     payload: readonly(payload),
-    /** The night under the pointer, so it can light up. */
-    overDate: readonly(overDate),
+    /** The slot under the pointer, so it can light up — null when it would refuse the drop. */
+    overSlot: readonly(overSlot),
     /** Where the pointer is, for the thing following it. */
     pointer: readonly(pointer),
     dragging: computed(() => payload.value !== null),
     registerTarget,
+    slotKey,
     press
   }
 }

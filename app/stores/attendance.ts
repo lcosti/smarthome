@@ -7,13 +7,26 @@ import {
   presentPeople
 } from '../utils/attendance'
 import type { AttendanceRow, PersonRow } from '../utils/db'
+import { DINNER, type Meal } from '../utils/meal'
 import { plainCopy } from '../utils/sync'
 import { nowIso, useSyncStore } from './sync'
 import { usePeopleStore } from './people'
 
-/** The only meal the app writes today, matching meal_plan_entries. */
-export const DEFAULT_MEAL = 'dinner'
-
+/**
+ * The roster, which is kept per day rather than per meal.
+ *
+ * Every function here takes a meal and every caller leaves it at dinner. The
+ * parameter is not decoration — `attendanceId` keys a row on it, so two slots
+ * genuinely are two rows — but the plan asks "who is eating on Tuesday" once
+ * and applies the answer to all three of Tuesday's meals. A household where
+ * somebody is out for lunch and home for dinner is a real thing; it is not a
+ * thing this household has asked for, and a roll-call three times the size on
+ * every night would cost more than it told anybody.
+ *
+ * The consequence to know before changing this: the rows that exist are all
+ * dinner rows. Start passing breakfast here and everybody reads as away,
+ * because `attendanceId(household, person, date, 'breakfast')` finds nothing.
+ */
 export const useAttendanceStore = defineStore('attendance', () => {
   const sync = useSyncStore()
   const peopleStore = usePeopleStore()
@@ -21,7 +34,7 @@ export const useAttendanceStore = defineStore('attendance', () => {
   const all = computed(() => sync.rowsOf('attendance'))
   const rows = computed(() => [...all.value.values()])
 
-  function isPresent(personId: string, date: string, meal: string = DEFAULT_MEAL): boolean {
+  function isPresent(personId: string, date: string, meal: Meal = DINNER): boolean {
     return isPresentIn(personId, date, meal, rows.value)
   }
 
@@ -29,18 +42,18 @@ export const useAttendanceStore = defineStore('attendance', () => {
   function nightsPresent(
     personId: string,
     dates: Iterable<string>,
-    meal: string = DEFAULT_MEAL
+    meal: Meal = DINNER
   ): number {
     return nightsPresentIn(personId, dates, meal, rows.value)
   }
 
   /** Everybody eating that night — the generator's input, and the editor's chips. */
-  function presentOn(date: string, meal: string = DEFAULT_MEAL): PersonRow[] {
+  function presentOn(date: string, meal: Meal = DINNER): PersonRow[] {
     return presentPeople(peopleStore.people, rows.value, date, meal)
   }
 
   /** Only who is out, which is the shorter list and the one worth showing. */
-  function awayOn(date: string, meal: string = DEFAULT_MEAL): PersonRow[] {
+  function awayOn(date: string, meal: Meal = DINNER): PersonRow[] {
     return awayPeople(peopleStore.people, rows.value, date, meal)
   }
 
@@ -56,7 +69,7 @@ export const useAttendanceStore = defineStore('attendance', () => {
     personId: string,
     date: string,
     present: boolean,
-    meal: string = DEFAULT_MEAL
+    meal: Meal = DINNER
   ): Promise<AttendanceRow | null> {
     if (!sync.householdId) return null
     if (!peopleStore.personById(personId)) return null
@@ -80,7 +93,7 @@ export const useAttendanceStore = defineStore('attendance', () => {
     })
   }
 
-  async function togglePresence(personId: string, date: string, meal: string = DEFAULT_MEAL) {
+  async function togglePresence(personId: string, date: string, meal: Meal = DINNER) {
     return setPresence(personId, date, !isPresent(personId, date, meal), meal)
   }
 

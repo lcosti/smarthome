@@ -352,6 +352,21 @@ describe('derive', () => {
     expect(new Set(result.creates.map(i => i.id)).size).toBe(2)
   })
 
+  it('buys for a breakfast and a dinner on one day as two separate sets of items', () => {
+    // Deriving keys items on the plan entry, never on the date, so the day's
+    // three slots have never been able to collide — but breakfast and lunch are
+    // reachable now, and the shopping list is the whole reason they are worth
+    // planning.
+    const result = derive(input({
+      entries: [entry(), entry({ id: 'entry-tuesday-breakfast', meal: 'breakfast' })]
+    }))
+
+    expect(result.creates).toHaveLength(2)
+    expect(new Set(result.creates.map(i => i.id)).size).toBe(2)
+    expect(new Set(result.creates.map(i => i.plan_entry_id)))
+      .toEqual(new Set(['entry-tuesday', 'entry-tuesday-breakfast']))
+  })
+
   it('buys nothing for a night nobody is cooking on', () => {
     const result = derive(input({
       entries: [entry({ recipe_id: null, skip_reason: 'takeaway' })]
