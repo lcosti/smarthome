@@ -17,16 +17,32 @@ import { pictureOf } from '../utils/photo'
  * way, and the two drifting apart is how a suggestion on one becomes a decision
  * on the other.
  */
-const { suggestions, nights, target } = defineProps<{
+const { suggestions, nights, target, tiles = false } = defineProps<{
   /** Ranked meals for the night the buttons plan onto. Empty when the week is full. */
   suggestions: RankedCandidate[]
   /** The whole week, for what is already spoken for and how often it has been cooked. */
   nights: PlannedNight[]
   /** The first night still empty and still ahead, or null when there is none. */
   target: string | null
+  /**
+   * A rail of tiles that scrolls sideways, picture first, rather than a column
+   * of rows.
+   *
+   * For the phone's day-by-day flow, where the shortlist is the body of the
+   * screen and not a footnote under it: rows read as a list to work through,
+   * and tiles read as dinners to choose between, which is the decision actually
+   * being asked for.
+   *
+   * Sideways because the page it is on does not scroll. A wrapping grid grows
+   * downwards without limit — four suggestions is two rows, six is three — and
+   * whatever it grows past goes off the bottom of a screen that has no way to
+   * reach it. A rail is one row however long the shortlist is, and the tile cut
+   * off at the right edge is the thing that says there is more.
+   */
+  tiles?: boolean
 }>()
 
-const emit = defineEmits<{ pick: [recipeId: string] }>()
+const emit = defineEmits<{ pick: [recipeId: string], seeAll: [] }>()
 
 const plan = usePlanStore()
 const recipes = useRecipesStore()
@@ -83,12 +99,128 @@ function reasonFor(candidate: RankedCandidate): string {
 
 <template>
   <div>
-    <h3 class="text-xs text-dimmed">
-      Recommended meals
-    </h3>
+    <div class="flex items-baseline justify-between gap-2">
+      <h3
+        v-if="tiles"
+        class="text-sm font-semibold text-highlighted"
+      >
+        Recommended for {{ dayName }}
+      </h3>
+      <h3
+        v-else
+        class="text-xs text-dimmed"
+      >
+        Recommended meals
+      </h3>
+
+      <!-- Four is a shortlist, not the library. This is the way to the rest of it. -->
+      <UButton
+        v-if="tiles"
+        color="neutral"
+        variant="link"
+        size="xs"
+        label="See all"
+        class="-me-2 shrink-0"
+        @click="emit('seeAll')"
+      />
+    </div>
+
+    <!--
+      A rail, picture on top. The tile is the same offer the column makes —
+      name, why, what it costs, one press to take it — laid out for a screen
+      where choosing between them is the whole task.
+
+      The negative margin is the phone page's own gutter, cancelled so the rail
+      runs to both edges of the screen: a tile that stops short of the edge
+      reads as the last one, and the whole point is that it is not. The padding
+      puts the gutter back inside, so the first tile still lines up with the
+      heading above it.
+
+      Snapping, but `snap-proximity` rather than `snap-mandatory` — a shortlist
+      is browsed as much as chosen from, and mandatory snapping fights a flick
+      that only meant to see what was over there. `scroll-px-3` is what makes a
+      snap land on the gutter rather than on the screen edge: without it the
+      snap area starts at the padding box, and the rail settles with the first
+      tile a gutter's width off the left of itself.
+    -->
+    <ul
+      v-if="tiles && suggestions.length"
+      class="-mx-3 mt-2.5 flex snap-x snap-proximity scroll-px-3 gap-2.5 overflow-x-auto overscroll-x-contain px-3 pb-1"
+    >
+      <li
+        v-for="candidate in suggestions"
+        :key="candidate.recipe.id"
+        class="w-38 shrink-0 snap-start"
+      >
+        <UCard
+          variant="soft"
+          :ui="{
+            root: 'flex h-full flex-col overflow-hidden touch-manipulation select-none',
+            body: 'flex min-h-0 flex-1 flex-col gap-2 p-2.5 sm:p-2.5'
+          }"
+          class="cursor-grab"
+          @pointerdown="pickUp($event, candidate)"
+        >
+          <!--
+            Hatching behind the photograph rather than a flat grey, exactly as
+            the wall board's recipe cards do it: it reads as "no picture" rather
+            than as one still loading.
+          -->
+          <div class="relative -mx-2.5 -mt-2.5 aspect-[16/10] overflow-hidden bg-accented/20">
+            <div class="size-full bg-[repeating-linear-gradient(135deg,var(--ui-bg-accented)_0_6px,transparent_6px_12px)] opacity-60" />
+            <RecipeImage
+              :src="pictureOf(recipes.recipeById(candidate.recipe.id))"
+              :alt="candidate.recipe.name"
+              class="absolute inset-0"
+            />
+            <UBadge
+              v-if="minutesOf(candidate)"
+              color="neutral"
+              variant="solid"
+              size="sm"
+              :label="`${minutesOf(candidate)}m`"
+              class="absolute bottom-1.5 left-1.5 font-mono"
+            />
+          </div>
+
+          <div class="min-h-0 flex-1">
+            <p class="line-clamp-2 text-pretty text-[13px] font-medium leading-tight text-highlighted">
+              {{ candidate.recipe.name }}
+            </p>
+            <!-- One line on a tile. The reason is why this one is near the top,
+                 not something to read — and the tile is paying for its height
+                 out of a screen that has none spare. -->
+            <p class="mt-1 line-clamp-1 text-[11px] text-muted">
+              {{ reasonFor(candidate) }}
+            </p>
+          </div>
+
+          <UButton
+            v-if="onPlan.has(candidate.recipe.id)"
+            color="neutral"
+            variant="subtle"
+            size="xs"
+            block
+            label="On plan"
+            disabled
+            data-no-drag
+          />
+          <UButton
+            v-else
+            color="primary"
+            variant="subtle"
+            size="xs"
+            block
+            data-no-drag
+            :label="`Use ${dayName}`"
+            @click="emit('pick', candidate.recipe.id)"
+          />
+        </UCard>
+      </li>
+    </ul>
 
     <ul
-      v-if="suggestions.length"
+      v-else-if="suggestions.length"
       class="mt-2 flex flex-col gap-2"
     >
       <li

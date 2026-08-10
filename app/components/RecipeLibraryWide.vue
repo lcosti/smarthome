@@ -122,29 +122,9 @@ async function choose() {
   await navigateTo('/')
 }
 
-const sending = ref(false)
-
-/**
- * What this recipe needs that isn't already on the list.
- *
- * Deliberately the plain add path rather than the plan's derivation: these items
- * have no plan entry behind them — somebody decided to buy for a recipe without
- * committing to a night — and giving them a provenance they don't have would put
- * them in line to be swept up when that night changed.
- */
-async function sendToList() {
-  const missing = detail.value?.missing
-  if (!missing?.length || sending.value) return
-  sending.value = true
-  try {
-    for (const line of missing) {
-      await list.addItem(line.name, { quantity: line.quantity, aisleId: line.aisleId })
-    }
-    toast.add({ title: `Added ${missing.length === 1 ? '1 item' : `${missing.length} items`}`, color: 'success' })
-  } finally {
-    sending.value = false
-  }
-}
+// Shared with the phone's drawer, which offers the same button off the same
+// model — see useRecipeDetail.ts for why these go on as plain ad-hoc items.
+const { sending, send } = useRecipeSend()
 
 // --- getting one in ------------------------------------------------------------
 
@@ -470,7 +450,7 @@ async function add() {
               :loading="sending"
               class="flex-1 justify-center"
               data-testid="recipe-send-list"
-              @click="sendToList()"
+              @click="send(detail.missing)"
             />
           </div>
         </template>

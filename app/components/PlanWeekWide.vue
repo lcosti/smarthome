@@ -25,7 +25,7 @@ import { isoDate, mondayOf, weekLabel } from '../utils/week'
  * what the buttons do, and hands the same facts to the phone — so neither shape
  * can grow an opinion the other does not have.
  */
-const { cards, weekStart, events, canFill, canDerive, filling, deriving } = defineProps<{
+const { cards, weekStart, events, canFill, canDerive, canClear, filling, deriving } = defineProps<{
   /** The whole week, for the aside's numbers and its roster. */
   nights: PlannedNight[]
   /** The nights that have gone, and the ones still to come. */
@@ -39,6 +39,7 @@ const { cards, weekStart, events, canFill, canDerive, filling, deriving } = defi
   events: Map<string, PlanEvent[]>
   canFill: boolean
   canDerive: boolean
+  canClear: boolean
   deriveLabel: string
   filling: boolean
   deriving: boolean
@@ -50,6 +51,7 @@ const emit = defineEmits<{
   pick: [recipeId: string]
   fill: []
   derive: []
+  clear: []
   /** Weeks to move, and back to the week the household is living in. */
   step: [weeks: number]
   reset: []
@@ -122,7 +124,11 @@ const columns = computed(() => Math.min(Math.max(cards.length, 1), 4))
           />
         </UFieldGroup>
 
-        <!-- Suggest, adjust what you don't fancy, then shop: the order of the week. -->
+        <!--
+          Suggest, adjust what you don't fancy, then shop: the order of the
+          week, and then the kebab for what you do to a week rather than with
+          it.
+        -->
         <div class="ml-auto flex items-center gap-2">
           <UButton
             v-if="canFill"
@@ -143,6 +149,11 @@ const columns = computed(() => Math.min(Math.max(cards.length, 1), 4))
             :disabled="!canDerive"
             :loading="deriving"
             @click="emit('derive')"
+          />
+          <PlanWeekMenu
+            size="lg"
+            :can-clear="canClear"
+            @clear="emit('clear')"
           />
         </div>
       </div>

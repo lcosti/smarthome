@@ -167,11 +167,51 @@ and why. Current sanctioned exceptions:
   plumbing behind a `UButton`, not a control. `UFileUpload` brings a dropzone
   none of them want, and `capture` makes iOS force the camera and silently drop
   `multiple`.
+- The column inside `RecipeSheet` — the height of it only. A drawer with snap
+  points is drawn full height and slid down until a fraction of it shows, so
+  anything at the end of its column is off the screen until the last snap, and
+  the two buttons this sheet exists to offer would need a drag to reach. The
+  column is sized to the visible band instead, which is the active snap point —
+  a number a finger is changing continuously, and so not a Tailwind class. Every
+  control in it is stock, and `title`/`description` stay props so the drawer
+  announces itself the way the library wrote it.
+
+The phone reads a recipe in a `UDrawer` (`RecipeSheet`), where every other bottom
+sheet in the app is a `USlideover`. Those eight are forms — open, type, save,
+shut — and one height suits all of them. This is reading of unknown length: the
+short snap is the decision, and dragging up is the method. The drawer has snap
+points and a grab handle and the slideover has neither.
+
+It is the wide library's detail pane, on a phone: the same `LibraryDetail` off
+the same `buildRecipeLibrary`, by way of `useRecipeDetail`, so "what does a
+recipe look like when you are choosing one" has one answer at both widths.
+`useRecipeSend` is the other half of that — the button that puts what a recipe
+needs on the shopping list, as plain ad-hoc items with no plan provenance, and
+the reasoning for that lives in one place now rather than beside each button.
+The sheet's footer offers `/recipes/:id` once, not twice: that route is the
+editor, so "view" and "edit" are the same door.
 
 `PlanNightRow` used to be on this list and no longer exists. Both shapes of the
-plan show a night as `PlanNightCard` — a phone gets the same card in a column,
-with `:table="false"` dropping the roll-call along the bottom — so there is one
-answer to "what does a night look like" rather than two that drift.
+plan show a night as `PlanNightCard` — the phone shows one night at a time
+rather than a grid of seven, with `:header="false"` dropping the day the page
+heading already says and `:table="false"` dropping the roll-call along the
+bottom — so there is one answer to "what does a night look like" rather than two
+that drift.
+
+The phone's plan is a guided walk through the week: a day heading, `PlanDayStrip`
+above the night on screen, and a footer whose one button names the next night
+still open — or, once there is none, the review. That last step (`PlanReview`) is
+component state inside `plan.vue` rather than a route, for the same reason the
+week offset is: it is the end of one task, and Android back landing on Thursday
+would be a surprise. No horizontal swipe between nights; `usePlanDrag` already
+owns touch on these cards, and the strip and the button reach every night
+without a gesture.
+
+Unticking a line in the review writes the shopping row **soft-deleted** rather
+than not writing it. That is the shape a person deleting an item off the list
+already leaves behind, and `derive` has always refused to resurrect one — so the
+decision survives filling the week again, the other phone deriving it, and next
+Tuesday, with no new table and nothing to reconcile. See `app/utils/review.ts`.
 
 `BoardPersonChip` used to be on this list and no longer exists. Today shows the
 day rather than the dinner, and the roster went with the redesign — who is eating

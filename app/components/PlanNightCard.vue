@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { useAttendanceStore } from '../stores/attendance'
-import { dishLabel, type PlannedNight } from '../stores/plan'
+import { dishLabel, usePlanStore, type PlannedNight } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
-import { deriveLifeStage } from '../utils/people'
 import { initialOf } from '../utils/person-colors'
 import { pictureOf } from '../utils/photo'
 import { skipIcon } from '../utils/skip'
@@ -23,11 +22,19 @@ import { skipIcon } from '../utils/skip'
  * Presentational: the week above owns which night is being edited, so the phone
  * rows and these cards cannot drift apart over what changing a night does.
  */
-const { night, today, past = false, table = true, events = [] } = defineProps<{
+const { night, today, past = false, header = true, table = true, events = [] } = defineProps<{
   night: PlannedNight
   today: boolean
   /** The night is before today. */
   past?: boolean
+  /**
+   * Show the day and the date along the top.
+   *
+   * False where the page is already a day — the phone plans one night at a time
+   * under a heading that names it, and the card repeating "Mon · 10 Aug" under
+   * "Monday" is the same sentence twice.
+   */
+  header?: boolean
   /**
    * Show the whole table — the faces and the portion count — along the bottom.
    *
@@ -51,6 +58,7 @@ defineEmits<{ open: [], remove: [] }>()
 
 const attendance = useAttendanceStore()
 const recipes = useRecipesStore()
+const plan = usePlanStore()
 
 const planned = computed(() => night.entries[0] ?? null)
 
@@ -82,16 +90,16 @@ const faces = computed(() =>
 )
 
 /**
- * How many portions the night is for.
+ * How many portions the night is for, and whether it is for anybody at all.
  *
- * A pre-weaning baby is at the table and eating nothing off it, exactly as the
- * generator counts it — otherwise the card promises a portion nobody plates.
+ * Both come off the store rather than being counted here, so that the number on
+ * the card and the nights "Fill empty nights" is willing to touch are the same
+ * arithmetic. A pre-weaning baby is at the table and eating nothing off it,
+ * exactly as the generator counts it — otherwise the card promises a portion
+ * nobody plates.
  */
-const eating = computed(() =>
-  attendance.presentOn(night.date)
-    .filter(person => deriveLifeStage(person.date_of_birth, night.date) !== 'baby')
-    .length
-)
+const eating = computed(() => plan.eatersOn(night.date))
+const nobodyHome = computed(() => plan.nobodyEatingOn(night.date))
 
 /** Only who is out — the shorter list, and the one worth the width. */
 const awayLabel = computed(() => {
@@ -153,23 +161,6 @@ const dishMeta = computed<{ icon: string, label: string }[]>(() => {
  * correction of the record, and the plan is a record as much as an intention.
  * Only a night with something on it is a source.
  */
-/**
- * At most two, and a count for the rest.
- *
- * A card is a quarter of a screen and the dinner is what it is for. Two lines is
- * enough to know the evening is spoken for; the day itself is where you go to
- * read the whole of it.
- */
-const MAX_EVENTS = 2
-
-const shownEvents = computed(() => events.slice(0, MAX_EVENTS))
-const moreEvents = computed(() => Math.max(0, events.length - MAX_EVENTS))
-
-/** Whoever's event it is, in their colour. Neutral for the household's own. */
-function railStyle(hue: number | null) {
-  return hue === null ? undefined : { background: `oklch(0.72 0.13 ${hue})` }
-}
-
 const drag = usePlanDrag()
 const root = useTemplateRef<{ $el?: HTMLElement } | HTMLElement>('root')
 
@@ -218,7 +209,12 @@ function pickUp(event: PointerEvent) {
     }"
     :class="[
       today ? 'ring-primary/60' : '',
-      past && 'opacity-55',
+      // The same fade for a night that has gone and a night nobody is in for,
+      // because they are the same statement: this one wants nothing from you.
+      // Only while it is empty, though — a dish planned onto a night the roster
+      // says is out is somebody hosting, or a roster that is wrong, and either
+      // way it is a live intention rather than something to fade.
+      (past || (nobodyHome && !planned)) && 'opacity-55',
       // Where it would land, and where it came from. The night being dragged
       // fades rather than disappearing, so the week keeps its shape while one
       // of it is in the air.
@@ -226,7 +222,10 @@ function pickUp(event: PointerEvent) {
       isSource && 'opacity-40'
     ]"
   >
-    <template #header>
+    <template
+      v-if="header"
+      #header
+    >
       <div class="flex items-center gap-2">
         <span
           class="text-sm font-semibold"
@@ -344,6 +343,26 @@ function pickUp(event: PointerEvent) {
         :ui="{ root: 'min-h-0 flex-1 p-0 sm:p-0', title: 'text-dimmed font-normal' }"
       />
 
+      <!--
+        A night nobody is eating on states that instead of asking for a dinner.
+        It is not a gap — `fillWeek` and `hasGapsFor` have always passed over it
+        — and an invitation at full strength on five of seven cells is what made
+        a week away read as a week behind.
+
+        Still a button, and still the whole cell: you can be hosting, and the
+        roster can be wrong. It only stops being the first thing the card asks
+        for.
+      -->
+      <UButton
+        v-else-if="nobodyHome"
+        color="neutral"
+        variant="ghost"
+        icon="i-lucide-house"
+        label="Nobody home"
+        class="min-h-0 flex-1 justify-center text-dimmed"
+        @click="$emit('open')"
+      />
+
       <!-- An empty night is an invitation: one way in, the whole cell as the target. -->
       <UButton
         v-else
@@ -363,31 +382,11 @@ function pickUp(event: PointerEvent) {
         little rail the board's week strip uses — the answer to "whose is this"
         should look the same wherever it is asked.
       -->
-      <div
-        v-if="shownEvents.length"
-        class="mt-2 flex min-w-0 flex-col gap-1"
-      >
-        <span
-          v-for="event in shownEvents"
-          :key="event.id"
-          class="flex min-w-0 items-center gap-1.5"
-        >
-          <span
-            class="h-3 w-0.5 shrink-0 rounded-sm bg-accented"
-            :style="railStyle(event.hue)"
-          />
-          <span
-            v-if="event.time"
-            class="shrink-0 font-mono text-[11px] text-dimmed tabular-nums"
-          >{{ event.time }}</span>
-          <span class="truncate text-[11px] text-dimmed">{{ event.title }}</span>
-        </span>
-
-        <span
-          v-if="moreEvents"
-          class="pl-2 text-[11px] text-dimmed"
-        >+{{ moreEvents }} more</span>
-      </div>
+      <PlanEventRail
+        v-if="events.length"
+        :events="events"
+        class="mt-2"
+      />
     </div>
 
     <template
@@ -407,7 +406,8 @@ function pickUp(event: PointerEvent) {
             :text="face.initial"
           />
         </UAvatarGroup>
-        <span class="truncate text-xs text-dimmed">{{ eating }} eating</span>
+        <!-- "0 eating" is a count of nothing beside a row of nobody. Say it. -->
+        <span class="truncate text-xs text-dimmed">{{ nobodyHome ? 'Nobody home' : `${eating} eating` }}</span>
       </template>
 
       <span

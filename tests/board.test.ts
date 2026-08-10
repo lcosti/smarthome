@@ -248,7 +248,7 @@ describe('noplan', () => {
     expect(board.state).toBe('noplan')
     expect(board.hero.hasMeal).toBe(false)
     expect(board.hero.noMeal?.title).toBe('No plan for tonight')
-    expect(board.hero.noMeal?.action).toEqual({ label: 'Generate this week’s plan', to: null })
+    expect(board.hero.noMeal?.action).toEqual({ label: 'Plan this week', to: '/plan' })
   })
 
   it('says the plan was never generated', () => {
@@ -318,8 +318,8 @@ describe('setup', () => {
 
   it('shows what is done and what is left', () => {
     expect(fresh.hero.noMeal?.steps.map(s => s.done)).toEqual([false, false, false])
-    // Each step says where it gets done; only the generator is done on the board.
-    expect(fresh.hero.noMeal?.steps.map(s => s.to)).toEqual(['/people', '/recipes', null])
+    // Each step says where it gets done — the board points at a page every time.
+    expect(fresh.hero.noMeal?.steps.map(s => s.to)).toEqual(['/people', '/recipes', '/plan'])
     const withPeople = buildBoard(input({
       nights: EMPTY_WEEK.map(n => ({ ...n, presentIds: EVERYONE })),
       recipeCount: 0

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useListStore } from '../stores/list'
-import type { PlannedNight } from '../stores/plan'
+import { usePlanStore, type PlannedNight } from '../stores/plan'
+import { duration, weekStats } from '../utils/plan-stats'
 
 /**
  * The week in five numbers, at the top of the aside.
@@ -21,37 +22,14 @@ import type { PlannedNight } from '../stores/plan'
 const { nights } = defineProps<{ nights: PlannedNight[] }>()
 
 const list = useListStore()
+const plan = usePlanStore()
 
-/** Cooking minutes per night. A leftovers night is reheating, and costs nothing. */
-const efforts = computed(() =>
-  nights
-    .map((night) => {
-      const planned = night.entries[0]
-      if (!planned || planned.leftover) return null
-      const minutes = (planned.recipe?.prep_minutes ?? 0) + (planned.recipe?.cook_minutes ?? 0)
-      return minutes > 0 ? { date: night.date, minutes, name: planned.recipe?.name ?? null } : null
-    })
-    .filter(effort => effort !== null)
-)
-
-const plannedCount = computed(() => nights.filter(night => night.entries.length).length)
-
-/** "2h 10m", "45m" — hours only once there are any. */
-function duration(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  const rest = minutes % 60
-  return rest ? `${hours}h ${rest}m` : `${hours}h`
-}
-
-const totalMinutes = computed(() => efforts.value.reduce((sum, effort) => sum + effort.minutes, 0))
-
-const longest = computed(() =>
-  efforts.value.reduce<{ date: string, minutes: number, name: string | null } | null>(
-    (worst, effort) => (!worst || effort.minutes > worst.minutes ? effort : worst),
-    null
-  )
-)
+// The same arithmetic the phone's progress bar and the review summary run, so
+// none of the three can quietly disagree about how full the week is — including
+// which nights it is counting: a week the house is away for four nights of is
+// "3 of 3", not "3 of 7" with four holes nobody is going to fill.
+const stats = computed(() => weekStats(nights, date => plan.nobodyEatingOn(date)))
+const plannedCount = computed(() => stats.value.plannedCount)
 
 /**
  * "Chicken · 55m" — the dish, not the day.
@@ -61,32 +39,24 @@ const longest = computed(() =>
  * it in a column this narrow.
  */
 const longestLabel = computed(() => {
-  if (!longest.value) return '—'
-  const name = longest.value.name?.split(' ')[0]
-  const time = duration(longest.value.minutes)
+  const longest = stats.value.longest
+  if (!longest) return '—'
+  const name = longest.name?.split(' ')[0]
+  const time = duration(longest.minutes)
   return name ? `${name} · ${time}` : time
 })
 
-/**
- * What is still outstanding at the shop for this week's nights.
- *
- * Only items the plan itself put there, and only the ones nobody has ticked —
- * an ad-hoc "bin bags" is a real errand but it is not something this week's
- * dinners are waiting on.
- */
-const toBuy = computed(() => {
-  const entryIds = new Set(
-    nights.flatMap(night => night.entries.map(planned => planned.entry.id))
+/** What is still outstanding at the shop for this week's nights. */
+const toBuy = computed(() =>
+  list.outstandingForEntries(
+    new Set(nights.flatMap(night => night.entries.map(planned => planned.entry.id)))
   )
-  return list.liveItems.filter(
-    item => !item.checked && item.plan_entry_id && entryIds.has(item.plan_entry_id)
-  ).length
-})
+)
 
 const blocks = computed(() => [
   {
     label: 'Time at the stove',
-    value: totalMinutes.value ? duration(totalMinutes.value) : '—'
+    value: stats.value.totalMinutes ? duration(stats.value.totalMinutes) : '—'
   },
   {
     label: 'Longest cook',
@@ -98,7 +68,7 @@ const blocks = computed(() => [
   },
   {
     label: 'Empty nights',
-    value: `${nights.length - plannedCount.value}`
+    value: `${stats.value.emptyCount}`
   }
 ])
 </script>
@@ -114,12 +84,13 @@ const blocks = computed(() => [
           Nights planned
         </h3>
         <p class="text-sm text-dimmed tabular-nums">
-          {{ plannedCount }} of {{ nights.length }}
+          {{ plannedCount }} of {{ stats.total }}
         </p>
       </div>
+      <!-- `|| 1` for the week the whole house is away for: nothing to divide by. -->
       <UProgress
         :model-value="plannedCount"
-        :max="nights.length"
+        :max="stats.total || 1"
         size="sm"
         class="mt-2.5"
       />

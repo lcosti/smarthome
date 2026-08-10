@@ -21,12 +21,11 @@ import type { BoardModel } from '../../utils/board'
  * earns the scroll, while the wall board is read at a glance and wants the word
  * "Tonight" first.
  */
-const { hero, generating = false } = defineProps<{
+const { hero } = defineProps<{
   hero: BoardModel['hero']
-  generating?: boolean
 }>()
 
-defineEmits<{ open: [], generate: [], skip: [], swap: [] }>()
+defineEmits<{ open: [], skip: [], swap: [] }>()
 
 const isWide = useWide()
 
@@ -34,8 +33,8 @@ const isWide = useWide()
  * The first thing still to do, which is the only one worth pointing at.
  *
  * -1 when everything is done, which cannot happen while this body is on screen —
- * the last step is "generate the week", and generating it replaces this body
- * with a meal.
+ * the last step is planning the week, and a planned week replaces this body with
+ * a meal.
  */
 const nextStep = computed(() => hero.noMeal?.steps.findIndex(step => !step.done) ?? -1)
 </script>
@@ -221,25 +220,21 @@ const nextStep = computed(() => hero.noMeal?.steps.findIndex(step => !step.done)
       </div>
 
       <!--
-        The setup checklist. Rows rather than buttons throughout: only the step
-        that is actually next may be pressed, because sending somebody to the
-        generator before there is a roster would do nothing and say nothing.
+        The setup checklist. Every step is a page to open, so every row is a link
+        and the badge marks which one to open first.
       -->
       <div
         v-if="hero.noMeal.steps.length"
         class="flex flex-col gap-1.5"
       >
-        <component
-          :is="step.to ? NuxtLink : 'button'"
+        <NuxtLink
           v-for="(step, index) in hero.noMeal.steps"
           :key="step.label"
-          :to="step.to ?? undefined"
-          :disabled="step.to ? undefined : index !== nextStep"
+          :to="step.to"
           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-left"
           :class="index === nextStep
             ? 'bg-primary/10 ring ring-primary/25'
             : 'ring ring-default'"
-          @click="!step.to && index === nextStep ? $emit('generate') : undefined"
         >
           <UCheckbox
             :model-value="step.done"
@@ -254,21 +249,18 @@ const nextStep = computed(() => hero.noMeal?.steps.findIndex(step => !step.done)
             v-if="index === nextStep"
             color="primary"
             size="sm"
-            :label="!step.to && generating ? 'Generating…' : 'Next'"
+            label="Next"
           />
-        </component>
+        </NuxtLink>
       </div>
 
       <UButton
         v-if="hero.noMeal.action"
         size="lg"
-        :to="hero.noMeal.action.to ?? undefined"
-        :label="!hero.noMeal.action.to && generating
-          ? 'Generating…'
-          : hero.noMeal.action.label"
+        :to="hero.noMeal.action.to"
+        :label="hero.noMeal.action.label"
         class="justify-center"
         trailing-icon="i-lucide-arrow-right"
-        @click="!hero.noMeal.action.to ? $emit('generate') : undefined"
       />
     </div>
   </UCard>

@@ -68,6 +68,13 @@ const roster = computed(() =>
  *
  * `checked` is read straight off the roster rather than held separately, so the
  * menu shows attendance rather than a copy of it that can drift.
+ *
+ * The menu stays open across a tick. A dropdown closing on select is right when
+ * the items are commands and picking one ends the task, and wrong here: "who is
+ * eating this week" is answered several nights at a time — away Wednesday,
+ * Thursday and Friday is one thought, not three — and re-opening the same menu
+ * between each of them is the whole of the friction. Reka closes on `select`
+ * unless the event is prevented, so each night prevents it.
  */
 function nightItems(person: { id: string, name: string, nights: { date: string, label: string, present: boolean }[] }) {
   return [
@@ -76,6 +83,7 @@ function nightItems(person: { id: string, name: string, nights: { date: string, 
       label: night.label,
       type: 'checkbox' as const,
       checked: night.present,
+      onSelect: (event: Event) => event.preventDefault(),
       onUpdateChecked: (checked: boolean) => {
         attendance.setPresence(person.id, night.date, checked)
       }

@@ -3,6 +3,7 @@ import { useAttendanceStore } from '../stores/attendance'
 import { usePeopleStore } from '../stores/people'
 import { dishLabel, usePlanStore } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
+import { pictureOf } from '../utils/photo'
 import { SKIP_REASONS } from '../utils/skip'
 import { dayLabel } from '../utils/week'
 
@@ -267,6 +268,7 @@ async function clear() {
               :name="item.name"
               :ingredient-count="recipes.ingredientsFor(item.id).length"
               :servings="item.base_servings"
+              :image-url="pictureOf(item)"
               @select="choose(item.id)"
             />
             <UEmpty

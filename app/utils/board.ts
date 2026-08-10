@@ -154,13 +154,8 @@ export type BoardState
 export interface SetupStep {
   label: string
   done: boolean
-  /**
-   * Where this step gets done, or null when it gets done right here.
-   *
-   * Only the generator is null: the other two are typing jobs that belong on a
-   * phone, and the board's part is to say which one is next and open it.
-   */
-  to: string | null
+  /** Where this step gets done. The board's part is to say which one is next and open it. */
+  to: string
 }
 
 export interface ScheduleRow {
@@ -411,8 +406,8 @@ export interface BoardModel {
     noMeal: {
       title: string
       body: string
-      /** `to` is a route to open, or null to mean "run the generator here". */
-      action: { label: string, to: string | null } | null
+      /** `to` is the route this opens. The board points; it does not do the job itself. */
+      action: { label: string, to: string } | null
       /** Only in `setup`: what the household still needs, in the order to do it. */
       steps: SetupStep[]
       /** A mono aside for the far end of the footer — '~1 min', 'fridge night'. */
@@ -936,12 +931,12 @@ export function buildBoard(input: BoardInput): BoardModel {
   const timing = hasMeal ? eatTime : null
   const startBy = meal?.minutes ? `start by ${clockOf(eatMinutes - meal.minutes)}` : null
 
-  // The board sends you to whichever step is actually next, rather than to a
-  // generator that would silently do nothing without a roster or a library.
+  // Every step is somewhere to go. The board says which one is next and opens it;
+  // none of the three is a thing it does itself.
   const setupSteps: SetupStep[] = [
     { label: 'Add the people who eat here', done: !needsPeople, to: '/people' },
     { label: 'Put a few recipes in the library', done: !needsRecipes, to: '/recipes' },
-    { label: 'Generate the week', done: false, to: null }
+    { label: 'Plan the week', done: false, to: '/plan' }
   ]
 
   const noMeal = hasMeal
@@ -971,8 +966,8 @@ export function buildBoard(input: BoardInput): BoardModel {
           }
         : {
             title: lateEvening ? 'No plan for tomorrow' : 'No plan for tonight',
-            body: 'The weekly generator has not run. Attendance and the recipe library are ready.',
-            action: { label: 'Generate this week’s plan', to: null },
+            body: 'Nobody has planned this week yet. Attendance and the recipe library are ready.',
+            action: { label: 'Plan this week', to: '/plan' },
             steps: [],
             hint: 'one press'
           }

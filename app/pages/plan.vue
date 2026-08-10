@@ -3,6 +3,7 @@ import { usePlanStore, type PlannedNight } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
 import { useSyncStore } from '../stores/sync'
 import { useToday } from '../composables/useToday'
+import { duration } from '../utils/plan-stats'
 import { addDays, isoDate, mondayOf, weekLabel } from '../utils/week'
 
 const plan = usePlanStore()
@@ -10,10 +11,12 @@ const recipes = useRecipesStore()
 const sync = useSyncStore()
 const toast = useToast()
 
-// The two shapes are a column of cards and a grid beside an aside. Everything
-// else — which week is on screen, what is in it, filling it, deriving the list,
-// the night editor — is the same either way and stays here, so neither shape can
-// grow an opinion the other does not have.
+// The two shapes are a week at a glance and a night at a time. A wide screen has
+// room to lay seven nights out and decide them in any order; a phone does not,
+// so it walks them — one night on screen, the week as a strip above it, and a
+// button that goes to the next one still open. Everything else — which week is
+// on screen, what is in it, filling it, the night editor — is the same either
+// way and stays here, so neither shape can grow an opinion the other has not.
 const isWide = useWide()
 
 // Week offset rather than a route param: deep-linking a week is not a real use
@@ -23,13 +26,30 @@ const editingDate = ref<string | null>(null)
 const editorOpen = ref(false)
 const deriving = ref(false)
 const filling = ref(false)
+const clearing = ref(false)
+
+/**
+ * Which of the phone's two screens is up: the night being planned, or the week's
+ * shopping being read over.
+ *
+ * Component state and not a route, for the same reason the week is: the review
+ * is the last step of one task, and Android back landing you on Thursday rather
+ * than leaving the page would be a surprise. The tab bar is still there, so
+ * there is always a way out that is not backwards.
+ */
+const step = ref<'nights' | 'review'>('nights')
+
+/** Null until somebody picks a night, which is what lets the default follow the week. */
+const chosenDate = ref<string | null>(null)
 
 const monday = computed(() => addDays(mondayOf(new Date()), weekOffset.value * 7))
 const weekStart = computed(() => isoDate(monday.value))
 const today = useToday()
 
-const { nights, strip, cards, target, suggestions, canDerive, deriveLabel, removeNight }
-  = usePlanWeek(weekStart, today)
+const {
+  nights, strip, cards, noOneEating, target, suggestions, suggestionsFor, stats, toBuy,
+  nextUnplanned, canDerive, deriveLabel, removeNight, canClear, clearWeek
+} = usePlanWeek(weekStart, today)
 
 /**
  * The week's diary, by date. Empty on a household with no calendar connected,
@@ -38,6 +58,93 @@ const { nights, strip, cards, target, suggestions, canDerive, deriveLabel, remov
 const events = usePlanEvents(computed(() => nights.value.map(night => night.date)))
 
 const canFill = computed(() => plan.hasGapsFor(weekStart.value) && recipes.recipes.length > 0)
+
+/**
+ * The night on screen: whichever was pressed, else the first one still open, else
+ * today.
+ *
+ * The fallback is a computed rather than an assignment so that stepping to
+ * another week cannot leave a date from the last one selected — one fewer
+ * watcher that can be forgotten.
+ */
+const selected = computed(() => {
+  const dates = nights.value.map(night => night.date)
+  if (chosenDate.value && dates.includes(chosenDate.value)) return chosenDate.value
+  return target.value ?? (dates.includes(today.value) ? today.value : dates[0]!)
+})
+
+/**
+ * Pin the fallback the moment it resolves.
+ *
+ * Without this the night on screen slides out from under the press that decided
+ * it: the default is "the first night still open", so choosing Monday's dinner
+ * makes Tuesday the default and the page jumps there before the card has
+ * finished becoming a dinner. Moving on is the button's job, and it happens
+ * once the change has been seen.
+ */
+watch(selected, (value) => {
+  chosenDate.value = value
+}, { immediate: true })
+
+const selectedNight = computed<PlannedNight | null>(() =>
+  nights.value.find(night => night.date === selected.value) ?? null
+)
+
+/** A shortlist is for a night with nothing on it. A night with a dinner is decided. */
+const nightSuggestions = computed(() =>
+  selectedNight.value?.entries.length ? [] : suggestionsFor(selected.value)
+)
+
+/**
+ * Where the button goes next.
+ *
+ * Null when there is nowhere left — including when the only night still open is
+ * the one already on screen, which is not somewhere to go. That is what turns
+ * the button into the way out of the flow.
+ */
+const nextDate = computed(() => {
+  const next = nextUnplanned(selected.value)
+  return next && next !== selected.value ? next : null
+})
+
+const nextLabel = computed(() => {
+  if (!nextDate.value) return 'Review week'
+  const [year, month, day] = nextDate.value.split('-').map(Number)
+  const day3 = new Date(year!, month! - 1, day!).toLocaleDateString(undefined, { weekday: 'short' })
+  return `Next: ${day3}`
+})
+
+/** Which night a shortlist plans onto: the one being looked at, or the week's first gap. */
+const pickTarget = computed(() => (isWide.value ? target.value : selected.value))
+
+/**
+ * The week in four short facts, for the chip row under the title.
+ *
+ * The questions a week raises that no single night can answer: is it finished,
+ * how much cooking did I just sign up for, what does it cost at the shop, and
+ * how much is left to decide. The same four the wide screen's aside carries, in
+ * the space a phone has for them.
+ *
+ * A fact with nothing to say is dropped rather than shown as a zero — "0 empty"
+ * on a finished week is a chip whose whole content is that it does not apply,
+ * and a fresh week should read as one thing to do rather than four.
+ */
+const weekFacts = computed(() => {
+  const { plannedCount, total, totalMinutes, emptyCount } = stats.value
+  return [
+    { label: `${plannedCount} of ${total} planned`, lead: true },
+    totalMinutes > 0 ? { label: `${duration(totalMinutes)} stove`, lead: false } : null,
+    toBuy.value > 0 ? { label: `${toBuy.value} items`, lead: false } : null,
+    emptyCount > 0 ? { label: `${emptyCount} empty`, lead: false } : null
+  ].filter(fact => fact !== null)
+})
+
+// A week the user steps away from is a week they are no longer reviewing, and a
+// night selected in it does not exist in the next one.
+watch(weekStart, () => {
+  step.value = 'nights'
+  chosenDate.value = null
+})
 
 async function fill() {
   if (filling.value) return
@@ -66,20 +173,66 @@ async function fill() {
   }
 }
 
+async function clear() {
+  if (clearing.value) return
+  clearing.value = true
+  try {
+    const wasDerived = canDerive.value
+    const cleared = await clearWeek()
+    if (!cleared) return
+    toast.add({
+      title: `${cleared} night${cleared === 1 ? '' : 's'} cleared`,
+      // The ingredients do not come off by themselves, and this is the moment
+      // somebody would otherwise go shopping for a week nobody is cooking.
+      description: wasDerived
+        ? 'Add the week to the list again to take their ingredients off it.'
+        : undefined,
+      icon: 'i-lucide-trash-2',
+      color: 'neutral'
+    })
+  } finally {
+    clearing.value = false
+  }
+}
+
 function openNight(date: string) {
   editingDate.value = date
   editorOpen.value = true
 }
 
+/**
+ * How long the night stays on screen after it is decided.
+ *
+ * Long enough to see the empty card become a dinner — moving on the instant the
+ * button is released reads as the press having gone somewhere else.
+ */
+const SETTLE_MS = 400
+
+function advance() {
+  if (nextDate.value) chosenDate.value = nextDate.value
+  else step.value = 'review'
+}
+
+/**
+ * Planning a night, taking one off and skipping one all say so on the card.
+ *
+ * No toast on any of the three. The empty card becomes a dinner, the day's dot
+ * fills, and the count along the bottom moves — a notification repeating that
+ * back is the app narrating a press you just made and watched land. Toasts are
+ * kept for the things you cannot see happen: filling a week, clearing one, and
+ * putting it on the list.
+ */
 async function pick(recipeId: string) {
-  if (!target.value) return
-  const row = await plan.setNight(target.value, recipeId)
+  const date = pickTarget.value
+  if (!date) return
+  const row = await plan.setNight(date, recipeId)
   if (!row) return
-  toast.add({
-    title: `${plan.plannedEntry(row).recipe?.name ?? 'Dinner'} planned`,
-    icon: 'i-lucide-check',
-    color: 'success'
-  })
+  if (!isWide.value) setTimeout(advance, SETTLE_MS)
+}
+
+async function skip(reason: string) {
+  await plan.skipNight(selected.value, reason)
+  setTimeout(advance, SETTLE_MS)
 }
 
 async function remove(night: PlannedNight) {
@@ -109,73 +262,6 @@ async function derive() {
 
 <template>
   <div class="flex h-full flex-col">
-    <!--
-      Phone only. On a wide screen the app header above already carries the tab
-      you are on, and the week strip lives inside the grid with the buttons that
-      act on it — two stacked bars saying "Plan" was a header arguing with a nav.
-    -->
-    <AppPageHeader
-      v-if="!isWide"
-      content-class="max-w-xl"
-    >
-      <template #title>
-        <div class="flex min-w-0 flex-1 items-center gap-2">
-          <h1 class="text-lg font-semibold">
-            Plan
-          </h1>
-          <!-- The same badge the wide header carries, minus the word above it. -->
-          <AppPlanBadge short />
-        </div>
-      </template>
-
-      <template #actions>
-        <!--
-          An icon rather than the wide screen's labelled button: filling is the
-          less common of the two actions and the bar is a phone's worth of width,
-          so the one that has to be unmissable is the one along the bottom.
-        -->
-        <UButton
-          v-if="canFill"
-          icon="i-lucide-wand-sparkles"
-          color="neutral"
-          variant="ghost"
-          aria-label="Fill empty nights"
-          :loading="filling"
-          @click="fill"
-        />
-      </template>
-
-      <!-- The same field group the wide shape uses, stretched to the bar. -->
-      <UFieldGroup class="flex w-full">
-        <UButton
-          icon="i-lucide-chevron-left"
-          color="neutral"
-          variant="outline"
-          aria-label="Previous week"
-          @click="weekOffset--"
-        />
-        <UButton
-          color="neutral"
-          variant="outline"
-          class="flex-1 justify-center"
-          @click="weekOffset = 0"
-        >
-          {{ weekLabel(monday) }}
-          <span
-            v-if="weekOffset !== 0"
-            class="text-dimmed"
-          >· this week</span>
-        </UButton>
-        <UButton
-          icon="i-lucide-chevron-right"
-          color="neutral"
-          variant="outline"
-          aria-label="Next week"
-          @click="weekOffset++"
-        />
-      </UFieldGroup>
-    </AppPageHeader>
-
     <!-- The wide shape is a screenful of its own and owns its margins. -->
     <PlanWeekWide
       v-if="isWide && sync.hydrated"
@@ -189,6 +275,7 @@ async function derive() {
       :events="events"
       :can-fill="canFill"
       :can-derive="canDerive"
+      :can-clear="canClear"
       :derive-label="deriveLabel"
       :filling="filling"
       :deriving="deriving"
@@ -197,85 +284,195 @@ async function derive() {
       @pick="pick"
       @fill="fill"
       @derive="derive"
+      @clear="clear"
       @step="weekOffset += $event"
       @reset="weekOffset = 0"
     />
 
+    <LoadingState v-else-if="isWide" />
+
+    <!--
+      The last step of the phone's flow, and a screen of its own: it is about the
+      whole week rather than any night in it, so it replaces the day header and
+      the strip rather than appearing under them.
+    -->
+    <PlanReview
+      v-else-if="step === 'review' && sync.hydrated"
+      :nights="nights"
+      :week-start="weekStart"
+      :week-label="weekLabel(monday)"
+      @back="step = 'nights'"
+    />
+
     <template v-else>
-      <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto px-3 pb-4">
+      <AppPageHeader content-class="max-w-xl">
+        <!--
+          No plan-freshness badge here any more. It stood in for "is this still
+          the plan", and the strip of dots and the bar along the bottom answer
+          that about the week you are actually looking at — which is better than
+          a relative time, and leaves the bar room for the week itself.
+        -->
+        <template #title>
+          <h1 class="min-w-0 flex-1 text-lg font-semibold">
+            Plan
+          </h1>
+        </template>
+
+        <template #actions>
+          <!--
+            Which week, up here with the page's own title, because it is the
+            frame everything below is inside. The label goes back to this week.
+          -->
+          <UFieldGroup class="shrink-0">
+            <UButton
+              icon="i-lucide-chevron-left"
+              color="neutral"
+              variant="outline"
+              size="sm"
+              aria-label="Previous week"
+              @click="weekOffset--"
+            />
+            <UButton
+              color="neutral"
+              variant="outline"
+              size="sm"
+              class="tabular-nums"
+              :aria-label="weekOffset === 0 ? undefined : 'Back to this week'"
+              @click="weekOffset = 0"
+            >
+              {{ weekLabel(monday) }}
+            </UButton>
+            <UButton
+              icon="i-lucide-chevron-right"
+              color="neutral"
+              variant="outline"
+              size="sm"
+              aria-label="Next week"
+              @click="weekOffset++"
+            />
+          </UFieldGroup>
+
+          <!--
+            Filling and clearing both live in here on a phone. The bar already
+            holds a title, a week and the way to Settings; a fourth control would
+            leave none of them room, and neither is the thing this page is open
+            to do.
+          -->
+          <PlanWeekMenu
+            :can-clear="canClear"
+            :can-fill="canFill"
+            show-fill
+            @clear="clear"
+            @fill="fill"
+          />
+        </template>
+
+        <!--
+          The week in a line, under its own title.
+
+          This is where the day heading used to be, and the week is the better
+          use of it: which night is on screen is already the lit pill in the
+          strip, whereas how far through the week you are, what it costs in
+          stove time and what it costs at the shop are facts no single night can
+          tell you. Each one is dropped when it has nothing to say, so a fresh
+          week is one chip rather than four saying zero.
+        -->
+        <div
+          v-if="sync.hydrated"
+          class="flex flex-wrap items-center gap-1.5"
+        >
+          <UBadge
+            v-for="fact in weekFacts"
+            :key="fact.label"
+            :color="fact.lead ? 'primary' : 'neutral'"
+            variant="subtle"
+            size="sm"
+            :label="fact.label"
+          />
+        </div>
+      </AppPageHeader>
+
+      <!--
+        The one screen that does not scroll.
+
+        Planning a night is a comparison — this dinner, against who is at the
+        table, against what else the evening already holds — and a comparison
+        made by scrolling is made from memory. Everything the decision needs is
+        on screen at once, so what gives under pressure is decided here rather
+        than by whatever happens to be last: the night in the middle takes the
+        slack, the roll-call and the shortlist keep their height, and the
+        shortlist runs off the right-hand edge instead of the bottom.
+
+        `overflow-y-auto` is a floor, not the plan. On the phones this household
+        owns nothing scrolls — the pieces are sized so they do not have to — but
+        a short screen, a long dish name and a household of six can still add up
+        past the window, and a column that refuses to scroll answers that by
+        laying its own children on top of each other. Reaching for a scrollbar
+        that is almost never there beats reading the roll-call through the
+        shortlist.
+      -->
+      <main class="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-hidden px-3 pb-3">
         <LoadingState v-if="!sync.hydrated" />
 
         <div
           v-else
-          class="flex flex-col gap-3 pt-3"
+          class="flex h-full flex-col gap-3 overflow-y-auto pt-3"
         >
-          <PlanEarlierStrip
-            v-if="strip.length"
-            :nights="strip"
-            @open="openNight"
+          <PlanDayStrip
+            :nights="nights"
+            :no-one-eating="noOneEating"
+            :selected="selected"
+            :today="today"
+            class="shrink-0"
+            @select="chosenDate = $event"
           />
-
-          <USeparator v-if="strip.length" />
 
           <!--
-            The nights still ahead, one card each and the whole column. The same
-            card the wide screen uses, without the table along the bottom: seven
-            copies of the same four faces down a phone is a roll-call nobody
-            reads, so only a night somebody is missing says anything.
+            Every block at its own height, and the slack left at the bottom.
+
+            Stretching one of them to absorb it was tried and is worse both
+            ways: a night with a dinner on it became a small card marooned above
+            four hundred pixels of nothing, and the same rule on a short screen
+            laid the night over the roll-call underneath, because a flex child
+            told to fill can also be told to shrink below what is inside it.
+            Space under the last thing is the one arrangement that reads the
+            same on every night and every screen.
           -->
-          <PlanNightCard
-            v-for="night in cards"
-            :key="night.date"
-            :night="night"
-            :today="night.date === today"
-            :past="night.date < today"
-            :table="false"
-            :events="events.get(night.date)"
-            class="min-h-36"
-            @open="openNight(night.date)"
-            @remove="remove(night)"
+          <PlanNightFocus
+            v-if="selectedNight"
+            :night="selectedNight"
+            :today="today"
+            :past="selected < today"
+            :events="events.get(selected)"
+            class="shrink-0"
+            @open="openNight(selected)"
+            @remove="remove(selectedNight)"
+            @skip="skip"
           />
 
-          <USeparator />
+          <PlanDiners
+            :date="selected"
+            class="shrink-0"
+          />
 
           <PlanSuggestions
-            :suggestions="suggestions"
+            v-if="nightSuggestions.length"
+            :suggestions="nightSuggestions"
             :nights="nights"
-            :target="target"
+            :target="selected"
+            tiles
+            class="shrink-0"
             @pick="pick"
+            @see-all="openNight(selected)"
           />
         </div>
       </main>
 
-      <!--
-        The one thing a phone is holding this page open to do, parked above the
-        tab bar where a thumb already is. Filling the week is a suggestion and
-        lives in the header; putting the week on the list is the errand.
-      -->
-      <div
+      <PlanFlowFooter
         v-if="sync.hydrated"
-        class="shrink-0 border-t border-default bg-default/85 px-3 py-3 backdrop-blur"
-      >
-        <div class="mx-auto max-w-xl">
-          <UButton
-            color="primary"
-            variant="subtle"
-            size="xl"
-            block
-            icon="i-lucide-shopping-cart"
-            :label="deriveLabel"
-            :disabled="!canDerive"
-            :loading="deriving"
-            @click="derive"
-          />
-          <p
-            v-if="!canDerive"
-            class="mt-2 text-center text-xs text-dimmed"
-          >
-            Plan a night first, then this puts its ingredients on the list.
-          </p>
-        </div>
-      </div>
+        :label="nextLabel"
+        @next="advance"
+      />
     </template>
 
     <PlanNightEditor

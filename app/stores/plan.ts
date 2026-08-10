@@ -12,6 +12,7 @@ import {
 import { derivePantryReservations } from '../utils/pantry'
 import { deriveLifeStage } from '../utils/people'
 import { LEFTOVER_MAX_AGE_DAYS, planMove } from '../utils/plan-move'
+import { applyReviewSelection, weekReviewRows, type ReviewRow } from '../utils/review'
 import { skipLabel } from '../utils/skip'
 import { plainCopy } from '../utils/sync'
 import { addDays, isoDate, todayIso, weekDates } from '../utils/week'
@@ -293,6 +294,20 @@ export const usePlanStore = defineStore('plan', () => {
       .length
   }
 
+  /**
+   * Nobody is at the table that night — and there is a table to be at.
+   *
+   * The second half is not pedantry. `attendance` reads no row as present, so an
+   * empty night only reaches zero once somebody has said everybody is out — but
+   * a household nobody has added a person to yet reaches zero on all seven, and
+   * a whole week greyed out reads as broken rather than as empty. The wall board
+   * draws the same distinction for the same reason (`nobodyhome` vs `setup` in
+   * `utils/board.ts`).
+   */
+  function nobodyEatingOn(date: string): boolean {
+    return people.people.length > 0 && eatersOn(date) === 0
+  }
+
   /** The nights this one could reasonably be leftovers of, most recent first. */
   function leftoverSourcesFor(date: string): PlannedEntry[] {
     const sources: PlannedEntry[] = []
@@ -371,6 +386,24 @@ export const usePlanStore = defineStore('plan', () => {
 
   async function clearNight(date: string) {
     for (const existing of entriesOn(date)) await removeEntry(existing.id)
+  }
+
+  /**
+   * Take the meals off several nights at once, and say how many had one.
+   *
+   * Which nights is the caller's question. The page clears the ones still
+   * ahead: a week already cooked is a record, and it is what recency scoring
+   * reads. Same soft delete as one night at a time, so the list still reconciles
+   * on the next deriveWeek rather than here.
+   */
+  async function clearWeek(dates: string[]) {
+    let cleared = 0
+    for (const date of dates) {
+      if (!entriesOn(date).length) continue
+      await clearNight(date)
+      cleared++
+    }
+    return cleared
   }
 
   /**
@@ -507,7 +540,7 @@ export const usePlanStore = defineStore('plan', () => {
       date >= today
       && !planned.has(date)
       && !picks.some(pick => pick.date === date)
-      && attendance.presentOn(date).some(person => deriveLifeStage(person.date_of_birth, date) !== 'baby')
+      && eatersOn(date) > 0
     ).length
 
     return { filled: picks.length, skipped }
@@ -519,7 +552,7 @@ export const usePlanStore = defineStore('plan', () => {
     return weekDatesFrom(weekStart).some(date =>
       date >= today
       && !entriesOn(date).length
-      && attendance.presentOn(date).some(person => deriveLifeStage(person.date_of_birth, date) !== 'baby')
+      && eatersOn(date) > 0
     )
   }
 
@@ -591,26 +624,30 @@ export const usePlanStore = defineStore('plan', () => {
     return { added: creates.length, updated: updates.length, removed: removes.length }
   }
 
-  async function deriveWeek(weekStart: string) {
-    if (!sync.householdId) return { added: 0, updated: 0, removed: 0 }
-
-    await pantry.settleDue()
-
-    const input = deriveInput(weekStart, sync.householdId)
-    const { start, end } = input
-    const { creates, updates, removes } = derive(input)
-
-    for (const row of [...creates, ...updates, ...removes]) {
+  /**
+   * Write a set of list rows, then say what the week's nights have claimed off
+   * the shelf.
+   *
+   * Shared by the wide screen's one-press derive and the phone's reviewed
+   * version of it, so the two cannot come to different conclusions about the
+   * pantry from the same week.
+   */
+  async function commitDerived(rows: ItemRow[], input: DeriveInput, householdId: string) {
+    for (const row of rows) {
       await sync.commit('shopping_list_items', row)
     }
 
     // Which of the week's ingredients the cupboard is now on the hook for. Keyed
     // per (night, ingredient), so pressing this button again rewrites the same
     // rows instead of spending the same stock twice.
+    //
+    // Read off the plan rather than off the rows above, because that is what it
+    // is about: a line somebody dropped in the review was dropped precisely
+    // because the cupboard has it, and the cupboard is still spending it.
     const { upserts, releases } = derivePantryReservations({
-      householdId: sync.householdId,
-      start,
-      end,
+      householdId,
+      start: input.start,
+      end: input.end,
       entries: [...allEntries.value.values()],
       recipes: sync.rowsOf('recipes'),
       ingredients: [...sync.rowsOf('recipe_ingredients').values()],
@@ -624,8 +661,72 @@ export const usePlanStore = defineStore('plan', () => {
     for (const row of [...upserts, ...releases]) {
       await sync.commit('pantry_reservations', row)
     }
+  }
+
+  async function deriveWeek(weekStart: string) {
+    if (!sync.householdId) return { added: 0, updated: 0, removed: 0 }
+
+    await pantry.settleDue()
+
+    const input = deriveInput(weekStart, sync.householdId)
+    const { creates, updates, removes } = derive(input)
+
+    await commitDerived([...creates, ...updates, ...removes], input, sync.householdId)
 
     return { added: creates.length, updated: updates.length, removed: removes.length }
+  }
+
+  /**
+   * The week's whole shopping list as it would be, before any of it is written.
+   *
+   * What the phone's last step reads. Includes the rows already on the list and
+   * the ones somebody took off last time, because the question being asked is
+   * "is this what we are buying", not "what changed".
+   */
+  function reviewWeek(weekStart: string): ReviewRow[] {
+    if (!sync.householdId) return []
+    const input = deriveInput(weekStart, sync.householdId)
+    return weekReviewRows(derive(input), input.planItems)
+  }
+
+  /**
+   * The night a derived row is for, as a heading: "Mon · Chilli".
+   *
+   * Resolved through the entry rather than stored on the item, exactly as the
+   * list's own provenance is, so renaming a recipe renames it here too.
+   */
+  function nightOf(item: ItemRow) {
+    if (!item.plan_entry_id) return null
+    const entry = allEntries.value.get(item.plan_entry_id)
+    if (!entry) return null
+    const [year, month, day] = entry.date.split('-').map(Number)
+    const weekday = new Date(year!, month! - 1, day!).toLocaleDateString(undefined, { weekday: 'short' })
+    return { id: entry.id, name: `${weekday} · ${dishLabel(plannedEntry(entry))}`, order: entry.date }
+  }
+
+  /**
+   * Put the reviewed week on the list: what was ticked, and a soft-deleted row
+   * for everything that was not.
+   *
+   * The rows that were dropped are written rather than skipped on purpose — a
+   * soft-deleted row is how this app says "a person took this off", and it is
+   * the only thing that stops the next derive putting it straight back.
+   */
+  async function commitReview(weekStart: string, excluded: Set<string>) {
+    if (!sync.householdId) return { added: 0, skipped: 0 }
+
+    await pantry.settleDue()
+
+    const input = deriveInput(weekStart, sync.householdId)
+    const result = derive(input)
+    const writes = applyReviewSelection(result, input.planItems, excluded, input.now)
+
+    await commitDerived(writes, input, sync.householdId)
+
+    return {
+      added: writes.filter(row => !row.deleted_at).length,
+      skipped: writes.filter(row => row.deleted_at).length
+    }
   }
 
   return {
@@ -634,6 +735,8 @@ export const usePlanStore = defineStore('plan', () => {
     entriesOn,
     plannedEntry,
     leftoverSourcesFor,
+    eatersOn,
+    nobodyEatingOn,
     isDerived,
     hasWorkFor,
     addEntry,
@@ -644,11 +747,15 @@ export const usePlanStore = defineStore('plan', () => {
     updateEntry,
     removeEntry,
     clearNight,
+    clearWeek,
     fillWeek,
     hasGapsFor,
     weekSuggestions,
     timesCooked,
     derivePreview,
-    deriveWeek
+    deriveWeek,
+    reviewWeek,
+    nightOf,
+    commitReview
   }
 })
