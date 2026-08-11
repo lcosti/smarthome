@@ -32,6 +32,15 @@ export type ChoreRule = 'weekly' | 'monthly' | 'once'
 
 export interface ChoreLike {
   id: string
+  /**
+   * The household the chore belongs to, which is what its ticks are keyed on.
+   *
+   * Read off the row rather than passed in beside it, because the row is the
+   * authority: a device knows which household a chore is in the moment it holds
+   * the chore, whether or not it has finished working out which household it is
+   * itself. See {@link choreOccurrencesOn}.
+   */
+  household_id: string
   name: string
   person_id: string | null
   /**
@@ -236,12 +245,19 @@ export function choreScheduleLabel(chore: ChoreLike): string {
  * A one-off shows only on its own date. It does not carry forward when it is
  * missed, which is a decision rather than an omission: a board that accumulates
  * everything nobody got round to stops being today's board.
+ *
+ * The household comes off each chore rather than from the caller, and that is
+ * the difference between a card that draws what is on the device and one that
+ * waits for permission to. Every other read on the board — the calendar, the
+ * plan, the roster, the list — renders straight out of the local cache, so a
+ * device still resolving which household it belongs to shows the whole day and
+ * silently lost only its chores. Whose they are was never in doubt: it is
+ * written on the row.
  */
 export function choreOccurrencesOn(
   date: string,
   chores: ChoreLike[],
-  completions: ChoreCompletionLike[],
-  householdId: string
+  completions: ChoreCompletionLike[]
 ): ChoreOccurrence[] {
   const done = new Set(
     completions
@@ -253,7 +269,7 @@ export function choreOccurrencesOn(
     .filter(chore => !chore.deleted_at && occursOn(chore, date))
     .map(chore => ({
       choreId: chore.id,
-      completionId: choreCompletionId(householdId, chore.id, date),
+      completionId: choreCompletionId(chore.household_id, chore.id, date),
       date,
       title: chore.name,
       personId: chore.person_id,

@@ -18,6 +18,7 @@ const FRIDAY = '2026-07-31'
 
 function chore(overrides: Partial<ChoreLike> & { id: string }): ChoreLike {
   return {
+    household_id: HOUSEHOLD,
     name: overrides.id,
     person_id: null,
     weekdays: null,
@@ -44,7 +45,7 @@ function completion(
 }
 
 function occurrences(date: string, chores: ChoreLike[], completions: ChoreCompletionLike[] = []) {
-  return choreOccurrencesOn(date, chores, completions, HOUSEHOLD)
+  return choreOccurrencesOn(date, chores, completions)
 }
 
 describe('isoWeekday', () => {
@@ -133,6 +134,28 @@ describe('which chores fall on a day', () => {
     ]
     expect(occurrences(THURSDAY, chores).map(o => o.title))
       .toEqual(['Airing cupboard', 'Water the plants', 'Bins out', 'Washing'])
+  })
+
+  it('keys the tick on the chore’s own household, not on anything passed alongside', () => {
+    // The board asks this question with whatever the device happens to be
+    // holding. Which household a chore is in is written on it, so a device that
+    // has not worked out its own identity yet still draws the day and still
+    // lands its ticks on the row the other phone is writing.
+    const other = '99999999-8888-7777-6666-555555555555'
+    const bins = chore({ id: 'bins', name: 'Bins out', household_id: other, weekdays: [4] })
+
+    expect(occurrences(THURSDAY, [bins])[0]?.completionId)
+      .toBe(choreCompletionId(other, 'bins', THURSDAY))
+  })
+
+  it('resolves a tick written against the chore’s household', () => {
+    const other = '99999999-8888-7777-6666-555555555555'
+    const bins = chore({ id: 'bins', name: 'Bins out', household_id: other, weekdays: [4] })
+    const ticked = completion('bins', THURSDAY, {
+      id: choreCompletionId(other, 'bins', THURSDAY)
+    })
+
+    expect(occurrences(THURSDAY, [bins], [ticked])[0]?.done).toBe(true)
   })
 })
 

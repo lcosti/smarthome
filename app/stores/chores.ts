@@ -51,15 +51,31 @@ export const useChoresStore = defineStore('chores', () => {
     return row && !row.deleted_at ? row : null
   }
 
-  /** What falls on a given day, ticks resolved. Derived, never stored. */
+  /**
+   * What falls on a given day, ticks resolved. Derived, never stored.
+   *
+   * Asks nothing of `sync.householdId`, deliberately. This used to return
+   * nothing until the device had resolved which household it belongs to, which
+   * made it the one read on the Today card that could come back empty while the
+   * calendar, the plan and the meal beside it all rendered from the same cache —
+   * a board that has plainly got its data, quietly missing its chores. The
+   * household a tick is keyed on is written on the chore itself, so a device
+   * that holds the chore already knows it.
+   */
   function occurrencesOn(date: string): ChoreOccurrence[] {
-    if (!sync.householdId) return []
-    return choreOccurrencesOn(
-      date,
-      chores.value,
-      [...allCompletions.value.values()],
-      sync.householdId
-    )
+    return choreOccurrencesOn(date, chores.value, [...allCompletions.value.values()])
+  }
+
+  /**
+   * The household a chore's ticks are keyed on: the chore's own, never the
+   * device's idea of which household it is in.
+   *
+   * They agree in every ordinary case. Where they do not — a device between
+   * identities, or one that has not resolved one yet — the chore's is the answer
+   * that matches the id the board derived and the id the other phone wrote.
+   */
+  function householdOf(choreId: string): string | null {
+    return choreById(choreId)?.household_id ?? null
   }
 
   /**
@@ -78,7 +94,11 @@ export const useChoresStore = defineStore('chores', () => {
    * first.
    */
   async function saveChore(draft: ChoreDraft, id?: string): Promise<ChoreRow | null> {
-    if (!sync.householdId) return null
+    // A new chore has to be put in a household and only the device can say
+    // which; an edit stays in the one it is already in, so renaming the bins
+    // works on a device that has not resolved an identity yet.
+    const householdId = (id ? householdOf(id) : null) ?? sync.householdId
+    if (!householdId) return null
 
     const name = draft.name.trim()
     if (!name) return null
@@ -105,7 +125,7 @@ export const useChoresStore = defineStore('chores', () => {
     return sync.commit('chores', {
       ...(existing ? plainCopy(existing) : {}),
       id: id ?? crypto.randomUUID(),
-      household_id: sync.householdId,
+      household_id: householdId,
       name,
       person_id: draft.personId,
       rule: draft.rule,
@@ -142,17 +162,17 @@ export const useChoresStore = defineStore('chores', () => {
    * everything else, instead of one side's delete racing the other's absence.
    */
   async function setDone(choreId: string, date: string, done: boolean) {
-    if (!sync.householdId) return null
-    if (!choreById(choreId)) return null
+    const householdId = householdOf(choreId)
+    if (!householdId) return null
 
-    const id = choreCompletionId(sync.householdId, choreId, date)
+    const id = choreCompletionId(householdId, choreId, date)
     const existing = allCompletions.value.get(id)
 
     const timestamp = nowIso()
     return sync.commit('chore_completions', {
       ...(existing ? plainCopy(existing) : {}),
       id,
-      household_id: sync.householdId,
+      household_id: householdId,
       chore_id: choreId,
       date,
       done,
@@ -163,8 +183,9 @@ export const useChoresStore = defineStore('chores', () => {
   }
 
   function isDone(choreId: string, date: string): boolean {
-    if (!sync.householdId) return false
-    const row = allCompletions.value.get(choreCompletionId(sync.householdId, choreId, date))
+    const householdId = householdOf(choreId)
+    if (!householdId) return false
+    const row = allCompletions.value.get(choreCompletionId(householdId, choreId, date))
     return Boolean(row && !row.deleted_at && row.done)
   }
 

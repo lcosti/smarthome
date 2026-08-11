@@ -398,6 +398,20 @@ This is the hardest part and no library does it for you.
 - Supabase Realtime for live updates when online (two people in the kitchen)
 - Service worker precaches the app shell
 
+**A read never waits on `sync.householdId`.** Writes need it — a new row has to
+be put in a household and only the device can say which — but anything being
+displayed is already in the cache, and the household it belongs to is a column
+on it. Chores broke this rule and were the only thing on Today that could come
+back empty on a device whose identity had not resolved yet, while the calendar,
+the plan and the meal beside them drew normally: a board that has plainly got
+its data, silently missing one card's worth of it. So where a row's id is a
+uuidv5 of `(household, …)` — a chore's tick, an attendance row, a pantry line —
+the household comes off the row being read, never from whatever the device
+currently believes about itself. The two agree in every ordinary case, and where
+they do not, the row's is the id the other phone wrote. `pantry.onHandOf` is the
+last read still deriving its key from the device instead, and reads as an empty
+cupboard rather than as an unanswered question.
+
 Acceptance test: put the phone in airplane mode, open the app from the home
 screen, tick five items, close it, reopen it, come back online. Nothing lost.
 
