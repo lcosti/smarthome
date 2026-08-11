@@ -4,7 +4,15 @@ import { dishLabel, usePlanStore, type PlannedNight } from '../stores/plan'
 import { DINNER } from '../utils/meal'
 
 /**
- * One night of the week, on a screen with room to say what is actually on it.
+ * The dinner, on a page that is only showing one night — the phone's, by way of
+ * `PlanNightFocus`.
+ *
+ * The wide week used to draw its dinners with this too, with the frame, the
+ * header and the footer switched off, and does not any more: three cells of one
+ * row are three of the same cell, and that is `PlanMealCell`. What is left here
+ * is what only a night on its own has — the day along the top, the roll-call
+ * along the bottom, and the two states a night can be in that a breakfast
+ * cannot.
  *
  * Three facts, in the order somebody standing in front of it wants them: what is
  * being eaten, whether it has been shopped for, and who is at the table. An empty
@@ -16,10 +24,10 @@ import { DINNER } from '../utils/meal'
  * still opens — that is the only way back to it, and a plan is a record as much
  * as it is an intention — but an empty one is a fact now, not an invitation.
  *
- * Presentational: the week above owns which night is being edited, so the phone
- * rows and these cards cannot drift apart over what changing a night does.
+ * Presentational: the page above owns which night is being edited, so this and
+ * the wide week cannot drift apart over what changing a night does.
  */
-const { night, today, past = false, header = true, frame = true, eaters = 'table', events = [] } = defineProps<{
+const { night, today, past = false, header = true, eaters = 'table', events = [] } = defineProps<{
   night: PlannedNight
   today: boolean
   /** The night is before today. */
@@ -42,27 +50,8 @@ const { night, today, past = false, header = true, frame = true, eaters = 'table
    * and the same four faces on every one of them is a roll-call nobody reads,
    * so a night somebody is missing says who and a night with everybody there
    * says nothing. Everybody being home is the normal case and needs no ink.
-   *
-   * `none` is for the wide week, where the day's table is in the gutter of the
-   * row this card sits in. The roster is kept per day, so anything here would be
-   * the same fact twice on one line.
    */
-  eaters?: 'table' | 'away' | 'none'
-  /**
-   * Draw the card around the night.
-   *
-   * False in the wide week, where the day is already a card and the night is one
-   * cell inside it: a card inside a card, a padding apart, drew two borders and
-   * two insets for one dinner, and left it sitting further from its own row than
-   * the breakfast beside it. Without the frame this is the dish, the empty state
-   * and the diary, in the cell — which is what `PlanMealCell` is too, so all
-   * three slots of a day sit in the row's grid the same way.
-   *
-   * The header and the footer are dropped with it. Both are already off in the
-   * one place that turns this off, and a header rule with nothing above it is
-   * a line across a cell.
-   */
-  frame?: boolean
+  eaters?: 'table' | 'away'
   /**
    * What else the day is already spoken for by.
    *
@@ -107,18 +96,6 @@ const awayLabel = computed(() => {
 })
 
 /**
- * How an empty night draws itself.
- *
- * Inside a frame it is a ghost: the card around it is already the box, and a
- * second one drawn inside it is a border against a border. Frameless there is no
- * box, so it draws its own — `outline` is the dashed variant in this app's
- * theme, the same one an empty breakfast beside it uses, which is the shape an
- * empty slot wants: an outline around somewhere a meal goes rather than a filled
- * cell pretending something is there.
- */
-const emptyVariant = computed(() => frame ? 'ghost' as const : 'outline' as const)
-
-/**
  * The night as somewhere a dish can be dropped.
  *
  * Every night is a target, including an empty one and a night that has gone —
@@ -131,18 +108,15 @@ const root = useTemplateRef<{ $el?: HTMLElement } | HTMLElement>('root')
 
 /**
  * This card is the dinner, always — the day's other two slots are
- * `PlanMealCell`s beside it or under it. So it registers as the dinner cell and
- * has no `meal` prop: giving it one would invite somebody to render a breakfast
- * through a card built to be the night.
+ * `PlanMealCell`s under it. So it registers as the dinner cell and has no `meal`
+ * prop: giving it one would invite somebody to render a breakfast through a card
+ * built to be the night.
  */
 const slot = computed(() => drag.slotKey(night.date, DINNER))
 
 const isOver = computed(() => drag.overSlot.value === slot.value)
 
-/**
- * `UCard` is a component, so the element to hit-test against is its root node.
- * Frameless, the root is already an element and this passes it through.
- */
+/** `UCard` is a component, so the element to hit-test against is its root node. */
 function elementOf(instance: unknown): HTMLElement | null {
   if (!instance) return null
   const el = (instance as { $el?: unknown }).$el ?? instance
@@ -159,20 +133,12 @@ onBeforeUnmount(() => drag.registerTarget(slot.value, null))
     the footer, and the rules between them are the variant's own `divide-y`
     rather than borders written on by hand. Only the two colours a card can be —
     tonight, or a night that has gone — are ours.
-
-    Frameless it is the same component with its skin off: `soft` has no ring,
-    `bg-transparent` takes the fill, and the header and the footer — which are
-    what the rules and the padding are for — do not render. One root either way,
-    so the drop target is registered in one place and cannot go missing at one
-    of the two widths.
   -->
   <UCard
     ref="root"
-    :variant="frame ? 'subtle' : 'soft'"
+    variant="subtle"
     :ui="{
-      root: frame
-        ? 'flex min-h-0 flex-col transition-colors'
-        : 'flex min-h-0 flex-col transition-colors bg-transparent',
+      root: 'flex min-h-0 flex-col transition-colors',
       header: 'flex shrink-0 items-center justify-between gap-2 px-3 py-2.5 sm:px-3',
       body: 'flex min-h-0 flex-1 flex-col p-0 sm:p-0',
       footer: 'flex shrink-0 items-center gap-2 px-3 py-2 sm:px-3'
@@ -192,7 +158,7 @@ onBeforeUnmount(() => drag.registerTarget(slot.value, null))
     ]"
   >
     <template
-      v-if="frame && header"
+      v-if="header"
       #header
     >
       <div class="flex items-center gap-2">
@@ -211,15 +177,7 @@ onBeforeUnmount(() => drag.registerTarget(slot.value, null))
       <span class="text-xs text-dimmed tabular-nums">{{ dateLabel }}</span>
     </template>
 
-    <!--
-      Frameless, the body is the cell: there is no card around it to be inset
-      from, and the padding it used to spend put the dinner further from its own
-      row than the breakfast beside it.
-    -->
-    <div
-      class="flex min-h-0 flex-1 flex-col"
-      :class="frame && 'p-3'"
-    >
+    <div class="flex min-h-0 flex-1 flex-col p-3">
       <!--
         The dish is a card inside the card: on a night that has one, the thing
         being cooked is the object you act on — open it, take it off, carry it to
@@ -261,7 +219,7 @@ onBeforeUnmount(() => drag.registerTarget(slot.value, null))
       <UButton
         v-else-if="nobodyHome"
         color="neutral"
-        :variant="emptyVariant"
+        variant="ghost"
         icon="i-lucide-house"
         label="Nobody home"
         class="min-h-0 flex-1 justify-center text-dimmed"
@@ -272,7 +230,7 @@ onBeforeUnmount(() => drag.registerTarget(slot.value, null))
       <UButton
         v-else
         color="neutral"
-        :variant="emptyVariant"
+        variant="ghost"
         icon="i-lucide-plus"
         label="Add dinner"
         class="min-h-0 flex-1 justify-center text-dimmed"
@@ -295,7 +253,7 @@ onBeforeUnmount(() => drag.registerTarget(slot.value, null))
     </div>
 
     <template
-      v-if="frame && (eaters === 'table' || (eaters === 'away' && awayLabel))"
+      v-if="eaters === 'table' || (eaters === 'away' && awayLabel)"
       #footer
     >
       <!-- One answer to "who is at the table", shared with the wide plan's own column. -->

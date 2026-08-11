@@ -233,7 +233,8 @@ export const usePlanStore = defineStore('plan', () => {
     recipeId: string,
     meal: Meal = DINNER,
     servings?: number,
-    leftoverOf?: string
+    leftoverOf?: string,
+    cookPersonId?: string | null
   ) {
     if (!sync.householdId) return null
     const recipe = recipesStore.recipeById(recipeId)
@@ -249,7 +250,7 @@ export const usePlanStore = defineStore('plan', () => {
       note: null,
       // Both null until somebody says otherwise. The board reads a null eat_time
       // as the household's default hour rather than as a missing plan.
-      cook_person_id: null,
+      cook_person_id: cookPersonId ?? null,
       eat_time: null,
       leftover_of_entry_id: leftoverOf ?? null,
       skip_reason: null,
@@ -276,10 +277,13 @@ export const usePlanStore = defineStore('plan', () => {
    */
   async function setNight(date: string, recipeId: string, meal: Meal = DINNER, servings?: number) {
     const replaced = entriesOn(date, meal)
+    // Swapping the dish replaces the row, but who's at the stove is a fact about
+    // the night, not the recipe, so the cook walks over to the new one.
+    const cook = replaced[0]?.cook_person_id ?? null
     for (const existing of replaced) {
       await sync.commit('meal_plan_entries', { ...plainCopy(existing), deleted_at: nowIso() })
     }
-    const row = await addEntry(date, recipeId, meal, servings)
+    const row = await addEntry(date, recipeId, meal, servings, undefined, cook)
 
     // Swapping a night replaces its row rather than editing it, so any night
     // eating its leftovers has to be walked over to the new one. Left alone,

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { PantryItemRow } from '../utils/db'
-import { pantryAvailable, pantryItemId, settleDuePantry } from '../utils/pantry'
+import { pantryAvailable, pantryItemId, pantryOnHand, settleDuePantry } from '../utils/pantry'
 import { formatBaseAmount, formatPurchase, type BaseUnit } from '../utils/quantity'
 import { plainCopy } from '../utils/sync'
 import { isoDate } from '../utils/week'
@@ -43,10 +43,19 @@ export const usePantryStore = defineStore('pantry', () => {
   }
 
   /**
+   * What is on the shelf right now, before the plan has had its say.
+   *
+   * What the shopping list reads. Its lines and the reservations behind them are
+   * the same claim recorded twice, so measuring one against the other is a
+   * double charge — see the docblock on {@link pantryOnHand}.
+   */
+  const onHand = computed(() => pantryOnHand(rows.value.map(canonical)))
+
+  /**
    * How much of each ingredient is genuinely free right now.
    *
-   * What the shopping list and the recipe library both read, so that neither
-   * offers the household onions that Thursday has already claimed.
+   * What the recipe library reads, so that it never offers the household onions
+   * that Thursday has already claimed.
    */
   const available = computed(() => pantryAvailable(
     rows.value.map(canonical),
@@ -188,6 +197,7 @@ export const usePantryStore = defineStore('pantry', () => {
   return {
     rows,
     reservations,
+    onHand,
     available,
     stocked,
     onHandOf,

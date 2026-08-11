@@ -143,16 +143,39 @@ const dayTiles = () => page.getByRole('button', {
 })
 
 /**
- * Assign the recipe to one named night.
+ * Which week to plan in, and where in it the first free night is.
+ *
+ * This wanted two nights, and used to name them Monday and Tuesday — so it was a
+ * check that only passed if it ran on a Monday: a night that has gone shows what
+ * was cooked on it and offers nothing to add, and the two suites downstream of
+ * that press never ran at all. Two nights still to come is the real requirement.
+ *
+ * On a Sunday there is only one left, so the whole thing moves to next week,
+ * where all seven are ahead. Both nights have to be in the same week for
+ * `deriveTheWeek` to reach them, which is why this is one decision made once
+ * rather than a fallback per night.
+ */
+const TODAY_INDEX = (new Date().getDay() + 6) % 7
+const NEXT_WEEK = TODAY_INDEX > 5
+const FIRST_TILE = NEXT_WEEK ? 0 : TODAY_INDEX
+
+/** Open the plan on the week the nights are in. The offset resets on every visit. */
+async function openPlan() {
+  await page.getByRole('link', { name: 'Plan', exact: true }).click()
+  await page.waitForURL('**/plan')
+  if (NEXT_WEEK) await page.getByRole('button', { name: 'Next week' }).click()
+}
+
+/**
+ * Assign the recipe to one night, counted from the first one still free.
  *
  * The phone shows one night at a time, so which night is a press on the strip
  * rather than "the first free one" — and choosing from the editor deliberately
  * does not move the walk on, so the night stays on screen to be checked.
  */
-async function planANight(recipeName, tile) {
-  await page.getByRole('link', { name: 'Plan', exact: true }).click()
-  await page.waitForURL('**/plan')
-  await dayTiles().nth(tile).click()
+async function planANight(recipeName, nightsOn) {
+  await openPlan()
+  await dayTiles().nth(FIRST_TILE + nightsOn).click()
   await page.getByRole('button', { name: 'Add dinner' }).first().click()
   await page.locator('[role="dialog"] button', { hasText: recipeName }).first().click()
   await page.locator('main').getByText(recipeName).first().waitFor({ timeout: 10_000 })
@@ -168,8 +191,7 @@ async function planANight(recipeName, tile) {
  */
 async function deriveTheWeek() {
   await page.setViewportSize(WIDE)
-  await page.getByRole('link', { name: 'Plan', exact: true }).click()
-  await page.waitForURL('**/plan')
+  await openPlan()
   await page.getByRole('button', { name: /^(Add to shopping list|Add \d+ to list)$/ }).click()
   await page.getByText(/items? added|Already on the list/).first().waitFor({ timeout: 15_000 })
   await page.setViewportSize(PHONE)

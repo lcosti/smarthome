@@ -17,13 +17,26 @@ const { events, max = 2 } = defineProps<{
    *
    * Two on a card that is a quarter of a screen: enough to know the evening is
    * spoken for. The phone plans one night at a time and has the room for all of
-   * it, so it asks for more.
+   * it, so it asks for more. One in the wide week's gutter, which is a line
+   * under the roll-call on a row that is a seventh of the screen.
    */
   max?: number
 }>()
 
 const shown = computed(() => events.slice(0, max))
 const more = computed(() => Math.max(0, events.length - max))
+
+/**
+ * Where the count of what did not fit goes.
+ *
+ * Normally a line of its own under the events. Asked for one event it goes on
+ * that event's line instead — a caller with room for one line has room for one
+ * line, and a "+1 more" underneath it is the second line it said it did not
+ * have. In the gutter that line was drawn outside the day's band and clipped,
+ * so the one thing the rail promises — that nothing is hidden without being
+ * counted — was the part that went missing.
+ */
+const inlineMore = computed(() => max === 1)
 
 function railStyle(hue: number | null) {
   return hue === null ? undefined : { background: `oklch(0.72 0.13 ${hue})` }
@@ -49,10 +62,14 @@ function railStyle(hue: number | null) {
         class="shrink-0 font-mono text-[11px] text-dimmed tabular-nums"
       >{{ event.time }}</span>
       <span class="truncate text-[11px] text-dimmed">{{ event.title }}</span>
+      <span
+        v-if="more && inlineMore"
+        class="shrink-0 text-[11px] text-dimmed"
+      >+{{ more }}</span>
     </span>
 
     <span
-      v-if="more"
+      v-if="more && !inlineMore"
       class="pl-2 text-[11px] text-dimmed"
     >+{{ more }} more</span>
   </div>

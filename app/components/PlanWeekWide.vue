@@ -9,7 +9,8 @@ import { isoDate, mondayOf, weekLabel } from '../utils/week'
  * The week as a screenful, for a screen with the room for it.
  *
  * Days down, meals across: breakfast, lunch and dinner, one row each, with the
- * date and who is at the table in the gutter. The week used to run the other way — a row of night cards, as
+ * date, who is at the table and what else the day already holds in the gutter.
+ * The week used to run the other way — a row of night cards, as
  * wide as what was left of the week — and that was the right shape while a day
  * had one meal on it. It is the wrong shape for three: a day is now a thing with
  * parts, and the parts of Tuesday belong on the line that says Tuesday.
@@ -24,7 +25,7 @@ import { isoDate, mondayOf, weekLabel } from '../utils/week'
  * Nothing inside a day draws a frame of its own. The day is the card; the three
  * slots sit in its grid. The dinner used to be a card inside that card, which
  * cost a second border and a second inset and left it further from its own row
- * than the breakfast beside it — hence `:frame="false"`.
+ * than the breakfast beside it.
  *
  * Only the days still ahead get a row. A week is read forwards: on a Friday,
  * Monday to Thursday are a record and Friday to Sunday are the decisions still
@@ -33,9 +34,12 @@ import { isoDate, mondayOf, weekLabel } from '../utils/week'
  *
  * A plain grid rather than a `UTable`: a table's cells are column definitions
  * given rows of data, and every cell here is a drop target that registers
- * itself. The cells themselves are `PlanNightCard` and `PlanMealCell`, and what
- * they draw is a `UCard`, a `UButton`, or the one hand-rolled block in the plan
- * — `PlanDishCard`, which carries the card-and-row exception for all three.
+ * itself. All three cells are the same `PlanMealCell`, and what they draw is a
+ * `UButton` or the one hand-rolled block in the plan — `PlanDishCard`. The
+ * dinner used to be a `PlanNightCard` with its frame, its header and its footer
+ * switched off, which is three props' worth of asking a component not to be
+ * itself; what was left that it did differently was the diary, which is the
+ * day's rather than the dinner's and is in the gutter now.
  *
  * Nothing on this screen scrolls the page as a whole: the week and the aside
  * scroll separately, so pressing "fill" never moves the thing you were looking
@@ -88,9 +92,6 @@ const monday = computed(() => {
 /** Whether the week on screen is the one the household is living in. */
 const thisWeek = computed(() => weekStart === isoDate(mondayOf(new Date())))
 
-/** The two small columns, in the order the day happens. Dinner has a column of its own. */
-const SIDE_MEALS = ['breakfast', 'lunch'] as const
-
 /**
  * The day and its three meals, written once and used by both the headings and
  * every row, so a heading can never end up over the wrong cell.
@@ -101,10 +102,13 @@ const SIDE_MEALS = ['breakfast', 'lunch'] as const
  * not any more: it is a line of small faces and two words, and it was the widest
  * fixed cost on a row whose meals were sharing what was left — a pixel spent
  * there is a pixel off a dish name that is already truncating. It rides in the
- * gutter under the date now, which costs the `2rem` this line grew by and gives
- * the rest back.
+ * gutter under the date now, and the diary rides under that. The gutter is
+ * `10rem` for the diary's sake: the roll-call is faces and two words and would
+ * take less, but an event is a sentence somebody wrote, and at `8rem` "Sue has
+ * the girls" arrived as "Sue has th…", which is a line of text that costs its
+ * space and answers nothing.
  */
-const COLUMNS = '8rem minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr)'
+const COLUMNS = '10rem minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr)'
 
 function dayOf(date: string) {
   const [year, month, day] = date.split('-').map(Number)
@@ -303,6 +307,14 @@ function isAway(night: PlannedNight): boolean {
                 the same four faces across a row would be the same fact three
                 times. A day nobody is home for says so across the row instead,
                 so it is not repeated here.
+
+                The diary is under it for the same reason it is not under the
+                dinner any more: "Sue has the girls" is a fact about Tuesday, not
+                about what is being cooked on Tuesday, and the gutter is where
+                this row keeps what it knows about the day itself. Hanging off
+                the dinner it also made one of three slots taller than the other
+                two, which is the shape the row had before all three became the
+                same cell.
               -->
               <div class="flex min-w-0 flex-col justify-center gap-1">
                 <!--
@@ -329,7 +341,22 @@ function isAway(night: PlannedNight): boolean {
                 <PlanDayEaters
                   v-if="!isAway(night)"
                   :date="night.date"
-                  stack
+                />
+
+                <!--
+                  Still shown on a day the house is out for, where the roll-call
+                  is not: a day nobody is home is exactly the day the diary is
+                  the explanation for.
+
+                  One event and a count, where a card that stands alone shows
+                  two. This is a line in a gutter on a row that is a seventh of
+                  the screen, and the gutter has three lines to give: the day,
+                  who is at it, and what else it holds.
+                -->
+                <PlanEventRail
+                  v-if="events.get(night.date)?.length"
+                  :events="events.get(night.date)!"
+                  :max="1"
                 />
               </div>
 
@@ -349,9 +376,21 @@ function isAway(night: PlannedNight): boolean {
                 @click="emit('open', night.date, DINNER)"
               />
 
+              <!--
+                Three slots, one kind of cell, drawn off the same list the
+                headings are drawn from — so a heading cannot end up over the
+                wrong cell, and the dinner cannot grow a behaviour the breakfast
+                beside it has not got.
+
+                What the dinner cell used to say on its own is said by the row
+                now, or not at all. A day that has gone fades as a row; a day
+                nobody is home for collapses to the line above. Both were states
+                a night card drew inside one of three cells, which is the day's
+                news in a third of the day's width.
+              -->
               <template v-else>
                 <PlanMealCell
-                  v-for="meal in SIDE_MEALS"
+                  v-for="meal in MEALS"
                   :key="meal"
                   :date="night.date"
                   :meal="meal"
@@ -359,26 +398,6 @@ function isAway(night: PlannedNight): boolean {
                   tall
                   @open="emit('open', night.date, meal)"
                   @remove="emit('remove', night, meal)"
-                />
-
-                <!--
-                  The dinner keeps its own component — it is the slot with the
-                  empty states and the diary — but not its own frame. `today` is
-                  false here and `frame` is off for the same reason: the band
-                  around it already carries the ring and the border, and a second
-                  set of both a padding's width inside them is one too many.
-                -->
-                <PlanNightCard
-                  :night="night"
-                  :today="false"
-                  :past="night.date < today"
-                  :header="false"
-                  :frame="false"
-                  eaters="none"
-                  :events="events.get(night.date)"
-                  class="min-h-0"
-                  @open="emit('open', night.date, DINNER)"
-                  @remove="emit('remove', night, DINNER)"
                 />
               </template>
             </div>

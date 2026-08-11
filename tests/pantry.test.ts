@@ -5,6 +5,7 @@ import {
   lineNeedBase,
   pantryAvailable,
   pantryItemId,
+  pantryOnHand,
   pantryReservationId,
   settleDuePantry
 } from '../app/utils/pantry'
@@ -367,6 +368,34 @@ describe('settleDuePantry', () => {
     const a = settle()
     const b = settle()
     expect(a.pantryUpdates.map(r => [r.id, r.on_hand])).toEqual(b.pantryUpdates.map(r => [r.id, r.on_hand]))
+  })
+})
+
+describe('pantryOnHand', () => {
+  it('reports the shelf, and says nothing about what the plan wants', () => {
+    expect(pantryOnHand([stock('onion', 4)]).get('onion')).toBe(4)
+  })
+
+  it('adds up rows a merge has made the same ingredient', () => {
+    const merged = { ...stock('onion', 1), id: 'other-row' }
+    expect(pantryOnHand([stock('onion', 4), merged]).get('onion')).toBe(5)
+  })
+
+  it('leaves out an empty or deleted shelf rather than reporting a zero', () => {
+    expect(pantryOnHand([stock('onion', 0)]).has('onion')).toBe(false)
+    expect(pantryOnHand([stock('onion', 4, { deleted_at: NOW })]).has('onion')).toBe(false)
+  })
+
+  it('is what the shopping list measures a derived line against', () => {
+    // The invariant the pantry acceptance run caught the app breaking. A night
+    // wanting three onions with two in the house derives a line asking for one
+    // and reserves the two it is taking. Both are the same claim, so the list
+    // reads the shelf: netting the reservation off as well sends the line back
+    // to asking for all three, with no mention of the cupboard.
+    const shelf = [stock('onion', 2)]
+    const claimed = [reservation({ amount: 3 })]
+    expect(pantryOnHand(shelf).get('onion')).toBe(2)
+    expect(pantryAvailable(shelf, claimed, '2026-08-03').has('onion')).toBe(false)
   })
 })
 

@@ -38,7 +38,7 @@ export interface AisleGroup {
  * and it becomes an ordinary ticked row and counts in both halves.
  */
 export interface AisleSection extends AisleGroup {
-  /** Ticked rows in this aisle, newest first. Never aggregated — see `entries`. */
+  /** Ticked rows in this aisle, oldest first. Never aggregated — see `entries`. */
   checked: ItemRow[]
   done: number
   total: number
@@ -87,10 +87,19 @@ export const useListStore = defineStore('list', () => {
       [...ingredients.allRows.values()].map(row => [row.id, { ...row, base_unit: asBaseUnit(row.base_unit) }])
     ),
     purchaseUnits: ingredients.purchaseUnits,
-    // What is in the house, minus what the nights ahead have already claimed. An
-    // empty map — the usual case until somebody records some stock — leaves every
-    // line reading exactly as it did before the pantry existed.
-    pantry: pantry.available
+    // What is in the house. An empty map — the usual case until somebody records
+    // some stock — leaves every line reading exactly as it did before the pantry
+    // existed.
+    //
+    // On the shelf, not `available`: these lines *are* what the nights ahead have
+    // claimed. A night wanting three onions with two in the house derives a line
+    // asking for one and reserves the two it is taking, and netting that
+    // reservation off the stock the same line is measured against spends them
+    // twice — the line went back to asking for three, with no mention of the
+    // cupboard, the moment the derive wrote the reservation. `available` is for
+    // `usePantryCovers`, which is asking the other question: what is left for a
+    // recipe the week has not claimed yet.
+    pantry: pantry.onHand
   }))
 
   /**
@@ -103,6 +112,11 @@ export const useListStore = defineStore('list', () => {
    * rows are not collapsed: once something is in the trolley the question is no
    * longer "how much of this do I need", and un-ticking one row of a merged line
    * would have to guess which row it was.
+   *
+   * They come out as two lists because they are built two different ways, not
+   * because they are drawn in two places — both are in `created_at` order and the
+   * card interleaves them, so a row keeps its place in the aisle when it is
+   * ticked.
    *
    * An aisle stays here once everything in it is ticked. Cleared aisles used to
    * vanish, which read as "you have not been down there yet" — the opposite of
@@ -125,8 +139,11 @@ export const useListStore = defineStore('list', () => {
 
     const build = (id: string, name: string): AisleSection | null => {
       const todo = unchecked.get(id) ?? []
+      // By `created_at`, like the lines beside them: the card draws both halves
+      // as one list in that order, so ticking never moves a row. Not `checked_at`
+      // — ordering by when it was ticked is what used to shuffle the pile.
       const done = (checked.get(id) ?? []).sort((a, b) =>
-        (b.checked_at ?? '').localeCompare(a.checked_at ?? '')
+        a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
       )
       if (!todo.length && !done.length) return null
       // What the week assumes is in the house comes out before anything is added
