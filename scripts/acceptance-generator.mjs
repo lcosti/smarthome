@@ -98,10 +98,41 @@ const readTable = table => page.evaluate(name => new Promise((resolve) => {
 
 const mainText = async () => (await page.locator('main').innerText()).replace(/[\n\t]+/g, ' ')
 
+/**
+ * How much of the week there is left to plan, and where today sits in it.
+ *
+ * A week is planned forwards — "Fill empty nights" passes over the nights that
+ * have gone, and the wide plan collapses them into a strip — so "a full week" on
+ * a Thursday is four nights, not seven. This used to be written as seven
+ * everywhere below, which made the whole suite a check that only passed if it
+ * ran on a Monday.
+ */
+const TODAY_INDEX = (new Date().getDay() + 6) % 7
+const NIGHTS_AHEAD = 7 - TODAY_INDEX
+
+/**
+ * A night still to come that is not the one chosen by hand.
+ *
+ * Tomorrow, or today in a week with only tonight left in it — by then the
+ * hand-chosen night has been checked and this section is free to empty it.
+ */
+const SPARE_TILE = Math.min(TODAY_INDEX + 1, 6)
+
 /** The seven pills of the week strip, by the full date each one reads out. */
 const dayTiles = () => page.getByRole('button', {
   name: /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), /
 })
+
+/**
+ * A toast, by its title.
+ *
+ * Not `getByText`: a toast is announced as well as drawn, and the live region
+ * holding the announcement matches the same words. Two hits is a strict-mode
+ * error, and `.first()` is no answer either — the announcer is `aria-hidden`, so
+ * waiting for it to become visible waits forever. The title slot is the one that
+ * is on screen.
+ */
+const toast = pattern => page.locator('[data-slot="title"]', { hasText: pattern }).first()
 
 /** Fill the week, which lives in the phone's week menu rather than on the page. */
 async function fillEmptyNights() {
@@ -121,7 +152,7 @@ async function deriveTheWeek() {
   await page.getByRole('link', { name: 'Plan', exact: true }).click()
   await page.waitForURL('**/plan')
   await page.getByRole('button', { name: /^(Add to shopping list|Add \d+ to list)$/ }).click()
-  await page.getByText(/items? added|Already on the list/).first().waitFor({ timeout: 20_000 })
+  await toast(/items? added|Already on the list/).waitFor({ timeout: 20_000 })
   await page.setViewportSize(PHONE)
 }
 
@@ -185,21 +216,24 @@ try {
   await page.getByRole('button', { name: 'Add dinner' }).first().click()
   await page.locator('[role="dialog"] button', { hasText: 'Fish pie' }).first().click()
   await page.locator('main').getByText('Fish pie').first().waitFor({ timeout: 10_000 })
-  log('chose Monday by hand: fish pie')
+  // The phone opens on the first night still open, which is tonight.
+  log('chose tonight by hand: fish pie')
 
   // --- Fill the rest --------------------------------------------------------
   await fillEmptyNights()
-  await page.getByText(/nights? planned/).waitFor({ timeout: 20_000 })
+  await toast(/nights? planned/).waitFor({ timeout: 20_000 })
   await page.waitForTimeout(1500)
   log('pressed fill, and the week came back planned')
 
   const entries = (await readTable('meal_plan_entries')).filter(e => !e.deleted_at)
-  assert(entries.length === 7, `all seven nights are planned, got ${entries.length}`)
-  log('seven nights, one recipe each')
+  assert(entries.length === NIGHTS_AHEAD,
+    `all ${NIGHTS_AHEAD} nights still to come are planned, got ${entries.length}`)
+  log(`${NIGHTS_AHEAD} nights, one recipe each`)
 
   // Never the same thing twice: the rut this exists to break.
   const ids = entries.map(e => e.recipe_id)
-  assert(new Set(ids).size === 7, `no recipe appears twice, got ${new Set(ids).size} distinct`)
+  assert(new Set(ids).size === NIGHTS_AHEAD,
+    `no recipe appears twice, got ${new Set(ids).size} distinct`)
   log('no recipe appears twice in the week')
 
   // The allergy is the one thing that is not a preference.
@@ -212,10 +246,11 @@ try {
   )
   log('the peanut recipe was kept off the plan by the allergy')
 
-  // The hand-chosen night was not overruled.
+  // The hand-chosen night was not overruled. It is the earliest night in the
+  // plan, because the fill only ever added nights after it.
   const fishPie = recipes.find(r => r.name === 'Fish pie')
-  const monday = entries.sort((a, b) => a.date.localeCompare(b.date))[0]
-  assert(monday.recipe_id === fishPie.id, 'Monday is still the fish pie somebody chose')
+  const chosen = entries.sort((a, b) => a.date.localeCompare(b.date))[0]
+  assert(chosen.recipe_id === fishPie.id, 'tonight is still the fish pie somebody chose')
   log('the night chosen by hand was left exactly as it was')
 
   // Servings follow the roster: two people eating, so two portions.
@@ -226,9 +261,10 @@ try {
   log('servings came from the roster, not the recipe default')
 
   // --- A night nobody is home stays empty -----------------------------------
-  // Tuesday, off the strip. Sending both of them out is a press each on the
-  // night's own roll-call — the chips say what is true and toggle it.
-  await dayTiles().nth(1).click()
+  // A night still to come, off the strip. Sending both of them out is a press
+  // each on the night's own roll-call — the chips say what is true and toggle
+  // it.
+  await dayTiles().nth(SPARE_TILE).click()
   for (const name of ['Luke', 'Tom']) {
     await page.getByRole('button', { name: `${name} is eating in — press to change` }).click()
     await page.waitForTimeout(300)

@@ -196,16 +196,19 @@ the reasoning for that lives in one place now rather than beside each button.
 The sheet's footer offers `/recipes/:id` once, not twice: that route is the
 editor, so "view" and "edit" are the same door.
 
-`PlanNightRow` used to be on this list and no longer exists. Both shapes of the
-plan show a night as `PlanNightCard` — the phone shows one night at a time
-rather than a week of them, with `:header="false"` dropping the day the page
-heading already says and `eaters` saying how much of the roll-call belongs along
-the bottom — so there is one answer to "what does a night look like" rather than
-two that drift. `eaters` has three answers because there are three questions:
-`table` is the whole roll-call for a card standing alone, `away` is the exception
-only for the phone's column, and `none` is for the wide week, where the day's
-table is in the gutter of the row the card sits in (`PlanDayEaters`, which is
-that footer extracted so both places say it the same way).
+`PlanNightRow` used to be on this list and no longer exists, and `PlanNightCard`
+— which replaced it at both widths — is now the phone's alone. A day laid out as
+three slots is three of the same cell, and that cell is `PlanMealCell`; the wide
+week's dinner was drawing a night card with its frame, its header and its footer
+switched off, which is three props' worth of asking a component not to be
+itself. What is left in the card is what only a night on its own has: the day
+along the top (`:header="false"` on the phone, which says the day in its page
+heading), the roll-call along the bottom, and the two states a slot can be in
+that a breakfast cannot — a night that has gone with nothing cooked on it, and a
+night nobody is eating on. `eaters` has two answers because there are two
+questions: `table` is the whole roll-call for a card standing alone, and `away`
+is the exception only, for the phone's column. Both go through `PlanDayEaters`,
+which is that footer extracted so the wide week's gutter says it the same way.
 
 A day is three slots. `meal` has been a column on `meal_plan_entries` and
 `attendance` since the first plan migration, unconstrained, so that lunches would
@@ -235,8 +238,8 @@ follows (nobody said it was a poor breakfast), and another meal's sinks. Hiding
 would make labelling a thing you could regret. The library's own facets stay
 derived and do not read it — see the docblock on `buildRecipeLibrary`.
 
-Breakfast and lunch are `PlanMealCell` at both widths — the wide grid's small
-cells and the two rows under the phone's dinner. **A planned meal is
+Every slot is `PlanMealCell` — all three of the wide grid's cells, and the two
+rows under the phone's dinner. **A planned meal is
 `PlanDishCard` in every slot**: the same photograph, name and two cost lines the
 dinner has, because a lunch that is a recipe costs the same minutes at the stove
 and the same trip to the shop, and a day drawing its three slots three ways read
@@ -258,24 +261,37 @@ The wide plan is days down and meals across (`PlanWeekWide`), a plain grid rathe
 than a `UTable` — a table's cells are column definitions given rows, and every
 cell here registers itself as a drop target. **The day is the card and the meals
 are cells inside it**, which is the way round it had to go once a day had parts.
-Nothing inside a day draws a frame of its own — the dinner passes
-`:frame="false"`, which takes `PlanNightCard`'s ring, fill and padding off and
-leaves the dish, the empty state and the diary sitting in the row's grid. It was
-a card inside a card before that, costing a second border and a second inset and
-leaving the dinner further from its own row than the breakfast beside it.
+Nothing inside a day draws a frame of its own: the three cells sit in the row's
+grid, and each draws either a dish or a dashed outline to put one in. The dinner
+was a card inside a card before that, costing a second border and a second inset
+and leaving the dinner further from its own row than the breakfast beside it.
+An empty cell is a plus and nothing else, the dinner included — the column
+heading two inches above it says which meal it is, and a row where two slots are
+a plus and the third is a sentence reads as the third one being the one that is
+asking. "Add dinner" is still its accessible name, which is what the acceptance
+scripts click.
 The rows share the height that is left (`flex-1 basis-0`, equal because `basis-0`
 distributes all of it rather than only the spare), so the week ends where the
 screen does and there is nothing below the fold to go looking for. `min-h-20` is
 a floor and not a height — a very short window scrolls rather than crushing seven
 days into slivers, and at the floor the dinner card keeps its dish name and drops
 its cost line. A day nobody is home for keeps its natural height instead of a
-share: there is nothing on it to make room for. Who is eating rides in the day's
-gutter under the date, stacked, rather than in a column of its own out on the
-right: it is four small faces and two words, and as a column it was the widest
-fixed thing on a row whose meals were sharing what was left — a pixel spent there
-came off a dish name that is already truncating. It is still `PlanDayEaters`, a
-`stack` prop apart from the row `PlanNightCard`'s footer draws, because "who is
-at the table" gets one answer. Which is also why `usePlanDrag` keys
+share: there is nothing on it to make room for. **The gutter is what the row
+knows about the day itself**, three lines of it: the date, who is eating, and
+what else the day already holds. Who is eating rides there rather than in a
+column of its own out on the right — it is four small faces and two words, and
+as a column it was the widest fixed thing on a row whose meals were sharing what
+was left, so a pixel spent there came off a dish name that is already
+truncating. It is `PlanDayEaters` exactly as `PlanNightCard`'s footer draws it,
+because "who is at the table" gets one answer. The diary is under it
+(`PlanEventRail`) and used to hang off the dinner, which made a fact about
+Tuesday read as a fact about Tuesday's dinner and made one of three slots taller
+than the other two. The gutter is `10rem` for its sake: the roll-call would take
+less, but an event is a sentence somebody wrote. It gets **one line**, so the
+rail asked for one event puts the count of the rest on that line rather than
+under it — a caller with room for one line has room for one line, and the "+1
+more" underneath was being drawn outside the day's band and clipped, which lost
+the one thing the rail promises. Which is also why `usePlanDrag` keys
 targets by `${date}|${meal}`: three cells sharing a bare date would overwrite
 each other in the map. **Anything may be dropped into any slot** — a suggestion,
 and a dish already planned, which `planMove` rewrites the `meal` of along with

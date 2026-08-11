@@ -109,10 +109,32 @@ const ctx = await browser.newContext({ viewport: FRAME })
  *
  * `install`, not `setFixedTime`: time still flows from there, so cook mode's
  * timer counts down like a timer. A frozen clock left it sitting at 8:00.
+ *
+ * Installed after signing in, not here — see `startTheEvening` below. A magic
+ * link is a token with an hour on it, and a browser that believes it is six in
+ * the evening reads a token minted at nine in the morning as nine hours dead.
  */
 const sixPm = new Date()
 sixPm.setHours(18, 0, 0, 0)
-await ctx.clock.install({ time: sixPm })
+
+/**
+ * Move the browser to six o'clock, once the session exists.
+ *
+ * The whole suite used to run on this clock, including the sign-in, and that is
+ * a suite that only passes after six: `generate_link` mints a token that expires
+ * an hour from *now*, the page opens believing it is this evening, and
+ * supabase-js drops a session it reads as long expired ("expires in -28406s")
+ * and leaves the app on /login. It fails every morning and passes every night,
+ * which is the worst way for a check to be wrong.
+ *
+ * Nothing before this point cares what time it is — signing in and naming a
+ * household are the same at any hour — and everything after it does. The clock
+ * lands on the next navigation, so this is called immediately before one.
+ */
+async function startTheEvening() {
+  await ctx.clock.install({ time: sixPm })
+}
+
 const page = await ctx.newPage()
 page.on('pageerror', e => console.error('     page error:', e.message))
 
@@ -165,9 +187,10 @@ try {
   await page.getByPlaceholder('Luke').fill('Luke')
   await page.getByRole('button', { name: 'Create household' }).click()
   await page.waitForURL(`${ORIGIN}/`, { timeout: 20_000 })
+  await startTheEvening()
   await page.goto(`${ORIGIN}/shopping`)
   await page.getByPlaceholder('Add an item').waitFor({ timeout: 15_000 })
-  log('signed in and created a household')
+  log('signed in and created a household, and it is now six in the evening')
 
   // --- setup: what a household actually sees the first time ----------------
   //
@@ -346,15 +369,25 @@ try {
 
   await frame().getByRole('link', { name: 'Plan', exact: true }).click()
   await page.waitForURL('**/plan', { timeout: 20_000 })
-  // Seven days down, three meals across: the wide layout swapped the component,
-  // not just the widths.
-  assert(await page.locator('[data-plan-day]').count() === 7,
-    'the wide plan is seven days down')
+  // Days down, three meals across: the wide layout swapped the component, not
+  // just the widths.
+  //
+  // The days still to come, not seven — a week is read forwards, and what has
+  // been cooked collapses into the strip along the top. This asked for seven and
+  // so was a check that only passed on a Monday; it went unnoticed because the
+  // sign-in above only worked after six in the evening, so nothing downstream of
+  // it ran at all.
+  const stillToCome = 7 - ((sixPm.getDay() + 6) % 7)
+  assert(await page.locator('[data-plan-day]').count() === stillToCome,
+    `the wide plan gives each of the ${stillToCome} days still to come a row`)
   for (const meal of ['BREAKFAST', 'LUNCH', 'DINNER']) {
     assert((await boardText()).includes(meal), `and ${meal.toLowerCase()} is a column of its own`)
   }
 
-  const empties = page.locator('[data-plan-day] button').filter({ hasText: 'Add dinner' })
+  // By name rather than by text: an empty cell in the grid is a plus and nothing
+  // else — the column heading above it is what says which meal it is — so "Add
+  // dinner" is its aria-label.
+  const empties = page.locator('[data-plan-day]').getByRole('button', { name: 'Add dinner' })
   if (await empties.count()) {
     await empties.first().click()
     await page.waitForTimeout(800)

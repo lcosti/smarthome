@@ -40,6 +40,8 @@ const store = useListStore()
 interface Row {
   value: string
   label: string
+  /** Where the row sits in the aisle: the `created_at` ticking cannot change. */
+  at: string
   /** How much to get, and which recipes asked — chips rather than a sentence. */
   quantity: string | null
   source: string | null
@@ -53,17 +55,25 @@ interface Row {
 }
 
 /**
- * Unchecked lines first, then what is already in the trolley.
+ * One list, oldest first, whether a row is ticked or not.
+ *
+ * `created_at` because it is the one key ticking does not touch: an aisle you
+ * are halfway down keeps every row where your thumb last found it, and the row
+ * you just tapped does not move out from under it. It is also already the order
+ * `buildEntries` puts the unchecked lines in, so ordering both halves by it
+ * leaves the un-ticked part of an aisle reading exactly as it did.
  *
  * The unchecked ones are aggregated — two recipes wanting milk is one line —
  * while the ticked ones are the raw rows, because once something is in the
  * trolley the question is no longer "how much" and un-ticking half a merged line
- * would have to guess which half.
+ * would have to guess which half. So a merged line splits when it is ticked;
+ * its rows land where the line was, rather than somewhere else entirely.
  */
 const rows = computed<Row[]>(() => {
   const list: Row[] = section.entries.map(entry => ({
     value: entry.key,
     label: entry.name,
+    at: entry.items[0]!.created_at,
     quantity: entry.quantityLabel,
     source: store.sourceLabelForEntry(entry),
     covered: entry.pantry !== null && entry.pantry.toBuy === 0,
@@ -73,23 +83,27 @@ const rows = computed<Row[]>(() => {
     edit: () => emit('editEntry', entry)
   }))
 
-  if (!showChecked) return list
-
-  for (const item of section.checked) {
-    list.push({
-      value: item.id,
-      label: item.name,
-      quantity: item.quantity,
-      source: store.sourceLabelFor(item),
-      covered: false,
-      checked: true,
-      grouped: false,
-      toggle: () => store.toggleItem(item.id),
-      edit: () => emit('editItem', item.id)
-    })
+  if (showChecked) {
+    for (const item of section.checked) {
+      list.push({
+        value: item.id,
+        label: item.name,
+        at: item.created_at,
+        quantity: item.quantity,
+        source: store.sourceLabelFor(item),
+        covered: false,
+        checked: true,
+        grouped: false,
+        toggle: () => store.toggleItem(item.id),
+        edit: () => emit('editItem', item.id)
+      })
+    }
   }
 
-  return list
+  // Tie-broken on the row's own key, the way `buildEntries` breaks a tie between
+  // two lines: rows added in the same instant need an order that does not change
+  // between two renders of the same list.
+  return list.sort((a, b) => a.at.localeCompare(b.at) || a.value.localeCompare(b.value))
 })
 
 const byValue = computed(() => new Map(rows.value.map(row => [row.value, row])))
@@ -128,6 +142,7 @@ const stapleRows = computed<Row[]>(() =>
   (section.staples?.items ?? []).map(item => ({
     value: item.id,
     label: item.name,
+    at: item.created_at,
     quantity: item.quantity,
     source: store.sourceLabelFor(item),
     covered: false,

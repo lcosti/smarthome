@@ -272,31 +272,51 @@ export function settleDuePantry(input: SettleInput): SettleResult {
 }
 
 /**
+ * What is physically on the shelf, by ingredient id, before anything the plan
+ * has spoken for.
+ *
+ * This is the number the shopping list asks with. A derived line and the
+ * reservation behind it are the same claim written down twice — the night wants
+ * three onions, two are in the house, so the line asks for one and the night
+ * reserves what it is taking — and subtracting the reservation from the stock
+ * the line is already measured against charges the household for it twice. The
+ * list then asks for all three, with no mention of the cupboard, which is the
+ * opposite of what the pantry is for.
+ *
+ * Only ingredients with something on the shelf appear, so an empty map is the
+ * honest answer for a household that has never recorded any stock.
+ *
+ * Rows are added up rather than overwriting each other, because a caller that has
+ * chased merges can legitimately hand two rows that now mean the same ingredient.
+ */
+export function pantryOnHand(pantryRows: PantryItemRow[]): Map<string, number> {
+  const onHand = new Map<string, number>()
+  for (const row of pantryRows) {
+    if (row.deleted_at) continue
+    const amount = Number(row.on_hand)
+    if (!Number.isFinite(amount) || amount <= 0) continue
+    onHand.set(row.ingredient_id, (onHand.get(row.ingredient_id) ?? 0) + amount)
+  }
+  return onHand
+}
+
+/**
  * How much of each ingredient is genuinely free, by ingredient id.
  *
  * On the shelf, minus what nights still to come have already spoken for. This is
  * the number to ask "could I cook this tonight without shopping" with — the
  * unqualified on_hand would say yes to a recipe whose onions are already
- * committed to tomorrow.
+ * committed to tomorrow. `usePantryCovers` is the caller that means it.
  *
- * Only ingredients with something left appear, so an empty map is the honest
- * answer for a household that has never recorded any stock.
- *
- * Rows are added up rather than overwriting each other, because a caller that has
- * chased merges can legitimately hand two rows that now mean the same ingredient.
+ * Not the number for the shopping list, which is measuring the very nights these
+ * reservations belong to — see {@link pantryOnHand}.
  */
 export function pantryAvailable(
   pantryRows: PantryItemRow[],
   reservations: PantryReservationRow[],
   today: string
 ): Map<string, number> {
-  const available = new Map<string, number>()
-  for (const row of pantryRows) {
-    if (row.deleted_at) continue
-    const amount = Number(row.on_hand)
-    if (!Number.isFinite(amount) || amount <= 0) continue
-    available.set(row.ingredient_id, (available.get(row.ingredient_id) ?? 0) + amount)
-  }
+  const available = pantryOnHand(pantryRows)
 
   for (const row of reservations) {
     // Settled reservations have already come off on_hand; counting them here

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { useAttendanceStore } from '../stores/attendance'
 import { usePeopleStore } from '../stores/people'
-import type { PlannedNight } from '../stores/plan'
+import { usePlanStore, type PlannedEntry, type PlannedNight } from '../stores/plan'
 import type { RankedCandidate } from '../utils/generator'
 import type { Meal } from '../utils/meal'
 import { initialOf } from '../utils/person-colors'
+import { defaultCook } from '../utils/plan-cook'
 
 /**
  * What the grid cannot answer without being read across: the week in numbers,
@@ -40,6 +41,7 @@ const emit = defineEmits<{ pick: [recipeId: string, meal: Meal] }>()
 
 const people = usePeopleStore()
 const attendance = useAttendanceStore()
+const plan = usePlanStore()
 
 /**
  * Attendance across the whole week, not across the nights that happen to have a
@@ -60,6 +62,8 @@ const roster = computed(() =>
       name: person.name,
       initial: initialOf(person.name),
       avatar: person.avatar,
+      // Whether the cooking menu is offered at all — the stove is an adult's.
+      adult: people.lifeStageOf(person.id) === 'adult',
       present,
       total,
       away: total > 0 && present < total,
@@ -119,6 +123,44 @@ function nightItems(person: { id: string, name: string, nights: { date: string, 
         attendance.setPresence(person.id, night.date, checked)
       }
     }))
+  ]
+}
+
+/** The night's dinner, if it is one somebody actually cooks. */
+function cookable(date: string): PlannedEntry | null {
+  const planned = nights.find(night => night.date === date)?.entries[0]
+  return planned && !planned.skipped && !planned.leftover ? planned : null
+}
+
+/**
+ * The same menu as the roster's, asked about the stove: one checkbox per night,
+ * checked where this person is the cook — by somebody's say-so or as the sole
+ * adult at the table (plan-cook.ts), which is also what the cards show. Ticking
+ * a night writes them onto its dinner, taking it off whoever had it; unticking
+ * writes null, which hands the night back to the default rule. Nights with
+ * nothing to cook — unplanned, skipped, leftovers — are disabled rather than
+ * hidden, so the week keeps its shape.
+ */
+function cookNightItems(person: { id: string, name: string, nights: { date: string, label: string }[] }) {
+  return [
+    [{ label: `${person.name} is cooking`, type: 'label' as const }],
+    person.nights.map((night) => {
+      const planned = cookable(night.date)
+      const cookId = planned
+        ? people.personById(planned.entry.cook_person_id)?.id
+        ?? defaultCook(attendance.presentOn(night.date), night.date)?.id
+        : undefined
+      return {
+        label: night.label,
+        type: 'checkbox' as const,
+        checked: cookId === person.id,
+        disabled: !planned,
+        onSelect: (event: Event) => event.preventDefault(),
+        onUpdateChecked: (checked: boolean) => {
+          if (planned) plan.updateEntry(planned.entry.id, { cook_person_id: checked ? person.id : null })
+        }
+      }
+    })
   ]
 }
 </script>
@@ -219,6 +261,25 @@ function nightItems(person: { id: string, name: string, nights: { date: string, 
                     dismisses neither — which is what keeps "away Wednesday,
                     Thursday and Friday" one thought rather than three.
                   -->
+                  <!--
+                    The eating menu's twin, for the stove. Adults only — the
+                    picker in the night editor draws the same line.
+                  -->
+                  <UDropdownMenu
+                    v-if="person.adult"
+                    :items="cookNightItems(person)"
+                    :ui="{ content: 'p-1.5' }"
+                  >
+                    <UButton
+                      icon="i-lucide-chef-hat"
+                      color="neutral"
+                      variant="subtle"
+                      size="xs"
+                      class="shrink-0"
+                      :aria-label="`Which nights ${person.name} cooks`"
+                    />
+                  </UDropdownMenu>
+
                   <UDropdownMenu
                     :items="nightItems(person)"
                     :ui="{ content: 'p-1.5' }"

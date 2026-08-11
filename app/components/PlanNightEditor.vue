@@ -5,6 +5,7 @@ import { dishLabel, usePlanStore } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
 import { DINNER, MEAL_LABELS, mealFitRank, type Meal } from '../utils/meal'
 import { pictureOf } from '../utils/photo'
+import { adultsAmong, defaultCook } from '../utils/plan-cook'
 import { SKIP_REASONS } from '../utils/skip'
 import { dayLabel } from '../utils/week'
 
@@ -110,6 +111,42 @@ async function setServings(next: number) {
 }
 
 /**
+ * A night nobody has claimed is a null `cook_person_id`, but a select whose
+ * value is null reads as nothing chosen. So the field carries '' and the
+ * translation happens on the way in and out, as ChoreEditor's assignee select
+ * already does.
+ */
+const NOBODY = ''
+
+/** Adults only — cooking is not a job the picker hands a toddler. */
+const cookCandidates = computed(() =>
+  date ? adultsAmong(people.people, date) : []
+)
+
+const cookItems = computed(() => [
+  { value: NOBODY, label: 'Not decided' },
+  ...cookCandidates.value.map(person => ({ value: person.id, label: person.name }))
+])
+
+/**
+ * What the select shows: an explicit choice, or the derived default — the sole
+ * adult eating that day (see plan-cook.ts). Picking "Not decided" writes null,
+ * which hands the night back to that rule rather than to nobody. Resolved
+ * through the store so the id of somebody since removed falls through to the
+ * default rather than showing a blank.
+ */
+const cookId = computed(() =>
+  people.personById(planned.value?.entry.cook_person_id)?.id
+  ?? (date ? defaultCook(attendance.presentOn(date), date)?.id : undefined)
+  ?? NOBODY
+)
+
+async function setCook(next: string) {
+  if (!planned.value) return
+  await plan.updateEntry(planned.value.entry.id, { cook_person_id: next || null })
+}
+
+/**
  * The day's roll-call, whichever slot this editor was opened for.
  *
  * The surprising thing in this file, and deliberate: attendance is kept once per
@@ -207,6 +244,26 @@ async function clear() {
             Nothing extra to buy — these portions are shopped for with
             {{ planned.leftoverSource ? dayLabel(planned.leftoverSource.entry.date) : 'the night it was cooked' }}.
           </p>
+          <!--
+            Not asked on a skipped or leftovers night — reheating isn't cooking,
+            and the board already says "reheat" — nor when the household has one
+            adult, where the roster below is hidden for the same reason: there
+            is only one possible answer, and the default rule already gives it.
+          -->
+          <UFormField
+            v-if="!planned.skipped && !planned.leftover && cookCandidates.length > 1"
+            label="Who's cooking"
+            class="mt-3"
+          >
+            <USelectMenu
+              :model-value="cookId"
+              :items="cookItems"
+              value-key="value"
+              size="lg"
+              class="w-full"
+              @update:model-value="setCook"
+            />
+          </UFormField>
         </div>
 
         <!--

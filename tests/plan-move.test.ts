@@ -45,6 +45,20 @@ describe('moving a night', () => {
     expect(rows[0]!.updated_at).toBe(NOW)
   })
 
+  it('carries the cook with the dish', () => {
+    // The move spreads the whole row, so this holds for free — the test pins it
+    // so a field-by-field rewrite cannot quietly drop who is at the stove.
+    const rows = planMove(
+      [entry({ cook_person_id: 'person-luke' })],
+      'entry-mon',
+      '2026-08-07',
+      'dinner',
+      NOW
+    )
+
+    expect(rows[0]!.cook_person_id).toBe('person-luke')
+  })
+
   it('does nothing when a night is dropped on itself', () => {
     expect(planMove([entry()], 'entry-mon', '2026-08-03', 'dinner', NOW)).toEqual([])
   })

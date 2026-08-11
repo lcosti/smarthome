@@ -3,6 +3,7 @@ import { dishLabel, usePlanStore } from '../stores/plan'
 import type { BoardNight } from '../utils/board'
 import { LEFTOVER_REHEAT_MINUTES } from '../utils/board'
 import { pictureOf } from '../utils/photo'
+import { defaultCook } from '../utils/plan-cook'
 import { addDays, isoDate } from '../utils/week'
 
 /**
@@ -34,10 +35,17 @@ export function useBoardNights(now: Ref<Date>, count = 8) {
       // because reheating is not cooking.
       const recipe = planned.leftoverSource?.recipe ?? planned.recipe
       const { entry } = planned
+      const present = attendance.presentOn(date)
+
+      // The same rule the plan reads: an explicit cook, or the sole adult at
+      // the table (plan-cook.ts). Not on a skipped or leftovers night — nobody
+      // is at the stove, and the board would say "Amy cooks" over "reheat".
+      const cookPersonId = entry.cook_person_id
+        ?? (planned.skipped || planned.leftover ? null : defaultCook(present, date)?.id ?? null)
 
       return {
         date,
-        presentIds: attendance.presentOn(date).map(person => person.id),
+        presentIds: present.map(person => person.id),
         meal: {
           entryId: entry.id,
           recipeId: entry.recipe_id,
@@ -49,7 +57,7 @@ export function useBoardNights(now: Ref<Date>, count = 8) {
           servings: entry.servings,
           note: entry.note,
           eatTime: entry.eat_time,
-          cookPersonId: entry.cook_person_id,
+          cookPersonId,
           updatedAt: entry.updated_at,
           leftover: planned.leftover
         }

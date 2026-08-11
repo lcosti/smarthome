@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import { useAttendanceStore } from '../stores/attendance'
+import { usePeopleStore } from '../stores/people'
 import { dishLabel, type PlannedEntry } from '../stores/plan'
 import { useRecipesStore } from '../stores/recipes'
 import type { Meal } from '../utils/meal'
+import { initialOf } from '../utils/person-colors'
 import { pictureOf } from '../utils/photo'
+import { defaultCook } from '../utils/plan-cook'
 import { skipIcon } from '../utils/skip'
 
 /**
@@ -38,6 +42,23 @@ const { planned, date, meal } = defineProps<{
 defineEmits<{ open: [], remove: [] }>()
 
 const recipes = useRecipesStore()
+const people = usePeopleStore()
+const attendance = useAttendanceStore()
+
+/**
+ * Who's at the stove. An explicit choice first; failing that, the sole adult
+ * eating that day claims the night by default (see plan-cook.ts) — derived, so
+ * the roster changing reassigns it with nothing going stale. Nobody cooks a
+ * skipped or a leftovers night, and the id of a person since removed resolves
+ * to nothing — the card just goes back to the default.
+ */
+const cook = computed(() =>
+  planned.skipped || planned.leftover
+    ? undefined
+    : people.personById(planned.entry.cook_person_id)
+      ?? defaultCook(attendance.presentOn(date), date)
+      ?? undefined
+)
 
 /**
  * The picture of what is being eaten — which on a leftovers night is the picture
@@ -149,6 +170,19 @@ function pickUp(event: PointerEvent) {
               class="size-3.5 shrink-0"
             />
             {{ fact.label }}
+          </span>
+
+          <span
+            v-if="cook"
+            class="flex items-center gap-1"
+          >
+            <UAvatar
+              :src="cook.avatar ?? undefined"
+              :alt="cook.name"
+              :text="initialOf(cook.name)"
+              size="3xs"
+            />
+            {{ cook.name }}
           </span>
 
           <!--

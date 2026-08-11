@@ -3,12 +3,21 @@ import { dishLabel, type PlannedEntry } from '../stores/plan'
 import { MEAL_LABELS, type Meal } from '../utils/meal'
 
 /**
- * Breakfast or lunch on one day — the day's other two slots.
+ * One slot of one day: somewhere a meal goes.
  *
- * One component at both widths, for the reason `PlanNightCard` is: the wide
- * grid's small cells and the two rows under the phone's dinner are the same
- * question asked in two layouts, and two components would drift over what
- * tapping one does.
+ * Every slot of the wide week — breakfast, lunch and dinner — and the two rows
+ * under the phone's dinner. It was breakfast and lunch only, with the wide
+ * week's dinner drawn as a `PlanNightCard` with its frame, its header and its
+ * footer turned off; three props asking a component not to be itself is a
+ * component that is in the wrong place. A row of three slots is three of the
+ * same cell.
+ *
+ * What the night card said in that cell and this does not: "Nothing cooked" on a
+ * day that has gone, and "Nobody home" on a day nobody is eating on. Both are
+ * facts about the *day*, and the row already carries them — a past day fades
+ * whole, and a day the house is out for collapses to one line across the meals.
+ * Drawn per cell they were the day's news in a third of the day's width, and the
+ * two cells beside them said nothing of the kind.
  *
  * A slot with something in it is `PlanDishCard`, which is what the dinner beside
  * it is too. A lunch that is a recipe costs the same two things a dinner does —
@@ -36,6 +45,9 @@ const { date, meal, planned = null, tall = false } = defineProps<{
    * in the top of a column reads as something that failed to load. An empty cell
    * drops its label there as well — the column heading two inches above it
    * already says "Breakfast", and the cell repeating it is the same word twice.
+   * That goes for the dinner too, which used to be the one cell of the three
+   * that spelled itself out: a row where two slots are a plus and the third is a
+   * sentence reads as the third one being the one that is asking.
    *
    * False on the phone, where these are two rows under the dinner with no
    * headings over them and no band to fill.
