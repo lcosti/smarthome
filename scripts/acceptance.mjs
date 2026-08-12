@@ -313,6 +313,20 @@ try {
   await waitForQueue(page, 0)
   log('it moved into a Chilled group, sorted by aisle')
 
+  // The worker is asked for by an inline script in the document head, not by
+  // the app. It used to be registered from a Nuxt plugin, which meant nothing
+  // was requested until two megabytes of bundle had arrived and booted — so a
+  // phone that got a few seconds of signal ended up with no worker, and a
+  // device with no worker cannot open at all with no signal. Asserted against
+  // the served HTML rather than the running page, because the property that
+  // matters is that registration does not depend on the app running.
+  log('checking the shell registers the worker on its own')
+  const shellHtml = await (await fetch(ORIGIN + '/')).text()
+  assert(
+    shellHtml.includes('serviceWorker') && shellHtml.includes('register(\'/sw.js\''),
+    'the served HTML registers the service worker without waiting for the bundle'
+  )
+
   log('waiting for the service worker to precache the shell')
   await waitForServiceWorker(page)
 
@@ -337,12 +351,25 @@ try {
   await page.close()
   const reopened = await context.newPage()
   reopened.on('pageerror', error => console.error('     page error:', error.message))
+  // An icon that is not in the client bundle is fetched over the network, and
+  // there is no network here — nor, in a static build, any server route to
+  // fetch it from even when there is. It fails quietly: the element keeps its
+  // size and colour and simply has no mask to paint, which is a blank square
+  // where the tab bar's four icons go. Collected from the reopened page
+  // because that is the one that renders the app with no signal at all.
+  const missingIcons = []
+  reopened.on('console', (message) => {
+    if (/failed to load icon/i.test(message.text())) missingIcons.push(message.text())
+  })
   await reopened.goto(`${ORIGIN}/shopping`, { waitUntil: 'domcontentloaded' })
 
   await addBox(reopened).waitFor({ timeout: 25_000 })
   assert(!reopened.url().includes('/login'), 'app opens without a login prompt while offline')
   await assertTicked(reopened, TO_TICK, 25_000)
   log('every tick and both new items survived the restart')
+
+  assert(missingIcons.length === 0, `every icon drawn offline is in the bundle (missing: ${missingIcons.join(', ')})`)
+  log('every icon on the screen came from the bundle, not the network')
 
   // Every route above is prerendered, so it has a precache entry of its own and
   // opens offline whether or not the navigation fallback works. A dynamic route

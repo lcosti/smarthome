@@ -1,3 +1,33 @@
+/*
+  Register the service worker from the document, not from the app.
+
+  This is the whole offline promise and it used to be the last thing to happen:
+  @vite-pwa/nuxt registers from a Nuxt plugin, so nothing was requested until the
+  entire SPA bundle had arrived, parsed and booted — around two megabytes of
+  JavaScript. Every visit that ended before that left the device with no worker
+  and no precached shell, and a device with no worker does not fail visibly. It
+  opens fine for weeks, because it is online, and then the one time it is asked
+  to open with no signal it never reaches a line of this app: the browser serves
+  its own offline page and the app is simply not there.
+
+  A phone that gets a few seconds of signal in a shop is the device this is
+  written for, so registration cannot sit at the back of the queue. Inline in the
+  head it starts on the first packet of HTML and depends on nothing else
+  succeeding — not the bundle, not Supabase, not the app booting at all.
+
+  The reload is what `registerType: 'autoUpdate'` was doing for us: a new worker
+  takes over the moment it activates (clientsClaim + skipWaiting, set explicitly
+  in the pwa block), which leaves the page running code from the build before it.
+  `had` is read first, before registering: on a first-ever load there is no
+  controller and the claim that follows is not an update, so that one must not
+  reload. The flag makes it once-only in a tab.
+*/
+const REGISTER_SERVICE_WORKER = `if('serviceWorker' in navigator){`
+  + `var had=!!navigator.serviceWorker.controller;`
+  + `navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(function(){});`
+  + `navigator.serviceWorker.addEventListener('controllerchange',function(){`
+  + `if(had&&!window.__swReloaded){window.__swReloaded=1;location.reload()}})}`
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   modules: [
@@ -33,7 +63,14 @@ export default defineNuxtConfig({
         { rel: 'icon', href: '/favicon.ico' },
         // iOS ignores the web app manifest icons.
         { rel: 'apple-touch-icon', href: '/apple-touch-icon.png', sizes: '180x180' }
-      ]
+      ],
+      // Production only. `pwa.devOptions.enabled` is off, so there is no worker
+      // to register while developing, and asking for one would put a MIME-type
+      // failure in the console on every page of every dev session — the dev
+      // server answers an unknown path with HTML rather than a 404.
+      script: process.env.NODE_ENV === 'production'
+        ? [{ innerHTML: REGISTER_SERVICE_WORKER }]
+        : []
     }
   },
 
@@ -67,21 +104,32 @@ export default defineNuxtConfig({
     }
   },
 
-  // Every icon the wall board can draw, listed because the board must render
+  // Every icon the app can draw, in the bundle, because the app must render
   // with no network at all.
   //
-  // An icon that is not in the client bundle is fetched at runtime, and an icon
-  // fetched at runtime on a kiosk with no signal is a silent gap — the element
-  // is still there, correctly sized and coloured, simply with no mask to paint.
-  // The weather ones cannot be found by scanning at all, since the name is
-  // chosen from a weather code at runtime.
+  // An icon that is not in the client bundle is fetched at runtime, and there is
+  // nothing to fetch it from: `ssr: false` means no server route to serve it, so
+  // the request goes to the Iconify CDN. Online that works and hides this
+  // entirely; offline the element is still there, correctly sized and coloured,
+  // simply with no mask to paint. The tab bar was four blank squares and a row
+  // of words with no signal.
   //
-  // Nor can the ones Nuxt UI's own components reach for — the spinner on a
-  // loading button, the tick inside a checkbox, the chevrons on a number input,
-  // the cross that closes a modal. Those names live in node_modules, where the
-  // scanner does not look, so they are listed here by hand.
+  // `scan` is what fixes that in bulk: it reads every icon name written in this
+  // project's own source. It defaults to off, and naming `icons` does not turn
+  // it on — which is why thirty of them, the whole tab bar included, were only
+  // ever coming down the wire.
+  //
+  // The list below is the rest: names scanning cannot see because nothing in
+  // this project writes them. The weather ones are chosen from a weather code at
+  // runtime, and the others are reached for by Nuxt UI's own components — the
+  // spinner on a loading button, the tick inside a checkbox, the chevrons on a
+  // number input, the cross that closes a modal — from inside node_modules,
+  // which is not scanned. The ones that scanning does now find are left here
+  // rather than pruned: they are named at runtime from a token or a ternary, and
+  // the scan finding today's spelling of them is luck rather than cover.
   icon: {
     clientBundle: {
+      scan: true,
       icons: [
         // Injected by Nuxt UI components rather than written in our templates.
         'lucide:loader-circle',
@@ -150,6 +198,14 @@ export default defineNuxtConfig({
 
   pwa: {
     registerType: 'autoUpdate',
+    // The module's own registration is off: the head script in `app.head`
+    // above does it, early enough to matter. Two registrations of the same
+    // script are idempotent, but they disagree about who owns the reload when a
+    // new build takes over — workbox-window reads a worker it did not register
+    // as external and reloads for it too — so there is one of them.
+    client: {
+      registerPlugin: false
+    },
     manifest: {
       name: 'Shopping List',
       short_name: 'Shopping',
@@ -174,6 +230,12 @@ export default defineNuxtConfig({
     },
     workbox: {
       globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
+      // Set for us by `registerType: 'autoUpdate'`, but only while the module
+      // owns registration — which it no longer does. Without them a new build
+      // installs and then waits for every tab to close, which on a home-screen
+      // app is never, and the reload in the head script has nothing to fire on.
+      clientsClaim: true,
+      skipWaiting: true,
       // Cold offline navigations resolve to the precached shell.
       //
       // Must be '/' and not '/index.html': the module rewrites that precache
