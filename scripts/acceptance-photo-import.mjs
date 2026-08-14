@@ -172,11 +172,23 @@ async function makePhoto(label) {
   }
 }
 
-async function importPhotos(labels) {
+/**
+ * Picking the photos also asks which book they came off, over the top of the
+ * extraction. `book` answers it; leaving it out takes the way out that every
+ * recipe printed on a card or clipped out of a magazine takes.
+ */
+async function importPhotos(labels, book = null) {
   await page.setInputFiles(
     '[data-testid="recipe-photo-input"]',
     await Promise.all(labels.map(makePhoto))
   )
+  if (book) {
+    await page.getByTestId('recipe-book').fill(book.title)
+    await page.getByTestId('recipe-page').fill(book.page)
+    await page.getByTestId('recipe-book-save').click()
+  } else {
+    await page.getByRole('button', { name: 'Not from a book' }).click()
+  }
   await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 20_000 })
 }
 
@@ -194,8 +206,8 @@ try {
   // --- A two-photo import: the cookbook-spread case -------------------------
   await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
-  await importPhotos(['soup-ingredients', 'soup-method'])
-  log('photographed a two-page spread and landed on the new recipe')
+  await importPhotos(['soup-ingredients', 'soup-method'], { title: 'Ottolenghi Simple', page: 'p. 82-83' })
+  log('photographed a two-page spread, said which book it was, and landed on the new recipe')
 
   const payload = seenPayloads[0]
   assert(payload?.images?.length === 2, `both photos went up, got ${payload?.images?.length}`)
@@ -235,7 +247,20 @@ try {
   assert(soup, 'the recipe row exists')
   assert(soup.base_servings === 4, `servings extracted, got ${soup.base_servings}`)
   assert(soup.prep_minutes === 10 && soup.cook_minutes === 30, 'prep and cook minutes extracted')
-  log('the recipe row carries servings and times')
+  // The one fact the photographs cannot carry, and the only one a person typed.
+  // "p. 82-83" was typed the way it is printed and is stored as the page itself.
+  assert(soup.source_book === 'Ottolenghi Simple', `the book was recorded, got ${soup.source_book}`)
+  assert(soup.source_page === '82-83', `the page was tidied and recorded, got ${soup.source_page}`)
+  log('the recipe row carries servings, times, and the book it was photographed out of')
+
+  assert(
+    (await page.getByTestId('recipe-book').inputValue()) === 'Ottolenghi Simple',
+    'the recipe page offers the book back for correcting'
+  )
+  assert(
+    (await page.getByTestId('recipe-page').inputValue()) === '82-83',
+    'and the page number with it'
+  )
 
   const lines = (await readTable('recipe_ingredients'))
     .filter(l => !l.deleted_at && l.recipe_id === soup.id)
@@ -252,7 +277,13 @@ try {
   await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
   await importPhotos(['bolognese'])
-  log('imported a second recipe that also wants chopped tomatoes')
+  log('imported a second recipe that also wants chopped tomatoes, off no book at all')
+
+  const bolognese = (await readTable('recipes')).find(r => r.name === 'Bolognese')
+  assert(
+    bolognese && bolognese.source_book === null && bolognese.source_page === null,
+    'a recipe off no book keeps both columns empty rather than an empty string'
+  )
 
   const after = (await readTable('ingredients')).filter(i => !i.deleted_at)
   const tomatoRows = after.filter(i => i.name.toLowerCase() === 'chopped tomatoes')

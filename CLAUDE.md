@@ -373,7 +373,11 @@ Roughly these tables. Everything scoped to a `household_id` with RLS.
   something you can act on in an aisle.
 - `recipes` — name, source_url, base_servings, prep/cook minutes, method, tags,
   per-serving nutrition as the source printed it (kcal + seven gram columns,
-  all nullable — see `app/utils/nutrition.ts` for the field list)
+  all nullable — see `app/utils/nutrition.ts` for the field list), and
+  `source_book` / `source_page` for the ones photographed off a shelf. The page
+  is text, not an integer: a photographed recipe is regularly a spread, and
+  nothing sorts or counts by it — see `app/utils/recipe-source.ts`, which is
+  also where "p. 82" typed into the box becomes the page it is.
 - `recipe_ingredients` — recipe_id, ingredient_id, quantity, unit, optional flag
 - `recipe_adaptations` — recipe_id, life_stage, guidance text
 - `meal_plans` / `meal_plan_entries` — date, meal, recipe_id, servings

@@ -114,6 +114,15 @@ const bandHeight = computed(() => {
             <p class="mt-1 font-mono text-sm text-muted">
               {{ detail.meta }}
             </p>
+            <!-- The shelf it came off, for the picture and the headnote the
+                 photographs left behind. Nothing at all when it came from a
+                 link or from somebody's head, which is most of the library. -->
+            <p
+              v-if="detail.source"
+              class="mt-1 text-sm text-dimmed"
+            >
+              {{ detail.source }}
+            </p>
           </div>
           <UButton
             icon="i-lucide-x"

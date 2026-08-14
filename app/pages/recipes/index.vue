@@ -4,6 +4,7 @@ import { useRecipesStore } from '../../stores/recipes'
 import { useSyncStore } from '../../stores/sync'
 import { pictureOf } from '../../utils/photo'
 import { looksLikeUrl } from '../../utils/recipe-import'
+import type { RecipeSourceFields } from '../../utils/recipe-source'
 import { dayLabel } from '../../utils/week'
 
 const store = useRecipesStore()
@@ -88,13 +89,61 @@ async function add() {
   if (created) await navigateTo(`/recipes/${created.id}`)
 }
 
+/** The answer "Not from a book" gives, which is also what dismissing it means. */
+const NO_BOOK: RecipeSourceFields = { source_book: null, source_page: null }
+
+const bookOpen = ref(false)
+const bookSaving = ref(false)
+let pendingPhotos: Promise<string | null> | null = null
+
+/**
+ * Photographs picked: start reading them, and ask which book they came out of
+ * while that happens.
+ *
+ * The two run over each other on purpose. Extraction is ten or twenty seconds of
+ * standing still, and the book and page are the one thing the photographs cannot
+ * carry — so the question goes in the time that was being spent waiting, and
+ * answering it costs nothing. Whoever finishes first waits for the other: a quick
+ * "Not from a book" waits on the spinner exactly as this did before the question
+ * existed, and a slow answer finds the recipe already saved.
+ *
+ * The answer lands as a second write rather than as part of the insert, which is
+ * what lets it be asked late. Two upserts of one row is what this app's whole
+ * sync layer is built to shrug at.
+ */
 async function onPhotosPicked(event: Event) {
   const input = event.target as HTMLInputElement
   const files = [...(input.files ?? [])]
   input.value = ''
   if (!files.length) return
 
-  await land(await recipeImport.importPhotos(files))
+  const reading = recipeImport.importPhotos(files)
+  pendingPhotos = reading
+  bookOpen.value = true
+
+  // A read that failed has nothing to hang a book on. It takes the question away
+  // itself and says what went wrong, rather than making somebody finish
+  // answering a question about a recipe that does not exist.
+  void reading.then((recipeId) => {
+    if (!recipeId) finishPhotos(NO_BOOK)
+  })
+}
+
+/** Both buttons in the sheet, and dismissing it, end up here exactly once. */
+async function finishPhotos(source: RecipeSourceFields) {
+  const reading = pendingPhotos
+  pendingPhotos = null
+  if (!reading) return
+
+  bookSaving.value = true
+  const recipeId = await reading
+  bookSaving.value = false
+  bookOpen.value = false
+
+  if (recipeId && (source.source_book || source.source_page)) {
+    await store.updateRecipe(recipeId, source)
+  }
+  await land(recipeId)
 }
 
 /** The new recipe, or the reason there isn't one. */
@@ -205,6 +254,15 @@ async function land(recipeId: string | null) {
     <RecipeSheet
       v-model:open="sheetOpen"
       :recipe-id="sheetId"
+    />
+
+    <!-- Dismissing it is an answer too — the same one "Not from a book" gives,
+         so a swipe down never leaves the new recipe unopened. -->
+    <RecipeBookSheet
+      v-model:open="bookOpen"
+      :loading="bookSaving"
+      @done="finishPhotos"
+      @update:open="value => value || finishPhotos(NO_BOOK)"
     />
   </div>
 </template>
