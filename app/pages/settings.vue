@@ -16,6 +16,13 @@ const signOut = useSignOut()
 const toast = useToast()
 
 const alwaysOn = useAlwaysOn()
+const {
+  supported: offlineSupported,
+  worker: offlineWorker,
+  ready: offlineReady,
+  busy: offlineBusy,
+  setUp: storeOffline
+} = useOfflineReady()
 
 const household = ref<{ name: string, invite_code: string } | null>(null)
 const newAisle = ref('')
@@ -426,6 +433,39 @@ async function copyInviteCode() {
         </h2>
         <p class="text-sm text-muted">
           {{ sync.pendingCount }} change{{ sync.pendingCount === 1 ? '' : 's' }} waiting to sync.
+        </p>
+
+        <!--
+          A UAlert when it is not ready and a plain box when it is, for the same
+          reason the calendar section is: this is the one state here that is
+          asking somebody to do something. It is also the only thing on this
+          screen that cannot be read off the app itself — a device with no
+          service worker looks exactly like a device with one until the day it is
+          opened with no signal, and by then it is too late to say so.
+        -->
+        <UAlert
+          v-if="offlineSupported && !offlineReady"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-cloud-off"
+          title="Not ready to open offline"
+          :description="offlineWorker
+            ? 'The app is installed on this device but has not finished storing itself. Stay on this connection for a moment.'
+            : 'This device has not stored a copy of the app. Opening it with no signal will show the browser\'s offline page instead of the list. Nothing already on the list is at risk either way.'"
+          :actions="[{
+            label: 'Store the app on this device',
+            color: 'warning',
+            variant: 'solid',
+            loading: offlineBusy,
+            onClick: () => storeOffline()
+          }]"
+        />
+        <p
+          v-else-if="offlineSupported"
+          class="text-sm text-muted"
+        >
+          Ready to open with no signal. The list, the plan and the recipes are all
+          on this device.
         </p>
         <!--
           The only confirmation that is about the queue rather than the data:

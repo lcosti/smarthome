@@ -62,9 +62,12 @@ run before deploying anything that touches the sync layer.
 offline, add and tick more, kill the app, reopen it still offline, come back
 online, and check the server ended up with exactly what the screen showed. It also
 cold-opens a route that was never prerendered while offline, which is the only
-thing that proves the service worker's navigation fallback is registered. Then it
-joins from a second browser profile as a second person and checks that a change on
-one device shows up on the other over realtime.
+thing that proves the service worker's navigation fallback is registered; checks
+that the served HTML asks for the worker itself, rather than waiting for the
+bundle to boot and ask for it; and checks that nothing on the screen with no
+signal is reaching for an icon that is not in the bundle. Then it joins from a
+second browser profile as a second person and checks that a change on one device
+shows up on the other over realtime.
 
 `pnpm acceptance:phase2` drives a recipe to a night on the plan to the shopping
 list, and checks that deriving twice changes nothing and that taking a night off
