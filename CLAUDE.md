@@ -377,7 +377,12 @@ Roughly these tables. Everything scoped to a `household_id` with RLS.
   `source_book` / `source_page` for the ones photographed off a shelf. The page
   is text, not an integer: a photographed recipe is regularly a spread, and
   nothing sorts or counts by it — see `app/utils/recipe-source.ts`, which is
-  also where "p. 82" typed into the box becomes the page it is.
+  also where "p. 82" typed into the box becomes the page it is. The extraction
+  reads the folio off the photograph where it is legible, but only ever *into
+  the box* somebody is already filling in — a page number nobody confirmed is
+  one nobody can check, because the book has gone back on the shelf. Same rule
+  as an LLM suggesting a recipe: it offers, a person accepts. The book itself is
+  never guessed, because a running header is as often the chapter as the title.
 - `recipe_ingredients` — recipe_id, ingredient_id, quantity, unit, optional flag
 - `recipe_adaptations` — recipe_id, life_stage, guidance text
 - `meal_plans` / `meal_plan_entries` — date, meal, recipe_id, servings

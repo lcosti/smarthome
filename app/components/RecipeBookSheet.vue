@@ -13,9 +13,16 @@ import { tidySource, type RecipeSourceFields } from '../utils/recipe-source'
  * a page. It is the one fact the camera cannot capture, and the one this house
  * says out loud anyway — "it's in the Ottolenghi, page 82".
  *
- * Asked here rather than extracted, deliberately. A model reading a spread will
- * happily report a page number off a running header, or invent one, and a page
- * number nobody typed is a page number nobody would ever check.
+ * The page half of it is read off the photograph where the folio is legible, and
+ * put in the box rather than into the database. That is the whole of the
+ * distinction: a page number nobody confirmed is one nobody would ever check,
+ * because the book has gone back on the shelf — so the reading is an offer, and
+ * pressing Save is what makes it true. Typing over it wins, and clearing it
+ * means "no page" rather than "ask me again".
+ *
+ * The book is not guessed at all. What a running header shows is as often the
+ * chapter as the title, and a library filed under "Puddings" is worse than one
+ * filed under nothing.
  *
  * Answering is never in the way of anything: the extraction is already running
  * when this opens (see `recipes/index.vue`), so the question is asked in the
@@ -30,9 +37,14 @@ import { tidySource, type RecipeSourceFields } from '../utils/recipe-source'
 
 const open = defineModel<boolean>('open', { required: true })
 
-const { loading = false } = defineProps<{
+const { loading = false, suggestedPage = null } = defineProps<{
   /** The photographs are still being read, so the answer has landed and is waiting. */
   loading?: boolean
+  /**
+   * The page number the photographs turned out to show, once they have been
+   * read — null until then, and null when no folio was legible.
+   */
+  suggestedPage?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -52,7 +64,32 @@ watch(open, (isOpen) => {
   if (!isOpen) return
   book.value = ''
   page.value = ''
+  pageTyped.value = false
 })
+
+/**
+ * The page number, once the photographs have been read, put into the box.
+ *
+ * The folio is usually right there in the corner of the picture, so this is the
+ * half of the question the app can answer itself — but it lands as a value in a
+ * field somebody is looking at, not as a fact in the database. Pressing Save is
+ * what makes it true, and typing over it or clearing it wins: a box somebody has
+ * touched is never written into again, which is what makes clearing a wrong
+ * reading mean "no page" rather than "ask again in a moment".
+ *
+ * The same rule the nutrition estimator states on the recipe page — fill the
+ * blanks, never overwrite what a person put there.
+ */
+const pageTyped = ref(false)
+
+watch(() => suggestedPage, (read) => {
+  if (read && !pageTyped.value) page.value = read
+})
+
+/** Whether the suggestion showing in the box is the one that was read. */
+const pageIsRead = computed(() =>
+  Boolean(suggestedPage && !pageTyped.value && page.value === suggestedPage)
+)
 
 const answered = computed(() => Boolean(book.value.trim() || page.value.trim()))
 </script>
@@ -103,7 +140,7 @@ const answered = computed(() => Boolean(book.value.trim() || page.value.trim()))
 
         <UFormField
           label="Page"
-          description="A spread is fine — 82-83."
+          :description="pageIsRead ? 'Read off the photo — change it if that is not it.' : 'A spread is fine — 82-83.'"
         >
           <!--
             No `inputmode="numeric"`: a photographed recipe regularly spans two
@@ -116,6 +153,7 @@ const answered = computed(() => Boolean(book.value.trim() || page.value.trim()))
             class="w-full"
             placeholder="82"
             data-testid="recipe-page"
+            @input="pageTyped = true"
           />
         </UFormField>
       </div>

@@ -107,7 +107,10 @@ const SOUP = {
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'red lentils', quantity: '200g' },
     { name: 'onion', quantity: '1' }
-  ]
+  ],
+  // The folio the photographs showed. Offered into the box, never stored on its
+  // own — the two imports below are the two halves of that rule.
+  page: '77'
 }
 
 const BOLOGNESE = {
@@ -119,7 +122,8 @@ const BOLOGNESE = {
   ingredients: [
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'beef mince', quantity: '500g' }
-  ]
+  ],
+  page: '31'
 }
 
 let cannedRecipe = SOUP
@@ -183,6 +187,15 @@ async function importPhotos(labels, book = null) {
     await Promise.all(labels.map(makePhoto))
   )
   if (book) {
+    // The page the photos showed arrives in the box on its own, and is typed
+    // over here — a reading is an offer, and what somebody types wins.
+    if (book.reads) {
+      await becomes(
+        () => page.getByTestId('recipe-page').inputValue(),
+        book.reads,
+        'the page read off the photo was offered in the box'
+      )
+    }
     await page.getByTestId('recipe-book').fill(book.title)
     await page.getByTestId('recipe-page').fill(book.page)
     await page.getByTestId('recipe-book-save').click()
@@ -190,6 +203,18 @@ async function importPhotos(labels, book = null) {
     await page.getByRole('button', { name: 'Not from a book' }).click()
   }
   await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 20_000 })
+}
+
+/** Poll a value until it is what it should be, or say what it was instead. */
+async function becomes(read, want, message) {
+  const deadline = Date.now() + 20_000
+  let saw
+  while (Date.now() < deadline) {
+    saw = await read()
+    if (saw === want) return
+    await page.waitForTimeout(200)
+  }
+  throw new Error(`FAILED: ${message} — wanted ${JSON.stringify(want)}, saw ${JSON.stringify(saw)}`)
 }
 
 try {
@@ -206,7 +231,10 @@ try {
   // --- A two-photo import: the cookbook-spread case -------------------------
   await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
-  await importPhotos(['soup-ingredients', 'soup-method'], { title: 'Ottolenghi Simple', page: 'p. 82-83' })
+  await importPhotos(
+    ['soup-ingredients', 'soup-method'],
+    { title: 'Ottolenghi Simple', page: 'p. 82-83', reads: '77' }
+  )
   log('photographed a two-page spread, said which book it was, and landed on the new recipe')
 
   const payload = seenPayloads[0]
@@ -280,9 +308,11 @@ try {
   log('imported a second recipe that also wants chopped tomatoes, off no book at all')
 
   const bolognese = (await readTable('recipes')).find(r => r.name === 'Bolognese')
+  // The other half of the rule: those photos "showed" page 31, and nobody said
+  // it came out of a book, so nothing was written. A read page is an offer.
   assert(
     bolognese && bolognese.source_book === null && bolognese.source_page === null,
-    'a recipe off no book keeps both columns empty rather than an empty string'
+    'a page read off a photo is not stored when the question was waved away'
   )
 
   const after = (await readTable('ingredients')).filter(i => !i.deleted_at)

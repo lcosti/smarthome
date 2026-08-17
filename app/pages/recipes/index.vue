@@ -135,13 +135,26 @@ async function finishPhotos(source: RecipeSourceFields) {
   pendingPhotos = null
   if (!reading) return
 
+  // Whether the photographs had been read by the time this was answered. If they
+  // had, the page the sheet offered was on screen and whatever is in `source` is
+  // the verdict on it — an empty box means somebody cleared it.
+  const sawTheReading = recipeImport.pageSeen.value !== null
+
   bookSaving.value = true
   const recipeId = await reading
   bookSaving.value = false
   bookOpen.value = false
 
-  if (recipeId && (source.source_book || source.source_page)) {
-    await store.updateRecipe(recipeId, source)
+  // Answered before the reading arrived, and answered with a book: the page the
+  // photographs turned out to show fills the blank it was never offered for.
+  // Same rule the nutrition estimator states — fill blanks, overwrite nothing —
+  // and it makes the outcome the same whether you answer in five seconds or
+  // twenty. Never on "Not from a book", which is a no to the whole question.
+  const page = source.source_page
+    ?? (!sawTheReading && source.source_book ? recipeImport.pageSeen.value : null)
+
+  if (recipeId && (source.source_book || page)) {
+    await store.updateRecipe(recipeId, { ...source, source_page: page })
   }
   await land(recipeId)
 }
@@ -261,6 +274,7 @@ async function land(recipeId: string | null) {
     <RecipeBookSheet
       v-model:open="bookOpen"
       :loading="bookSaving"
+      :suggested-page="recipeImport.pageSeen.value"
       @done="finishPhotos"
       @update:open="value => value || finishPhotos(NO_BOOK)"
     />

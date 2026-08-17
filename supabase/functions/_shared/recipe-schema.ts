@@ -50,12 +50,18 @@ export const RECIPE_SCHEMA = {
         {
           type: 'object',
           additionalProperties: false,
-          required: ['name', 'base_servings', 'prep_minutes', 'cook_minutes', 'steps', 'ingredients', 'nutrition'],
+          required: ['name', 'base_servings', 'prep_minutes', 'cook_minutes', 'steps', 'ingredients', 'nutrition', 'page'],
           properties: {
             name: { type: 'string' },
             base_servings: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
             prep_minutes: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
             cook_minutes: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
+            // The page number printed on the paper, when the photographs show
+            // one. A string because a spread is two of them, and null for a web
+            // page, which has no such thing. This is a transcription like the
+            // nutrition panel above: the client offers it back for somebody to
+            // confirm and never writes it on its own — see RecipeBookSheet.vue.
+            page: { anyOf: [{ type: 'string' }, { type: 'null' }] },
             // The per-serving panel, when the source printed one. Null when it
             // did not — through this schema the model transcribes, it never
             // estimates; estimate-nutrition is the deliberate exception.
@@ -110,6 +116,12 @@ export interface ExtractedRecipe {
   ingredients: ExtractedLine[]
   /** The source's nutrition panel, or null when it had none. */
   nutrition: ExtractedNutrition | null
+  /**
+   * The page number printed on the photographed paper, as printed — "82", or
+   * "82-83" for a spread. Null when no page number is visible, and always null
+   * for a web page, which has none to show.
+   */
+  page: string | null
   /**
    * Absolute address of the recipe's photograph, or null.
    *

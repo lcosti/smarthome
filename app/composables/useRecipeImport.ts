@@ -28,6 +28,18 @@ export function useRecipeImport() {
   const status = ref<Status>('idle')
   const error = ref<string | null>(null)
 
+  /**
+   * The page number the photographs turned out to show, once they have been
+   * read. Null until then, and null when no folio was legible.
+   *
+   * Published rather than saved. A page number is the one imported fact nobody
+   * can check later — the book is back on the shelf — so this goes into the box
+   * somebody is already filling in and is written only because they submitted
+   * it. See `RecipeBookSheet` for the offer and `recipes/index.vue` for the one
+   * narrow case where it fills a blank on its own.
+   */
+  const pageSeen = ref<string | null>(null)
+
   const busy = computed(() => status.value !== 'idle')
 
   /** Commit an extraction as a recipe, exactly as if it had been typed in. */
@@ -76,6 +88,7 @@ export function useRecipeImport() {
   async function importPhotos(files: File[]): Promise<string | null> {
     if (busy.value || !files.length) return null
     error.value = null
+    pageSeen.value = null
 
     if (files.length > MAX_PHOTOS) {
       error.value = `That's a lot of pages — send at most ${MAX_PHOTOS} photos.`
@@ -99,6 +112,9 @@ export function useRecipeImport() {
 
       const recipe = coerceExtractedRecipe(data?.recipe)
       if (!recipe) throw new Error('That didn\'t come back looking like a recipe. Try a clearer photo.')
+
+      // Offered, not stored: the question on screen has a box for this.
+      pageSeen.value = recipe.page
 
       return await save(recipe, null)
     } catch (caught) {
@@ -148,5 +164,5 @@ export function useRecipeImport() {
     }
   }
 
-  return { status, busy, error, importPhotos, importUrl }
+  return { status, busy, error, pageSeen, importPhotos, importUrl }
 }

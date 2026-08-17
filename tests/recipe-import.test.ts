@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  asPageNumber,
   coerceExtractedRecipe,
   importFailureMessage,
   looksLikeUrl,
@@ -17,6 +18,7 @@ const VALID = {
     { name: 'spaghetti', quantity: '300g' }
   ],
   nutrition: null,
+  page: null,
   image_url: 'https://example.com/tomato-pasta.jpg'
 }
 
@@ -169,6 +171,55 @@ describe('coerceExtractedRecipe', () => {
   it('prefers steps over a method sent alongside them', () => {
     const result = coerceExtractedRecipe({ ...VALID, method: 'Ignore me.' })
     expect(result?.steps).toEqual(['Boil pasta.', 'Make sauce.'])
+  })
+})
+
+describe('asPageNumber', () => {
+  it('takes a folio the photographs showed', () => {
+    expect(asPageNumber('82')).toBe('82')
+    expect(asPageNumber('7')).toBe('7')
+    expect(asPageNumber(' 118 ')).toBe('118')
+  })
+
+  it('takes a spread, and closes up however it was spaced', () => {
+    expect(asPageNumber('82-83')).toBe('82-83')
+    expect(asPageNumber('82 - 83')).toBe('82-83')
+    expect(asPageNumber('82–83')).toBe('82–83')
+  })
+
+  it('drops the prefix, the same as a page somebody types', () => {
+    expect(asPageNumber('p. 82')).toBe('82')
+    expect(asPageNumber('pp. 82-83')).toBe('82-83')
+  })
+
+  /**
+   * The point of the whole function. A model answering in words is describing
+   * the photographs rather than reading a number off them, and this is the one
+   * imported field nobody is in a position to check — the book has gone back on
+   * the shelf. Anything that is not a number is no answer at all.
+   */
+  it('refuses anything that is not simply a number', () => {
+    expect(asPageNumber('the second recipe in the chapter')).toBe(null)
+    expect(asPageNumber('unknown')).toBe(null)
+    expect(asPageNumber('82, second recipe')).toBe(null)
+    expect(asPageNumber('chapter 4')).toBe(null)
+    expect(asPageNumber('12345')).toBe(null)
+    expect(asPageNumber('')).toBe(null)
+    expect(asPageNumber(null)).toBe(null)
+    expect(asPageNumber(82)).toBe(null)
+  })
+})
+
+describe('coerceExtractedRecipe, on the page a photo showed', () => {
+  it('keeps a page number the photographs showed', () => {
+    expect(coerceExtractedRecipe({ ...VALID, page: 'p. 82' })?.page).toBe('82')
+  })
+
+  it('keeps nothing when the answer is not a page number', () => {
+    // Including everything a function that has not been redeployed answers,
+    // which is nothing at all.
+    expect(coerceExtractedRecipe({ ...VALID, page: 'somewhere near the front' })?.page).toBe(null)
+    expect(coerceExtractedRecipe(VALID)?.page).toBe(null)
   })
 })
 
