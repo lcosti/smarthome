@@ -327,7 +327,12 @@ export function rankCandidates(context: GeneratorContext, night: GeneratorNight)
     for (const constraint of context.constraintsByPerson.get(id) ?? []) {
       if (isHardConstraint(constraint.kind)) hard.push(constraint.tag)
       else if (constraint.kind === 'dislike') dislikes.push(constraint.tag)
-      else preferences.push(constraint.tag)
+      // 'preference' by name, not by elimination: kind='diet' is an audience
+      // label for recipe adaptations, not a scoring signal — "high protein"
+      // matched against ingredient names would reward nonsense. A
+      // nutrition-aware generator is a later decision, taken once real data
+      // exists (the nutrition migration says the same).
+      else if (constraint.kind === 'preference') preferences.push(constraint.tag)
     }
   }
 

@@ -180,6 +180,26 @@ describe('hard constraints', () => {
     // Still the only thing on the menu, so it is still dinner.
     expect(asSoft).toHaveLength(1)
   })
+
+  it('scores nothing for a diet, in either direction', () => {
+    // 'diet' names an audience for recipe adaptations, not a food to seek or
+    // avoid. "High protein" matched against ingredient names would reward a
+    // recipe for containing the word — so it must neither filter nor score.
+    const night = { date: '2026-08-03', people: [ADULT] }
+    const input = {
+      nights: [night],
+      recipes: [recipe({ id: 'protein bowl' }), recipe({ id: 'pasta' })],
+      lines: [line('protein bowl', 'Protein powder'), line('pasta', 'Tomatoes')],
+      history: [],
+      random: seeded(3)
+    }
+    const without = rankCandidates(buildContext({ ...input, constraints: [] }), night)
+    const withDiet = rankCandidates(buildContext({
+      ...input,
+      constraints: [{ person_id: ADULT.id, kind: 'diet', tag: 'protein', deleted_at: null }]
+    }), night)
+    expect(withDiet).toEqual(without)
+  })
 })
 
 describe('recency', () => {

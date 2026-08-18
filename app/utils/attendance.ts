@@ -34,7 +34,14 @@ export interface PersonLike {
 /** The kinds of constraint, split by what the generator is allowed to do with them. */
 export const HARD_CONSTRAINT_KINDS = ['allergy', 'intolerance'] as const
 export const SOFT_CONSTRAINT_KINDS = ['dislike', 'preference'] as const
-export const CONSTRAINT_KINDS = [...HARD_CONSTRAINT_KINDS, ...SOFT_CONSTRAINT_KINDS] as const
+/**
+ * A named diet ("high protein"). Deliberately in neither list above: it is an
+ * audience label that recipe adaptations match against, not a signal the
+ * generator scores — a macro goal compared to ingredient names would match
+ * nonsense.
+ */
+export const DIET_KIND = 'diet' as const
+export const CONSTRAINT_KINDS = [...HARD_CONSTRAINT_KINDS, ...SOFT_CONSTRAINT_KINDS, DIET_KIND] as const
 
 export type ConstraintKind = typeof CONSTRAINT_KINDS[number]
 

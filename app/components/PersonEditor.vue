@@ -77,7 +77,8 @@ const KINDS: { value: ConstraintKind, label: string, description: string }[] = [
   { value: 'allergy', label: 'Allergy', description: 'Never planned.' },
   { value: 'intolerance', label: 'Intolerance', description: 'Never planned.' },
   { value: 'dislike', label: 'Dislike', description: 'Planned less often.' },
-  { value: 'preference', label: 'Preference', description: 'Planned more often.' }
+  { value: 'preference', label: 'Preference', description: 'Planned more often.' },
+  { value: 'diet', label: 'Diet', description: 'Shows recipe adaptations.' }
 ]
 
 watch(open, (isOpen) => {
