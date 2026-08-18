@@ -125,6 +125,15 @@ export const ATTENDANCE_NAMESPACE = 'd41c8f26-5a93-4e07-b8d1-2f7a6c904e35'
 export const CONSTRAINT_NAMESPACE = '9e5b3a74-1c62-4d8f-a057-3b8e1d47c026'
 
 /**
+ * The namespace for recipe adaptations, keyed on (household, recipe, audience).
+ *
+ * There is one weaning version of a recipe, not one per author: both parents
+ * writing it up while offline must land on the same row and converge through
+ * last-write-wins, exactly as constraints do. Fixed forever.
+ */
+export const ADAPTATION_NAMESPACE = '4c7d2e95-6a18-4b3f-9c40-8e5a1d72b609'
+
+/**
  * The namespace for pantry stock, keyed on (household, ingredient).
  *
  * There is one answer to "how many onions are in the house", so there has to be
