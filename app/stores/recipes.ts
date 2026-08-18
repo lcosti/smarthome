@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
+import { adaptationAudienceKey, adaptationId, type AdaptationStage } from '../utils/adaptations'
 import { guessAisleId } from '../utils/aisles'
-import type { RecipeIngredientRow, RecipeRow, RecipeStepRow } from '../utils/db'
+import { normaliseTag } from '../utils/attendance'
+import type { RecipeAdaptationItemRow, RecipeAdaptationRow, RecipeIngredientRow, RecipeRow, RecipeStepRow } from '../utils/db'
 import { deShout } from '../utils/name-case'
 import { shoppingName } from '../utils/shopping-name'
 import { plainCopy } from '../utils/sync'
@@ -18,6 +20,8 @@ export const useRecipesStore = defineStore('recipes', () => {
   const all = computed(() => sync.rowsOf('recipes'))
   const allLines = computed(() => sync.rowsOf('recipe_ingredients'))
   const allSteps = computed(() => sync.rowsOf('recipe_steps'))
+  const allAdaptations = computed(() => sync.rowsOf('recipe_adaptations'))
+  const allAdaptationItems = computed(() => sync.rowsOf('recipe_adaptation_items'))
 
   /** Alphabetical: a household library is small, and it stays where you left it. */
   const recipes = computed(() =>
@@ -266,6 +270,117 @@ export const useRecipesStore = defineStore('recipes', () => {
     await sync.commit('recipe_steps', { ...plainCopy(target), sort_order: source.sort_order })
   }
 
+  /**
+   * The adaptations and their items: the third copy of the lines/steps pattern,
+   * on the same reasoning as the second — see addStep. The one difference is
+   * the parent's identity: one adaptation per (recipe, audience), its id minted
+   * from that tuple like a constraint's, so upsert revives rather than
+   * duplicates and offline authors converge.
+   */
+  function adaptationsFor(recipeId: string): RecipeAdaptationRow[] {
+    return [...allAdaptations.value.values()]
+      .filter(a => a.recipe_id === recipeId && !a.deleted_at)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+  }
+
+  function adaptationById(id: string): RecipeAdaptationRow | undefined {
+    const row = allAdaptations.value.get(id)
+    return row && !row.deleted_at ? row : undefined
+  }
+
+  async function upsertAdaptation(
+    recipeId: string,
+    audience: { life_stage: AdaptationStage } | { diet_tag: string },
+    note: string | null = null
+  ): Promise<RecipeAdaptationRow | null> {
+    if (!sync.householdId || !recipeById(recipeId)) return null
+    const life_stage = 'life_stage' in audience ? audience.life_stage : null
+    const diet_tag = 'diet_tag' in audience ? normaliseTag(audience.diet_tag) : null
+    if (!life_stage && !diet_tag) return null
+
+    const id = adaptationId(sync.householdId, recipeId, adaptationAudienceKey({ life_stage, diet_tag }))
+    const existing = allAdaptations.value.get(id)
+    if (existing && !existing.deleted_at) return existing
+
+    const timestamp = nowIso()
+    return sync.commit('recipe_adaptations', {
+      id,
+      household_id: sync.householdId,
+      recipe_id: recipeId,
+      life_stage,
+      diet_tag,
+      // A revived adaptation starts clean: its old note went with the deletion.
+      note,
+      deleted_at: null,
+      created_at: existing?.created_at ?? timestamp,
+      updated_at: timestamp
+    })
+  }
+
+  async function updateAdaptation(id: string, patch: Partial<Pick<RecipeAdaptationRow, 'note'>>) {
+    const current = allAdaptations.value.get(id)
+    if (!current) return
+    await sync.commit('recipe_adaptations', { ...plainCopy(current), ...patch })
+  }
+
+  /** Soft delete. Items are left alone, like a deleted recipe's lines. */
+  async function deleteAdaptation(id: string) {
+    const current = allAdaptations.value.get(id)
+    if (!current) return
+    await sync.commit('recipe_adaptations', { ...plainCopy(current), deleted_at: nowIso() })
+  }
+
+  function adaptationItemsFor(adaptationId: string): RecipeAdaptationItemRow[] {
+    return [...allAdaptationItems.value.values()]
+      .filter(i => i.adaptation_id === adaptationId && !i.deleted_at)
+      .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at))
+  }
+
+  async function addAdaptationItem(
+    adaptationId: string,
+    input:
+      | { kind: 'ingredient', recipe_ingredient_id: string, action: 'swap' | 'omit' | 'reduce', body?: string }
+      | { kind: 'step', recipe_step_id: string, body: string }
+  ): Promise<RecipeAdaptationItemRow | null> {
+    const parent = adaptationById(adaptationId)
+    if (!parent || !sync.householdId) return null
+    const body = (input.body ?? '').trim()
+    // A swap with no replacement and a step with no amendment both say nothing.
+    if (!body && (input.kind === 'step' || input.action === 'swap')) return null
+    const timestamp = nowIso()
+    const highest = adaptationItemsFor(adaptationId).reduce((max, i) => Math.max(max, i.sort_order), 0)
+    return sync.commit('recipe_adaptation_items', {
+      id: crypto.randomUUID(),
+      household_id: sync.householdId,
+      adaptation_id: adaptationId,
+      recipe_id: parent.recipe_id,
+      kind: input.kind,
+      recipe_ingredient_id: input.kind === 'ingredient' ? input.recipe_ingredient_id : null,
+      recipe_step_id: input.kind === 'step' ? input.recipe_step_id : null,
+      action: input.kind === 'ingredient' ? input.action : null,
+      body,
+      sort_order: highest + 1,
+      deleted_at: null,
+      created_at: timestamp,
+      updated_at: timestamp
+    })
+  }
+
+  async function updateAdaptationItem(
+    id: string,
+    patch: Partial<Pick<RecipeAdaptationItemRow, 'action' | 'body'>>
+  ) {
+    const current = allAdaptationItems.value.get(id)
+    if (!current) return
+    await sync.commit('recipe_adaptation_items', { ...plainCopy(current), ...patch })
+  }
+
+  async function deleteAdaptationItem(id: string) {
+    const current = allAdaptationItems.value.get(id)
+    if (!current) return
+    await sync.commit('recipe_adaptation_items', { ...plainCopy(current), deleted_at: nowIso() })
+  }
+
   /** Swap sort_order with the neighbour, so lines read in cooking order. */
   async function moveIngredient(id: string, direction: -1 | 1) {
     const current = allLines.value.get(id)
@@ -301,6 +416,15 @@ export const useRecipesStore = defineStore('recipes', () => {
     addStep,
     updateStep,
     deleteStep,
-    moveStep
+    moveStep,
+    adaptationsFor,
+    adaptationById,
+    upsertAdaptation,
+    updateAdaptation,
+    deleteAdaptation,
+    adaptationItemsFor,
+    addAdaptationItem,
+    updateAdaptationItem,
+    deleteAdaptationItem
   }
 })
