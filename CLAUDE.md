@@ -170,8 +170,15 @@ and why. Current sanctioned exceptions:
 - The hidden `<input type="file">` wherever a picture is chosen —
   `recipes/index.vue`, `PersonEditor`, `recipes/[id]/index.vue`. Invisible
   plumbing behind a `UButton`, not a control. `UFileUpload` brings a dropzone
-  none of them want, and `capture` makes iOS force the camera and silently drop
-  `multiple`.
+  none of them want. The recipe importer's one accepts
+  `image/*,android/allowCamera`, and the second value is not a typo: Chrome on
+  Android 14+ opens the camera-less system photo picker whenever every accept
+  value is an image or video type, and any other value sends it back to the
+  chooser that has Camera in it and honours `multiple`. Not `capture`, which
+  is one shot per tap and drops `multiple` on iOS — a cookbook recipe is
+  regularly a spread. The camera icon on that button is a bound expression, so
+  it is listed in the client icon bundle in `nuxt.config.ts`: an icon fetched
+  at runtime is a blank square in a shop with no signal.
 - The column inside `RecipeSheet` — the height of it only. A drawer with snap
   points is drawn full height and slid down until a fraction of it shows, so
   anything at the end of its column is off the screen until the last snap, and
@@ -373,7 +380,16 @@ Roughly these tables. Everything scoped to a `household_id` with RLS.
   something you can act on in an aisle.
 - `recipes` — name, source_url, base_servings, prep/cook minutes, method, tags,
   per-serving nutrition as the source printed it (kcal + seven gram columns,
-  all nullable — see `app/utils/nutrition.ts` for the field list)
+  all nullable — see `app/utils/nutrition.ts` for the field list), and
+  `source_book` / `source_page` for the ones photographed off a shelf. The page
+  is text, not an integer: a photographed recipe is regularly a spread, and
+  nothing sorts or counts by it — see `app/utils/recipe-source.ts`, which is
+  also where "p. 82" typed into the box becomes the page it is. The extraction
+  reads the folio off the photograph where it is legible, but only ever *into
+  the box* somebody is already filling in — a page number nobody confirmed is
+  one nobody can check, because the book has gone back on the shelf. Same rule
+  as an LLM suggesting a recipe: it offers, a person accepts. The book itself is
+  never guessed, because a running header is as often the chapter as the title.
 - `recipe_ingredients` — recipe_id, ingredient_id, quantity, unit, optional flag
 - `recipe_adaptations` — recipe_id, life_stage, guidance text
 - `meal_plans` / `meal_plan_entries` — date, meal, recipe_id, servings

@@ -107,7 +107,10 @@ const SOUP = {
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'red lentils', quantity: '200g' },
     { name: 'onion', quantity: '1' }
-  ]
+  ],
+  // The folio the photographs showed. Offered into the box, never stored on its
+  // own — the two imports below are the two halves of that rule.
+  page: '77'
 }
 
 const BOLOGNESE = {
@@ -119,7 +122,8 @@ const BOLOGNESE = {
   ingredients: [
     { name: 'chopped tomatoes', quantity: '400g' },
     { name: 'beef mince', quantity: '500g' }
-  ]
+  ],
+  page: '31'
 }
 
 let cannedRecipe = SOUP
@@ -172,12 +176,50 @@ async function makePhoto(label) {
   }
 }
 
-async function importPhotos(labels) {
+/**
+ * Picking the photos also asks which book they came off, over the top of the
+ * extraction. `book` answers it; leaving it out takes the way out that every
+ * recipe printed on a card or clipped out of a magazine takes.
+ *
+ * Playwright cannot hold up a phone: the button opens the phone's own chooser
+ * (camera and gallery both, on either platform), and the files land on the one
+ * input behind it the same way from either.
+ */
+async function importPhotos(labels, book = null) {
   await page.setInputFiles(
     '[data-testid="recipe-photo-input"]',
     await Promise.all(labels.map(makePhoto))
   )
+
+  if (book) {
+    // The page the photos showed arrives in the box on its own, and is typed
+    // over here — a reading is an offer, and what somebody types wins.
+    if (book.reads) {
+      await becomes(
+        () => page.getByTestId('recipe-page').inputValue(),
+        book.reads,
+        'the page read off the photo was offered in the box'
+      )
+    }
+    await page.getByTestId('recipe-book').fill(book.title)
+    await page.getByTestId('recipe-page').fill(book.page)
+    await page.getByTestId('recipe-book-save').click()
+  } else {
+    await page.getByRole('button', { name: 'Not from a book' }).click()
+  }
   await page.waitForURL(/\/recipes\/[0-9a-f-]{36}/, { timeout: 20_000 })
+}
+
+/** Poll a value until it is what it should be, or say what it was instead. */
+async function becomes(read, want, message) {
+  const deadline = Date.now() + 20_000
+  let saw
+  while (Date.now() < deadline) {
+    saw = await read()
+    if (saw === want) return
+    await page.waitForTimeout(200)
+  }
+  throw new Error(`FAILED: ${message} — wanted ${JSON.stringify(want)}, saw ${JSON.stringify(saw)}`)
 }
 
 try {
@@ -194,8 +236,11 @@ try {
   // --- A two-photo import: the cookbook-spread case -------------------------
   await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
-  await importPhotos(['soup-ingredients', 'soup-method'])
-  log('photographed a two-page spread and landed on the new recipe')
+  await importPhotos(
+    ['soup-ingredients', 'soup-method'],
+    { title: 'Ottolenghi Simple', page: 'p. 82-83', reads: '77' }
+  )
+  log('photographed a two-page spread, said which book it was, and landed on the new recipe')
 
   const payload = seenPayloads[0]
   assert(payload?.images?.length === 2, `both photos went up, got ${payload?.images?.length}`)
@@ -235,7 +280,20 @@ try {
   assert(soup, 'the recipe row exists')
   assert(soup.base_servings === 4, `servings extracted, got ${soup.base_servings}`)
   assert(soup.prep_minutes === 10 && soup.cook_minutes === 30, 'prep and cook minutes extracted')
-  log('the recipe row carries servings and times')
+  // The one fact the photographs cannot carry, and the only one a person typed.
+  // "p. 82-83" was typed the way it is printed and is stored as the page itself.
+  assert(soup.source_book === 'Ottolenghi Simple', `the book was recorded, got ${soup.source_book}`)
+  assert(soup.source_page === '82-83', `the page was tidied and recorded, got ${soup.source_page}`)
+  log('the recipe row carries servings, times, and the book it was photographed out of')
+
+  assert(
+    (await page.getByTestId('recipe-book').inputValue()) === 'Ottolenghi Simple',
+    'the recipe page offers the book back for correcting'
+  )
+  assert(
+    (await page.getByTestId('recipe-page').inputValue()) === '82-83',
+    'and the page number with it'
+  )
 
   const lines = (await readTable('recipe_ingredients'))
     .filter(l => !l.deleted_at && l.recipe_id === soup.id)
@@ -251,8 +309,22 @@ try {
   cannedRecipe = BOLOGNESE
   await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
-  await importPhotos(['bolognese'])
-  log('imported a second recipe that also wants chopped tomatoes')
+  await importPhotos(['bolognese-page', 'bolognese-overleaf'])
+  log('photographed a second recipe across a spread, off no book at all')
+
+  assert(
+    seenPayloads[1]?.images?.length === 2,
+    `both pages went as one recipe, got ${seenPayloads[1]?.images?.length}`
+  )
+  log('both pages of the spread went up as one payload')
+
+  const bolognese = (await readTable('recipes')).find(r => r.name === 'Bolognese')
+  // The other half of the rule: those photos "showed" page 31, and nobody said
+  // it came out of a book, so nothing was written. A read page is an offer.
+  assert(
+    bolognese && bolognese.source_book === null && bolognese.source_page === null,
+    'a page read off a photo is not stored when the question was waved away'
+  )
 
   const after = (await readTable('ingredients')).filter(i => !i.deleted_at)
   const tomatoRows = after.filter(i => i.name.toLowerCase() === 'chopped tomatoes')

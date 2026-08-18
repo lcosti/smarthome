@@ -932,6 +932,22 @@ describe('the recipe library', () => {
     expect(model.detail?.history).toEqual([])
   })
 
+  it('cites the book a recipe was photographed out of', () => {
+    const book = recipe('book', 'Out of a book', {
+      source_book: 'Ottolenghi Simple',
+      source_page: '82-83'
+    })
+
+    const model = buildRecipeLibrary(library({
+      recipes: [book], lines: [], selectedId: 'book'
+    }))
+    expect(model.detail?.source).toBe('Ottolenghi Simple, pp. 82-83')
+
+    // Which is most of the library: a link, or somebody's head. The pane draws
+    // nothing rather than an empty line.
+    expect(buildRecipeLibrary(library({ selectedId: 'orzo' })).detail?.source).toBe(null)
+  })
+
   it('shows the household\'s own photograph over the source site\'s', () => {
     const shot = recipe('shot', 'Photographed here', {
       image_url: 'https://cdn.example/orzo.jpg',

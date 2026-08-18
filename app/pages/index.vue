@@ -143,8 +143,18 @@ function swapMeal() {
 </script>
 
 <template>
+  <!--
+    The state attribute waits for the database, and so does everything under it.
+    `buildBoard` is pure and runs on whatever the stores hold, and for the frame
+    before IndexedDB has handed its rows over that is nothing at all — which
+    reads as `setup`, so a wall board with four people and fifty recipes opened
+    every morning by saying "Nothing set up yet. Add the people who eat here."
+    A skeleton for that frame is the same answer every other page in the app
+    gives (`LoadingState`), and an absent attribute is what lets anything
+    watching — the acceptance suite included — wait for a state that is true.
+  -->
   <div
-    :data-board-state="board.state"
+    :data-board-state="sync.hydrated ? board.state : undefined"
     class="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col gap-4 overflow-y-auto px-3 pb-6 pt-3 lg:max-w-none lg:overflow-hidden lg:px-6"
   >
     <!--
@@ -199,7 +209,16 @@ function swapMeal() {
       the very same pixel. The page root does the containing, and it clips a
       padding-width further out where there is room for a ring.
     -->
-    <div class="contents lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)] lg:items-stretch lg:gap-4">
+    <LoadingState
+      v-if="!sync.hydrated"
+      :rows="5"
+      class="flex-1"
+    />
+
+    <div
+      v-else
+      class="contents lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)] lg:items-stretch lg:gap-4"
+    >
       <div class="contents lg:flex lg:min-h-0 lg:flex-col lg:gap-4">
         <BoardSchedule
           :schedule="board.schedule"

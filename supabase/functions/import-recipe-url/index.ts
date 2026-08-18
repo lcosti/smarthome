@@ -39,8 +39,10 @@ ingredient per line with its quantity exactly as written (e.g. "400g", "2 tbsp",
 step whole — split where the page starts a new numbered step or paragraph, never mid-instruction, and
 do not merge two steps into one entry. If the page states per-serving nutrition, transcribe its
 figures into nutrition (kcal and grams, exactly as stated); if it states none or it is not per
-serving, set nutrition to null — never estimate one. Use an empty array if the page states no
-method, and null for anything else it does not state. Do not invent, convert, or normalise anything.
+serving, set nutrition to null — never estimate one. Always set page to null: that field records a
+printed page number in a physical book, which a web page does not have. Use an empty array if the
+page states no method, and null for anything else it does not state. Do not invent, convert, or
+normalise anything.
 If the page does not contain a recipe, set is_recipe to false and recipe to null.`
 
 /**

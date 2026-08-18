@@ -7,6 +7,7 @@ import type { IngredientRow } from '../../../utils/db'
 import { MEALS, MEAL_COLUMNS, MEAL_LABELS } from '../../../utils/meal'
 import { NUTRITION_FIELDS, type NutritionKey } from '../../../utils/nutrition'
 import { photoForRecipe, pictureOf } from '../../../utils/photo'
+import { tidyBook, tidyPage } from '../../../utils/recipe-source'
 
 const route = useRoute()
 const toast = useToast()
@@ -120,6 +121,30 @@ async function setNutrition(key: NutritionKey, next: number | null | undefined) 
   const value = typeof next === 'number' && Number.isFinite(next) && next >= 0 ? next : null
   if (!recipe.value || value === recipe.value[key]) return
   await store.updateRecipe(id.value, { [key]: value })
+}
+
+/**
+ * Where it came from, when it came off a shelf rather than out of a browser.
+ *
+ * Filled in at the moment the photographs are taken (see `RecipeBookSheet`), and
+ * here for everything else: the recipe typed in by hand, the one photographed
+ * before this existed, and the page number somebody got wrong. Written on blur
+ * like the notes below, because there is no save button on this page.
+ *
+ * `updateRecipe` does the tidying, so "p. 82" typed into the page box is stored
+ * as the page it is — which is also why the comparison below tidies before
+ * deciding nothing changed.
+ */
+async function saveBook(event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  if (!recipe.value || tidyBook(value) === recipe.value.source_book) return
+  await store.updateRecipe(id.value, { source_book: value })
+}
+
+async function savePage(event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  if (!recipe.value || tidyPage(value) === recipe.value.source_page) return
+  await store.updateRecipe(id.value, { source_page: value })
 }
 
 async function saveMethod(event: Event) {
@@ -500,6 +525,46 @@ async function removeRecipe() {
               aria-label="Add step"
             />
           </UForm>
+        </section>
+
+        <!--
+          The shelf this came off. Empty for a recipe that came from a link —
+          the address is the button in the header — and for one somebody typed
+          in, which is the honest state rather than a missing field.
+        -->
+        <section>
+          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
+            Book
+          </h2>
+          <p class="mb-2 text-sm text-dimmed">
+            The photos have the recipe; this is how to find the rest of the page again.
+          </p>
+          <div class="grid grid-cols-3 gap-3">
+            <UFormField
+              label="Title"
+              class="col-span-2"
+            >
+              <UInput
+                :model-value="recipe.source_book ?? ''"
+                size="lg"
+                class="w-full"
+                placeholder="Ottolenghi Simple"
+                autocapitalize="words"
+                data-testid="recipe-book"
+                @blur="saveBook"
+              />
+            </UFormField>
+            <UFormField label="Page">
+              <UInput
+                :model-value="recipe.source_page ?? ''"
+                size="lg"
+                class="w-full"
+                placeholder="82"
+                data-testid="recipe-page"
+                @blur="savePage"
+              />
+            </UFormField>
+          </div>
         </section>
 
         <!-- Notes is notes again: what the method left out, not the method. -->

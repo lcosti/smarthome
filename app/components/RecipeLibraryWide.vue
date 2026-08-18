@@ -304,6 +304,14 @@ async function add() {
           <p class="mt-1.5 font-mono text-sm text-muted">
             {{ detail.meta }}
           </p>
+          <!-- Same line the phone's drawer draws, off the same model: the book
+               and page, or nothing when it did not come off a shelf. -->
+          <p
+            v-if="detail.source"
+            class="mt-1 text-sm text-dimmed"
+          >
+            {{ detail.source }}
+          </p>
         </template>
 
         <!--

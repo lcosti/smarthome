@@ -19,6 +19,7 @@
 import { deriveLifeStage } from './people'
 import { personHue } from './person-colors'
 import { pictureOf } from './photo'
+import { sourceLabel } from './recipe-source'
 import { displayIngredientName, shoppingName } from './shopping-name'
 import { addDays, isoDate, isoWeekNumber, mondayOf, weekDates } from './week'
 
@@ -256,6 +257,13 @@ export interface LibraryRecipe {
    * shortlist yet describes a library with nothing on it.
    */
   shortlisted_at?: string | null
+  /**
+   * The book it was photographed out of, and the page in it. Optional for the
+   * same reason `shortlisted_at` is: a caller that predates them is describing
+   * a library where nothing came off a shelf.
+   */
+  source_book?: string | null
+  source_page?: string | null
 }
 
 /** One ingredient line, for searching, listing, and diffing against the list. */
@@ -342,6 +350,13 @@ export interface LibraryDetail {
   shortlisted: boolean
   /** '35 min · serves 4 · cooked 11 times'. */
   meta: string
+  /**
+   * 'Ottolenghi Simple, p. 82' — the shelf it came off, or null for the
+   * recipes that came from a link or from somebody's head. Only in the detail
+   * and not on the cards: it is what you check once you have chosen a recipe
+   * and want the headnote, not something to compare five meals by.
+   */
+  source: string | null
   ingredients: {
     id: string
     name: string
@@ -1352,6 +1367,10 @@ export function buildRecipeLibrary(input: LibraryInput): LibraryModel {
         `serves ${selected.recipe.base_servings}`,
         selected.cookedCount ? `cooked ${plural(selected.cookedCount, 'time')}` : null
       ].filter(Boolean).join(' · '),
+      source: sourceLabel({
+        source_book: selected.recipe.source_book ?? null,
+        source_page: selected.recipe.source_page ?? null
+      }),
       ingredients,
       missing,
       sendLabel: missing.length

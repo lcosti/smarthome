@@ -948,6 +948,8 @@ export type Database = {
           salt_g: number | null
           saturates_g: number | null
           shortlisted_at: string | null
+          source_book: string | null
+          source_page: string | null
           source_url: string | null
           sugars_g: number | null
           suits_breakfast: boolean
@@ -975,6 +977,8 @@ export type Database = {
           salt_g?: number | null
           saturates_g?: number | null
           shortlisted_at?: string | null
+          source_book?: string | null
+          source_page?: string | null
           source_url?: string | null
           sugars_g?: number | null
           suits_breakfast?: boolean
@@ -1002,6 +1006,8 @@ export type Database = {
           salt_g?: number | null
           saturates_g?: number | null
           shortlisted_at?: string | null
+          source_book?: string | null
+          source_page?: string | null
           source_url?: string | null
           sugars_g?: number | null
           suits_breakfast?: boolean

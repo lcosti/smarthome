@@ -360,6 +360,8 @@ export function extractRecipeJsonLd(html: string): ExtractedRecipe | null {
     steps: instructions(recipe.recipeInstructions),
     ingredients,
     nutrition: nutrition(recipe.nutrition),
+    // A web page has no page number. The field exists for the photographs.
+    page: null,
     image_url: image(recipe.image)
   }
 }

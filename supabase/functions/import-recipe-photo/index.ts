@@ -36,9 +36,13 @@ its quantity exactly as written (e.g. "400g", "2 tbsp", "1 tin"). Keep each step
 split where the page starts a new numbered step or paragraph, never mid-instruction, and do
 not merge two steps into one entry. If the photos show a per-serving nutrition panel, transcribe
 its figures into nutrition (kcal and grams, exactly as printed); if there is no panel or it is
-not per serving, set nutrition to null — never estimate one. Use an empty array if the photos
-show no method, and null for anything else not visible in them. Do not invent, convert, or
-normalise anything.
+not per serving, set nutrition to null — never estimate one.
+Set page to the page number printed on the paper, read off the page itself — the folio in a
+corner or a running header — as a plain number, or "82-83" when two numbered pages are shown.
+Set it to null if no page number is legible in the photos. Never infer a page number from
+anything else in the recipe, and never guess one: a number nobody can check is worse than none.
+Use an empty array if the photos show no method, and null for anything else not visible in them.
+Do not invent, convert, or normalise anything.
 If the photos do not show a recipe, set is_recipe to false and recipe to null.`
 
 Deno.serve(async (req) => {

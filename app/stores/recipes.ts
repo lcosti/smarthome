@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { guessAisleId } from '../utils/aisles'
 import type { RecipeIngredientRow, RecipeRow, RecipeStepRow } from '../utils/db'
 import { deShout } from '../utils/name-case'
+import { tidyBook, tidyPage, tidySource } from '../utils/recipe-source'
 import { shoppingName } from '../utils/shopping-name'
 import { plainCopy } from '../utils/sync'
 import { useListStore } from './list'
@@ -81,6 +82,9 @@ export const useRecipesStore = defineStore('recipes', () => {
   async function addRecipe(input: {
     name: string
     source_url?: string | null
+    /** The book it was photographed out of, and the page in it. See utils/recipe-source.ts. */
+    source_book?: string | null
+    source_page?: string | null
     base_servings?: number
     image_url?: string | null
   }) {
@@ -94,6 +98,10 @@ export const useRecipesStore = defineStore('recipes', () => {
       household_id: sync.householdId,
       name,
       source_url: input.source_url ?? null,
+      // Tidied here rather than trusted, for the same reason the name above is:
+      // every recipe arrives through this function, and "p. 82" typed into the
+      // page box would otherwise be cited as "p. p. 82" for the rest of its life.
+      ...tidySource({ book: input.source_book, page: input.source_page }),
       base_servings: input.base_servings ?? 2,
       prep_minutes: null,
       cook_minutes: null,
@@ -121,7 +129,8 @@ export const useRecipesStore = defineStore('recipes', () => {
   }
 
   type RecipePatch = Partial<Pick<RecipeRow,
-    'name' | 'source_url' | 'base_servings' | 'prep_minutes' | 'cook_minutes' | 'method' | 'image_url' | 'photo'
+    'name' | 'source_url' | 'source_book' | 'source_page'
+    | 'base_servings' | 'prep_minutes' | 'cook_minutes' | 'method' | 'image_url' | 'photo'
     | 'kcal' | 'fat_g' | 'saturates_g' | 'carbs_g' | 'sugars_g' | 'fibre_g' | 'protein_g' | 'salt_g'
     | 'suits_breakfast' | 'suits_lunch' | 'suits_dinner'>>
 
@@ -129,8 +138,34 @@ export const useRecipesStore = defineStore('recipes', () => {
     const current = all.value.get(id)
     if (!current) return
     const name = patch.name === undefined ? {} : { name: deShout(patch.name.trim()) || current.name }
-    await sync.commit('recipes', { ...plainCopy(current), ...patch, ...name })
+    // Only the halves this patch actually carries, so saving a page number does
+    // not re-tidy — or clear — a book nobody touched.
+    const source = {
+      ...(patch.source_book === undefined ? {} : { source_book: tidyBook(patch.source_book) }),
+      ...(patch.source_page === undefined ? {} : { source_page: tidyPage(patch.source_page) })
+    }
+    await sync.commit('recipes', { ...plainCopy(current), ...patch, ...name, ...source })
   }
+
+  /**
+   * The books this household has typed in before, most recently used first.
+   *
+   * Offered back when the next recipe is photographed, so the same shelf is
+   * spelled the same way twice — which is the only thing that makes "everything
+   * out of the Ottolenghi" a question anybody can answer later. A pass over an
+   * array of tens of rows, which is why this is not an index or a table.
+   */
+  const books = computed(() => {
+    const seen = new Map<string, string>()
+    for (const recipe of [...all.value.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at))) {
+      const book = tidyBook(recipe.source_book)
+      if (!book || recipe.deleted_at) continue
+      // Keyed case-insensitively so one book does not offer itself twice, and the
+      // spelling kept is the one used most recently.
+      if (!seen.has(book.toLowerCase())) seen.set(book.toLowerCase(), book)
+    }
+    return [...seen.values()]
+  })
 
   /** What the household fancies soon, most recently added first. */
   const shortlisted = computed(() =>
@@ -283,6 +318,7 @@ export const useRecipesStore = defineStore('recipes', () => {
     /** Every recipe line, for the one-press catch-up on /ingredients. */
     allLines,
     recipes,
+    books,
     shortlisted,
     recipeById,
     ingredientsFor,

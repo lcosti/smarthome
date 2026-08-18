@@ -10,6 +10,7 @@
  */
 
 import { NUTRITION_FIELDS, type NutritionKey } from './nutrition'
+import { tidyPage } from './recipe-source'
 
 export interface ExtractedIngredient {
   name: string
@@ -29,6 +30,12 @@ export interface ExtractedRecipe {
   ingredients: ExtractedIngredient[]
   /** The source's per-serving nutrition panel, or null when it had none. */
   nutrition: ExtractedNutrition | null
+  /**
+   * The page number the photographs showed, or null. A suggestion and never a
+   * decision: it is offered back in the box somebody is already filling in, and
+   * nothing writes it unattended — see `RecipeBookSheet` and `recipes/index.vue`.
+   */
+  page: string | null
   /** The picture the source page published, or null. Always an absolute address. */
   image_url: string | null
 }
@@ -97,6 +104,27 @@ export function asImageUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return /^https?:\/\/[^\s"'<>]+$/i.test(trimmed) ? trimmed : null
+}
+
+/**
+ * A page number a model says it read off the paper, or null.
+ *
+ * Far stricter than what a person may type into the same box, and deliberately
+ * so. A person typing "82, second recipe" is recording something they know; a
+ * model answering anything other than a number is describing rather than
+ * reading, and this is the one field on an import that nobody is in a position
+ * to check afterwards — the book has gone back on the shelf. So: digits, or two
+ * runs of digits for a spread, and nothing else survives.
+ *
+ * Inner spacing is closed up ("82 - 83" -> "82-83") so one spread is one string
+ * however it was printed, which is what makes the label read the same as a
+ * typed one.
+ */
+export function asPageNumber(value: unknown): string | null {
+  const page = tidyPage(asText(value))
+  if (!page) return null
+  const tightened = page.replace(/\s*([-–—/])\s*/, '$1')
+  return /^\d{1,4}(?:[-–—/]\d{1,4})?$/.test(tightened) ? tightened : null
 }
 
 /**
@@ -189,6 +217,7 @@ export function coerceExtractedRecipe(input: unknown): ExtractedRecipe | null {
     steps,
     ingredients,
     nutrition: asNutrition(raw.nutrition),
+    page: asPageNumber(raw.page),
     image_url: asImageUrl(raw.image_url)
   }
 }

@@ -29,6 +29,14 @@ async function requestLink() {
     <div class="flex min-h-full items-center justify-center p-6">
       <div class="w-full max-w-sm space-y-6">
         <div class="space-y-1 text-center">
+          <!-- Pixel art, so it needs `image-rendering: pixelated` or the browser
+               smooths it, and a width that is a whole multiple of the 64px
+               source. Decorative: the heading below already names the app. -->
+          <img
+            src="/logo.png"
+            alt=""
+            class="mx-auto w-32 [image-rendering:pixelated]"
+          >
           <h1 class="text-2xl font-semibold">
             Shopping List
           </h1>
