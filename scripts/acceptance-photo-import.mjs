@@ -316,7 +316,7 @@ try {
     seenPayloads[1]?.images?.length === 2,
     `both pages went as one recipe, got ${seenPayloads[1]?.images?.length}`
   )
-  log('two taps of the camera became one two-page payload')
+  log('both pages of the spread went up as one payload')
 
   const bolognese = (await readTable('recipes')).find(r => r.name === 'Bolognese')
   // The other half of the rule: those photos "showed" page 31, and nobody said

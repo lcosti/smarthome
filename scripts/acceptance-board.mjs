@@ -137,6 +137,17 @@ async function startTheEvening() {
 
 const page = await ctx.newPage()
 page.on('pageerror', e => console.error('     page error:', e.message))
+// The one console message worth hearing: the sync layer takes a dropped row out
+// of local state as well as out of the queue, so a write the server rejected
+// looks exactly like a write that was never made. Only this line is forwarded —
+// the offline stretch at the end fills the console with failed requests, which
+// are the point of it rather than a fault.
+page.on('console', (message) => {
+  const text = message.text()
+  if (message.type() === 'error' && text.startsWith('sync dropped a write')) {
+    console.error('     ' + text)
+  }
+})
 
 const readTable = table => page.evaluate(name => new Promise((resolve) => {
   const open = indexedDB.open('shoplist')
@@ -147,6 +158,38 @@ const readTable = table => page.evaluate(name => new Promise((resolve) => {
   }
   open.onerror = () => resolve([])
 }), table)
+
+/**
+ * Wait until rows are in IndexedDB, rather than merely on screen.
+ *
+ * `sync.commit` (app/stores/sync.ts) sets Pinia state synchronously and only
+ * then awaits `enqueueMutation`, which is the single transaction that both
+ * caches the row and queues it for the server. A locator resolves on the first
+ * of those. A hard `goto` fired straight after one can therefore tear the page
+ * down before the second commits, and the row is then in neither the cache nor
+ * the queue: on screen when it was typed, gone after the next reload, and
+ * nothing logged anywhere because nothing failed.
+ *
+ * This script is the only one that installs a fake clock, and `clock.install`
+ * fakes `setTimeout` — which is what Dexie schedules its own work on — so the
+ * gap between painting and persisting is wider here than in any real browser.
+ * That is why this is the suite that loses a row, and why it loses a different
+ * one each run.
+ *
+ * Nobody types and navigates this fast, so the app is left as it is. The script
+ * waits instead, before every hard navigation that follows a write.
+ */
+async function persisted(table, count, where = row => !row.deleted_at) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const rows = (await readTable(table)).filter(where)
+    if (rows.length >= count) return rows
+    await page.waitForTimeout(100)
+  }
+  throw new Error(`FAILED: ${count} ${table} rows were on screen but never reached IndexedDB`)
+}
+
+/** A row that has been ticked off and not yet cleared. */
+const isTicked = row => row.checked && !row.deleted_at
 
 // The frame is everything the app paints, header included, because the header
 // carries facts these assertions read. The state attribute belongs to Today,
@@ -233,6 +276,8 @@ try {
   await page.locator('main input[type="date"]').fill(yearsAgo(2))
   await page.getByRole('button', { name: 'Add person' }).click()
   await page.locator('main').getByText('Tom').first().waitFor({ timeout: 10_000 })
+  // Luke, created with the household, and Tom.
+  await persisted('people', 2)
   log('added a toddler, so the roster has two life stages in it')
 
   // One box does three jobs on this page — narrow, add, or import a pasted link.
@@ -253,6 +298,7 @@ try {
   // carries a duration for the timer to find and an aside in its own paragraph
   // for the tip callout; the last carries a range, which resolves to its top.
   const ingredientBox = page.getByPlaceholder('Add an ingredient')
+  let lines = 0
   for (const [line, quantity] of [['chicken thighs', '8'], ['squash', '1'], ['olive oil', '2 tbsp']]) {
     await ingredientBox.fill(line)
     await ingredientBox.press('Enter')
@@ -260,7 +306,7 @@ try {
     await page.locator('main li button', { hasText: line }).first().click()
     await page.getByLabel('Quantity').fill(quantity)
     await page.getByRole('button', { name: 'Save' }).click()
-    await page.waitForTimeout(500)
+    await persisted('recipe_ingredients', ++lines)
   }
   for (const body of [
     'Brown the chicken for 8 mins.\n\nDo not crowd the tray or it steams.',
@@ -271,6 +317,7 @@ try {
     await page.getByRole('button', { name: 'Add step' }).click()
     await page.locator('main').getByText(body.split('\n')[0]).first().waitFor({ timeout: 10_000 })
   }
+  await persisted('recipe_steps', 3)
   log('gave it three ingredients and three steps, from the phone')
   await page.setViewportSize(FRAME)
 
@@ -280,6 +327,7 @@ try {
     await page.keyboard.press('Enter')
     await page.locator('main').getByText(item).first().waitFor({ timeout: 10_000 })
   }
+  await persisted('items', 2)
   log('put two things on the shopping list')
 
   // --- noplan: the one state with one obvious action ------------------------
@@ -561,15 +609,14 @@ try {
   // own, and it is still ticked, because that is what ticking does.
   const tickedBefore = (await readTable('items')).filter(i => i.checked && !i.deleted_at).length
   await shoppingCard.locator('button').first().click()
-  await page.waitForTimeout(1200)
-  const ticked = (await readTable('items')).filter(i => i.checked && !i.deleted_at)
+  const ticked = await persisted('items', tickedBefore + 1, isTicked)
   assert(ticked.length === tickedBefore + 1,
     `ticking a row from Today wrote it through, got ${ticked.length} after ${tickedBefore}`)
   assert(await shoppingCard.locator('button').count() === rowsBefore,
     'and the row stayed on screen, struck through rather than vanishing')
 
   await press(board().getByRole('button', { name: 'Clear done' }))
-  await page.waitForTimeout(1200)
+  await persisted('items', 1, row => row.checked && row.deleted_at)
   assert((await readTable('items')).some(i => i.checked && i.deleted_at),
     'and Clear done removed it')
   log('the Today card ticks items off and clears them without leaving the page')
@@ -582,10 +629,15 @@ try {
   // somebody unpacking the bags does anyway.
   const untickedRows = () =>
     listRows().filter({ has: page.locator('[role="checkbox"][data-state="unchecked"]') })
+  // Each tick is waited for where it is written rather than for a fixed
+  // interval: a slow machine took longer than the wait, the loop ran out of
+  // guard turns with rows still unticked, and the press below then looked for a
+  // button that only exists once something is checked.
+  let checked = (await readTable('items')).filter(isTicked).length
   for (let guard = 0; guard < 20; guard++) {
     if (!(await untickedRows().count())) break
     await tickBox(untickedRows().first()).click()
-    await page.waitForTimeout(700)
+    await persisted('items', ++checked, isTicked)
   }
   await press(page.getByRole('button', { name: 'Clear checked' }))
   await page.getByText('Nothing on the list').waitFor({ timeout: 10_000 })
