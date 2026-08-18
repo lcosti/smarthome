@@ -143,6 +143,13 @@ const bandHeight = computed(() => {
             class="shrink-0"
           />
 
+          <!-- Same terms again: nothing unless somebody at home currently
+               needs a version of this — see the panel's own docblock. -->
+          <RecipeAdaptationsPanel
+            :recipe-id="recipeId"
+            class="shrink-0"
+          />
+
           <div class="shrink-0">
             <div class="flex items-center justify-between gap-3">
               <h3 class="text-xs font-medium uppercase tracking-wide text-dimmed">

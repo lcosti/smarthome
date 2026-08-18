@@ -20,7 +20,7 @@ import { nowIso, useSyncStore } from './sync'
  * recipes from the library's reach.
  */
 export function asConstraintKind(value: string): ConstraintKind {
-  if (value === 'allergy' || value === 'intolerance' || value === 'dislike') return value
+  if (value === 'allergy' || value === 'intolerance' || value === 'dislike' || value === 'diet') return value
   return 'preference'
 }
 

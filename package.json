@@ -23,7 +23,7 @@
     "shoot:board": "node scripts/shoot-board.mjs",
     "icons": "node scripts/generate-icons.mjs",
     "db:types": "supabase gen types typescript --local > shared/types/database.types.ts",
-    "deploy:functions": "supabase functions deploy keepalive import-recipe-photo import-recipe-url estimate-nutrition sync-calendar"
+    "deploy:functions": "supabase functions deploy keepalive import-recipe-photo import-recipe-url estimate-nutrition suggest-adaptations sync-calendar"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.120",
