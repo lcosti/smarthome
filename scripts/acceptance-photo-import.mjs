@@ -181,32 +181,15 @@ async function makePhoto(label) {
  * extraction. `book` answers it; leaving it out takes the way out that every
  * recipe printed on a card or clipped out of a magazine takes.
  *
- * `via` picks which of the two pickers the menu opens. 'library' is the
- * multi-select the phone's gallery hands back in one go; 'camera' is one shot
- * per tap, gathered in the tray until somebody says that is the whole recipe.
- * Playwright cannot hold up a phone, but everything after the file lands on the
- * input is the same code either way — which is the part with the tray in it.
+ * Playwright cannot hold up a phone: the button opens the phone's own chooser
+ * (camera and gallery both, on either platform), and the files land on the one
+ * input behind it the same way from either.
  */
-async function importPhotos(labels, book = null, via = 'library') {
-  await page.getByRole('button', { name: 'Add recipe from a photo' }).click()
-
-  if (via === 'camera') {
-    await page.getByRole('menuitem', { name: 'Take a photo' }).click()
-    for (const [index, label] of labels.entries()) {
-      // The camera comes back one page at a time; the tray is where the next
-      // one is asked for.
-      if (index) await page.getByTestId('recipe-add-page').click()
-      await page.setInputFiles('[data-testid="recipe-camera-input"]', await makePhoto(label))
-      await page.getByTestId('recipe-read-photos').waitFor({ timeout: 10_000 })
-    }
-    await page.getByTestId('recipe-read-photos').click()
-  } else {
-    await page.getByRole('menuitem', { name: 'Choose photos' }).click()
-    await page.setInputFiles(
-      '[data-testid="recipe-photo-input"]',
-      await Promise.all(labels.map(makePhoto))
-    )
-  }
+async function importPhotos(labels, book = null) {
+  await page.setInputFiles(
+    '[data-testid="recipe-photo-input"]',
+    await Promise.all(labels.map(makePhoto))
+  )
 
   if (book) {
     // The page the photos showed arrives in the box on its own, and is typed
@@ -326,12 +309,12 @@ try {
   cannedRecipe = BOLOGNESE
   await page.getByRole('link', { name: 'Recipes', exact: true }).click()
   await page.waitForURL('**/recipes')
-  await importPhotos(['bolognese-page', 'bolognese-overleaf'], null, 'camera')
-  log('photographed a second recipe a page at a time, off no book at all')
+  await importPhotos(['bolognese-page', 'bolognese-overleaf'])
+  log('photographed a second recipe across a spread, off no book at all')
 
   assert(
     seenPayloads[1]?.images?.length === 2,
-    `the tray sent both shots as one recipe, got ${seenPayloads[1]?.images?.length}`
+    `both pages went as one recipe, got ${seenPayloads[1]?.images?.length}`
   )
   log('two taps of the camera became one two-page payload')
 

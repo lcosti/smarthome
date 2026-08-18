@@ -170,16 +170,15 @@ and why. Current sanctioned exceptions:
 - The hidden `<input type="file">` wherever a picture is chosen —
   `recipes/index.vue`, `PersonEditor`, `recipes/[id]/index.vue`. Invisible
   plumbing behind a `UButton`, not a control. `UFileUpload` brings a dropzone
-  none of them want. The recipe importer has **two** of them, behind a stock
-  `UDropdownMenu`, and the difference between them is `capture`: without it the
-  phone chooses, and Android's photo picker now opens straight into the gallery
-  with no way to the camera, which quietly turned "add a recipe from a photo"
-  into "from a photo you already took". With it the camera opens — one shot per
-  tap, and iOS drops `multiple` alongside it, which is why the shots gather in
-  `RecipePhotoTray` until somebody says that is the whole recipe. Both icons in
-  that menu are named in script, so both are listed in the client icon bundle in
-  `nuxt.config.ts`: an icon fetched at runtime is a blank square in a shop with
-  no signal.
+  none of them want. The recipe importer's one accepts
+  `image/*,android/allowCamera`, and the second value is not a typo: Chrome on
+  Android 14+ opens the camera-less system photo picker whenever every accept
+  value is an image or video type, and any other value sends it back to the
+  chooser that has Camera in it and honours `multiple`. Not `capture`, which
+  is one shot per tap and drops `multiple` on iOS — a cookbook recipe is
+  regularly a spread. The camera icon on that button is a bound expression, so
+  it is listed in the client icon bundle in `nuxt.config.ts`: an icon fetched
+  at runtime is a blank square in a shop with no signal.
 - The column inside `RecipeSheet` — the height of it only. A drawer with snap
   points is drawn full height and slid down until a fraction of it shows, so
   anything at the end of its column is off the screen until the last snap, and

@@ -121,13 +121,10 @@ export default defineNuxtConfig({
         'lucide:search-x',
         // Named in a toast when a chosen photo will not decode.
         'lucide:image-off',
-        // The two items in the recipe photo menu, built in script rather than
-        // written in a template: the camera, and the phone's own library. The
-        // camera is also the button that opens that menu, which is the control
-        // this whole feature is reached by — an icon fetched at runtime is a
-        // blank square on a phone in a shop with no signal.
+        // The recipe importer's photo button, whose icon is a bound expression
+        // rather than a literal, where the scanner does not look. An icon
+        // fetched at runtime is a blank square on a phone with no signal.
         'lucide:camera',
-        'lucide:image',
         // Named in the toast that follows dragging a dish onto the shortlist,
         // where the scanner does not look — the one drop that takes a night off
         // the plan, and offers to put it back.
