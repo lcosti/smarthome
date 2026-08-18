@@ -70,8 +70,63 @@ const matches = computed(() => {
 // photo path because a recipe often spans a spread: ingredients on one page,
 // method overleaf.
 const recipeImport = useRecipeImport()
-const photoInput = ref<HTMLInputElement>()
 const toast = useToast()
+
+/**
+ * Two ways to get a photograph in, asked out loud rather than left to the
+ * phone.
+ *
+ * A bare `accept="image/*"` input used to be the whole of this, on the
+ * reasoning that every phone puts up its own chooser with a camera in it. iOS
+ * does. Android increasingly does not: recent Chrome opens the system photo
+ * picker straight into the gallery, and there is no way from there to the
+ * camera — so "add a recipe from a photo" quietly became "add a recipe from a
+ * photo you already took".
+ *
+ * `capture` is what asks for the camera, and it cannot simply be added to the
+ * input that exists: it means one shot per tap and iOS drops `multiple`
+ * alongside it, which would cost the spread this feature is mostly used for.
+ * So the two are two inputs behind one menu — the camera counts its pages up in
+ * `RecipePhotoTray`, and the library keeps the multi-select it has always had.
+ */
+const photoInput = ref<HTMLInputElement>()
+const cameraInput = ref<HTMLInputElement>()
+
+const photoSources = [
+  {
+    label: 'Take a photo',
+    icon: 'i-lucide-camera',
+    onSelect: () => cameraInput.value?.click()
+  },
+  {
+    label: 'Choose photos',
+    icon: 'i-lucide-image',
+    onSelect: () => photoInput.value?.click()
+  }
+]
+
+/** The shots taken so far on the camera path, waiting to be read together. */
+const shots = ref<File[]>([])
+const trayOpen = ref(false)
+
+function onShotTaken(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // Cleared straight away, so photographing the same page twice still fires.
+  input.value = ''
+  // No file means the camera was backed out of, which leaves the tray as it was.
+  if (!file) return
+
+  shots.value = [...shots.value, file].slice(0, MAX_PHOTOS)
+  trayOpen.value = true
+}
+
+function readShots() {
+  const pages = shots.value
+  trayOpen.value = false
+  shots.value = []
+  startPhotos(pages)
+}
 
 async function add() {
   const typed = draft.value.trim()
@@ -96,9 +151,17 @@ const bookOpen = ref(false)
 const bookSaving = ref(false)
 let pendingPhotos: Promise<string | null> | null = null
 
+/** Chosen from the library, which arrives complete: straight off to be read. */
+function onPhotosPicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = [...(input.files ?? [])]
+  input.value = ''
+  if (files.length) startPhotos(files)
+}
+
 /**
- * Photographs picked: start reading them, and ask which book they came out of
- * while that happens.
+ * The pages are settled: start reading them, and ask which book they came out
+ * of while that happens.
  *
  * The two run over each other on purpose. Extraction is ten or twenty seconds of
  * standing still, and the book and page are the one thing the photographs cannot
@@ -111,12 +174,7 @@ let pendingPhotos: Promise<string | null> | null = null
  * what lets it be asked late. Two upserts of one row is what this app's whole
  * sync layer is built to shrug at.
  */
-async function onPhotosPicked(event: Event) {
-  const input = event.target as HTMLInputElement
-  const files = [...(input.files ?? [])]
-  input.value = ''
-  if (!files.length) return
-
+function startPhotos(files: File[]) {
   const reading = recipeImport.importPhotos(files)
   pendingPhotos = reading
   bookOpen.value = true
@@ -199,24 +257,35 @@ async function land(recipeId: string | null) {
           :disabled="!draft.trim() || recipeImport.busy.value"
           :aria-label="pasted ? 'Import recipe from the link' : 'Add recipe'"
         />
-        <UButton
-          size="xl"
-          color="neutral"
-          variant="outline"
-          :icon="recipeImport.busy.value ? '' : 'i-lucide-camera'"
-          :loading="recipeImport.busy.value"
-          :disabled="recipeImport.busy.value"
-          aria-label="Add recipe from a photo"
-          @click="photoInput?.click()"
-        />
-        <!-- A bare input rather than UFileUpload, because nothing here is
-             visible: the control people see is the UButton above, and this is
-             only the file picker it opens. UFileUpload brings a dropzone and a
+        <!-- Camera or library, said out loud. Which of the two a phone would
+             have offered on its own is not something this app can know — see
+             `photoSources` — and "take a photo of the book in front of you" is
+             the thing this button is for. -->
+        <UDropdownMenu
+          :items="photoSources"
+          :ui="{ content: 'p-1.5' }"
+        >
+          <UButton
+            type="button"
+            size="xl"
+            color="neutral"
+            variant="outline"
+            :icon="recipeImport.busy.value ? '' : 'i-lucide-camera'"
+            :loading="recipeImport.busy.value"
+            :disabled="recipeImport.busy.value"
+            aria-label="Add recipe from a photo"
+          />
+        </UDropdownMenu>
+        <!-- Bare inputs rather than UFileUpload, because nothing here is
+             visible: the control people see is the button above, and these are
+             only the two pickers it opens. UFileUpload brings a dropzone and a
              model this flow has no use for.
 
-             No `capture` attribute: on iOS it forces the camera and silently
-             drops `multiple`, and a cookbook recipe often needs two photos.
-             Without it the phone offers camera or library, both of which work. -->
+             The difference between them is `capture`, and it is the whole
+             point. Without it the phone decides, and on Android that is now the
+             gallery with no way to the camera; with it the camera opens, one
+             shot per tap, `multiple` ignored on iOS — which is why the shots
+             pile up in the tray instead. -->
         <input
           ref="photoInput"
           type="file"
@@ -225,6 +294,15 @@ async function land(recipeId: string | null) {
           class="hidden"
           data-testid="recipe-photo-input"
           @change="onPhotosPicked"
+        >
+        <input
+          ref="cameraInput"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          class="hidden"
+          data-testid="recipe-camera-input"
+          @change="onShotTaken"
         >
       </UForm>
     </AppPageHeader>
@@ -267,6 +345,19 @@ async function land(recipeId: string | null) {
     <RecipeSheet
       v-model:open="sheetOpen"
       :recipe-id="sheetId"
+    />
+
+    <!-- The camera path only: one shot per tap, gathered up until somebody says
+         that is the whole recipe. Swiping it away throws the shots away, which
+         is what a tray of photographs nobody sent means. -->
+    <RecipePhotoTray
+      v-model:open="trayOpen"
+      :files="shots"
+      :max="MAX_PHOTOS"
+      @add="cameraInput?.click()"
+      @remove="index => shots = shots.filter((_, at) => at !== index)"
+      @read="readShots"
+      @update:open="value => value || (shots = [])"
     />
 
     <!-- Dismissing it is an answer too — the same one "Not from a book" gives,

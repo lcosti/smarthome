@@ -5,8 +5,13 @@ import { compressToJpeg } from '../utils/photo'
 import { coerceExtractedRecipe, type ExtractedRecipe } from '../utils/recipe-import'
 import { offline, useEdgeFunction } from './useEdgeFunction'
 
-/** More photos than a recipe spans; matches the Edge Function's cap. */
-const MAX_PHOTOS = 4
+/**
+ * More photos than a recipe spans; matches the Edge Function's cap.
+ *
+ * Exported because the camera path counts up to it as the shots are taken —
+ * see `RecipePhotoTray` — rather than finding out here that it went too far.
+ */
+export const MAX_PHOTOS = 4
 
 type Status = 'idle' | 'compressing' | 'extracting' | 'saving'
 
