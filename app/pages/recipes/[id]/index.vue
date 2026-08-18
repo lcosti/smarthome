@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { useIngredientsStore } from '../../../stores/ingredients'
 import { useListStore } from '../../../stores/list'
+import { usePeopleStore } from '../../../stores/people'
 import { useRecipesStore } from '../../../stores/recipes'
 import { useSyncStore } from '../../../stores/sync'
+import {
+  ADAPTATION_STAGES,
+  audienceLabel,
+  type AdaptationStage
+} from '../../../utils/adaptations'
+import { DIET_KIND, normaliseTag } from '../../../utils/attendance'
 import type { IngredientRow } from '../../../utils/db'
 import { MEALS, MEAL_COLUMNS, MEAL_LABELS } from '../../../utils/meal'
 import { NUTRITION_FIELDS, type NutritionKey } from '../../../utils/nutrition'
@@ -15,10 +22,13 @@ const list = useListStore()
 const sync = useSyncStore()
 const ingredients = useIngredientsStore()
 
+const people = usePeopleStore()
+
 const id = computed(() => String(route.params.id))
 const recipe = computed(() => store.recipeById(id.value))
 const lines = computed(() => store.ingredientsFor(id.value))
 const steps = computed(() => store.stepsFor(id.value))
+const adaptations = computed(() => store.adaptationsFor(id.value))
 
 const estimator = useNutritionEstimate()
 /** The estimator only fills blanks, so a full panel gives it nothing to do. */
@@ -120,6 +130,53 @@ async function setNutrition(key: NutritionKey, next: number | null | undefined) 
   const value = typeof next === 'number' && Number.isFinite(next) && next >= 0 ? next : null
   if (!recipe.value || value === recipe.value[key]) return
   await store.updateRecipe(id.value, { [key]: value })
+}
+
+const editingAdaptationId = ref<string | null>(null)
+const adaptationEditorOpen = ref(false)
+
+/**
+ * Who an adaptation could be for: the four stages, then whatever diets the
+ * household actually holds — a diet nobody is on would never show, so it is
+ * not offered. Audiences this recipe already has drop out; their row is above.
+ */
+const audienceOptions = computed(() => {
+  const taken = new Set(adaptations.value.map(a => a.life_stage ?? `diet:${a.diet_tag}`))
+  const stages = ADAPTATION_STAGES
+    .filter(stage => !taken.has(stage))
+    .map(stage => ({ label: audienceLabel({ life_stage: stage, diet_tag: null }), value: `stage:${stage}` }))
+  const diets = [...new Set(
+    people.constraints
+      .filter(row => row.kind === DIET_KIND)
+      .map(row => normaliseTag(row.tag))
+  )]
+    .filter(tag => !taken.has(`diet:${tag}`))
+    .sort()
+    .map(tag => ({ label: tag, value: `diet:${tag}` }))
+  return [...stages, ...diets]
+})
+
+/** A picked audience is an adaptation: created, then straight into its editor. */
+async function addAdaptation(value: string) {
+  const audience = value.startsWith('stage:')
+    ? { life_stage: value.slice('stage:'.length) as AdaptationStage }
+    : { diet_tag: value.slice('diet:'.length) }
+  const row = await store.upsertAdaptation(id.value, audience)
+  if (!row) return
+  editingAdaptationId.value = row.id
+  adaptationEditorOpen.value = true
+}
+
+function editAdaptation(adaptationId: string) {
+  editingAdaptationId.value = adaptationId
+  adaptationEditorOpen.value = true
+}
+
+/** "2 changes · No salt in theirs." — enough to know which row to open. */
+function adaptationSummary(adaptationId: string, note: string | null): string {
+  const count = store.adaptationItemsFor(adaptationId).length
+  const changes = count ? `${count} ${count === 1 ? 'change' : 'changes'}` : ''
+  return [changes, note?.trim()].filter(Boolean).join(' · ') || 'Nothing written yet.'
 }
 
 async function saveMethod(event: Event) {
@@ -502,6 +559,61 @@ async function removeRecipe() {
           </UForm>
         </section>
 
+        <!--
+          Versions of this meal for whoever needs one — the weaning baby, the
+          toddler, an adult on a named diet. Every stored adaptation is listed,
+          matching or not: you write for next month's audience, and the panels
+          elsewhere decide what currently shows. Stored as overrides on the
+          base, never folded into the ingredients or steps above.
+        -->
+        <section>
+          <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
+            Adaptations
+          </h2>
+
+          <ul
+            v-if="adaptations.length"
+            class="divide-y divide-default rounded-lg border border-default bg-elevated/30"
+          >
+            <li
+              v-for="adaptation in adaptations"
+              :key="adaptation.id"
+            >
+              <UButton
+                color="neutral"
+                variant="ghost"
+                block
+                class="min-h-12 min-w-0 gap-2 px-3 py-3 text-left font-normal"
+                @click="editAdaptation(adaptation.id)"
+              >
+                <UBadge
+                  variant="subtle"
+                  size="sm"
+                  class="shrink-0"
+                >
+                  {{ audienceLabel(adaptation) }}
+                </UBadge>
+                <span class="min-w-0 flex-1 truncate text-sm text-dimmed">
+                  {{ adaptationSummary(adaptation.id, adaptation.note) }}
+                </span>
+              </UButton>
+            </li>
+          </ul>
+
+          <!-- Choosing an audience is the whole decision, so picking one
+               creates the adaptation and opens it — no second button. -->
+          <USelectMenu
+            :model-value="undefined"
+            :items="audienceOptions"
+            value-key="value"
+            size="lg"
+            class="mt-2 w-full sm:w-64"
+            placeholder="Add an adaptation for…"
+            aria-label="Add an adaptation"
+            @update:model-value="addAdaptation"
+          />
+        </section>
+
         <!-- Notes is notes again: what the method left out, not the method. -->
         <section>
           <h2 class="mb-1 text-xs font-medium uppercase tracking-wide text-dimmed">
@@ -545,6 +657,11 @@ async function removeRecipe() {
     <RecipeStepEditor
       v-model:open="stepEditorOpen"
       :step-id="editingStepId"
+    />
+
+    <RecipeAdaptationEditor
+      v-model:open="adaptationEditorOpen"
+      :adaptation-id="editingAdaptationId"
     />
   </div>
 </template>

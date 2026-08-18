@@ -138,6 +138,26 @@ function audienceRank(adaptation: AdaptationLike): number {
   return stage ? ADAPTATION_STAGES.indexOf(stage) : ADAPTATION_STAGES.length
 }
 
+/** The actions an ingredient override can take, in the order they are offered. */
+export const OVERRIDE_ACTIONS = [
+  { value: 'swap', label: 'Swap' },
+  { value: 'omit', label: 'Skip' },
+  { value: 'reduce', label: 'Less' }
+] as const
+export type OverrideAction = typeof OVERRIDE_ACTIONS[number]['value']
+
+/**
+ * An ingredient override said as a sentence, so the panel, cook mode and the
+ * editor all say it the same way. For a swap the body is the replacement; for
+ * skip and less it is optional detail.
+ */
+export function ingredientOverrideText(action: string | null, lineName: string, body: string): string {
+  const detail = body.trim()
+  if (action === 'swap') return `Swap the ${lineName} for ${detail}`
+  if (action === 'omit') return detail ? `Skip the ${lineName} — ${detail}` : `Skip the ${lineName}`
+  return detail ? `Less ${lineName} — ${detail}` : `Less ${lineName}`
+}
+
 /** 'Weaning', or the diet tag as stored. */
 export function audienceLabel(adaptation: Pick<AdaptationLike, 'life_stage' | 'diet_tag'>): string {
   const stage = asAdaptationStage(adaptation.life_stage)

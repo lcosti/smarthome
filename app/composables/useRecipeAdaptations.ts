@@ -1,6 +1,6 @@
 import { usePeopleStore } from '../stores/people'
 import { useRecipesStore } from '../stores/recipes'
-import { audienceLabel, householdAudiences, matchAdaptations } from '../utils/adaptations'
+import { audienceLabel, householdAudiences, ingredientOverrideText, matchAdaptations } from '../utils/adaptations'
 import type { RecipeAdaptationItemRow } from '../utils/db'
 
 /** One override, resolved to the line or step it amends and said as a sentence. */
@@ -67,7 +67,7 @@ export function useRecipeAdaptations(recipeId: () => string | null) {
         kind: 'ingredient',
         lineId: line.id,
         stepId: null,
-        text: ingredientText(item.action, line.name, item.body)
+        text: ingredientOverrideText(item.action, line.name, item.body)
       }
     }
     const step = recipes.stepById(item.recipe_step_id ?? '')
@@ -107,13 +107,6 @@ function groupTargets(views: AdaptationView[], key: 'lineId' | 'stepId'): Map<st
     }
   }
   return map
-}
-
-function ingredientText(action: string | null, lineName: string, body: string): string {
-  const detail = body.trim()
-  if (action === 'swap') return `Swap the ${lineName} for ${detail}`
-  if (action === 'omit') return detail ? `Skip the ${lineName} — ${detail}` : `Skip the ${lineName}`
-  return detail ? `Less ${lineName} — ${detail}` : `Less ${lineName}`
 }
 
 /** "Astrid", "Astrid and Tom", "Astrid, Tom and Pia". */
