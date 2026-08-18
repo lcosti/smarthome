@@ -7,7 +7,9 @@ import { useSyncStore } from '../../../stores/sync'
 import {
   ADAPTATION_STAGES,
   audienceLabel,
-  type AdaptationStage
+  ingredientOverrideText,
+  type AdaptationStage,
+  type SuggestedAdaptation
 } from '../../../utils/adaptations'
 import { DIET_KIND, normaliseTag } from '../../../utils/attendance'
 import type { IngredientRow } from '../../../utils/db'
@@ -177,6 +179,28 @@ function adaptationSummary(adaptationId: string, note: string | null): string {
   const count = store.adaptationItemsFor(adaptationId).length
   const changes = count ? `${count} ${count === 1 ? 'change' : 'changes'}` : ''
   return [changes, note?.trim()].filter(Boolean).join(' · ') || 'Nothing written yet.'
+}
+
+const suggester = useAdaptationSuggest()
+
+/** A proposal's overrides as the sentences the saved version will say. */
+function suggestionLines(suggestion: SuggestedAdaptation): string[] {
+  const overrides = suggestion.ingredient_overrides.map((override) => {
+    const line = store.ingredientById(override.recipe_ingredient_id)
+    return ingredientOverrideText(override.action, line?.name ?? 'ingredient', override.body)
+  })
+  const amendments = suggestion.step_amendments.map((amendment) => {
+    const index = steps.value.findIndex(step => step.id === amendment.recipe_step_id)
+    return index >= 0 ? `Step ${index + 1} — ${amendment.body}` : amendment.body
+  })
+  return [...overrides, ...amendments]
+}
+
+async function acceptSuggestion(suggestion: SuggestedAdaptation) {
+  const row = await suggester.accept(id.value, suggestion)
+  // Straight into the editor, which is where accepting ends anyway: the point
+  // of review is reading what landed with the power to prune it.
+  if (row) editAdaptation(row.id)
 }
 
 async function saveMethod(event: Event) {
@@ -602,16 +626,100 @@ async function removeRecipe() {
 
           <!-- Choosing an audience is the whole decision, so picking one
                creates the adaptation and opens it — no second button. -->
-          <USelectMenu
-            :model-value="undefined"
-            :items="audienceOptions"
-            value-key="value"
-            size="lg"
-            class="mt-2 w-full sm:w-64"
-            placeholder="Add an adaptation for…"
-            aria-label="Add an adaptation"
-            @update:model-value="addAdaptation"
-          />
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <USelectMenu
+              :model-value="undefined"
+              :items="audienceOptions"
+              value-key="value"
+              size="lg"
+              class="w-full sm:w-64"
+              placeholder="Add an adaptation for…"
+              aria-label="Add an adaptation"
+              @update:model-value="addAdaptation"
+            />
+            <UButton
+              icon="i-lucide-sparkles"
+              color="neutral"
+              variant="subtle"
+              size="lg"
+              label="Suggest adaptations"
+              :loading="suggester.busy.value"
+              :disabled="!lines.length"
+              @click="suggester.suggest(id)"
+            />
+          </div>
+
+          <p
+            v-if="suggester.error.value"
+            class="mt-2 text-sm text-error"
+          >
+            {{ suggester.error.value }}
+          </p>
+
+          <!--
+            Proposals, not writes: a model's suggestions for whoever is at the
+            table, each waiting on Add or the cross. Generated weaning guidance
+            gets read by the person who knows the child — the brief's safety
+            note, kept by making review the only path in.
+          -->
+          <ul
+            v-if="suggester.suggestions.value.length"
+            class="mt-3 space-y-3"
+          >
+            <li
+              v-for="(suggestion, index) in suggester.suggestions.value"
+              :key="index"
+              class="rounded-lg border border-dashed border-default px-4 py-3.5"
+            >
+              <div class="flex items-start gap-2">
+                <div class="min-w-0 flex-1">
+                  <p class="flex items-baseline gap-2">
+                    <UBadge
+                      variant="subtle"
+                      size="sm"
+                    >
+                      {{ audienceLabel(suggestion) }}
+                    </UBadge>
+                    <span class="text-xs text-dimmed">suggested</span>
+                  </p>
+                  <p
+                    v-if="suggestion.note"
+                    class="mt-2 text-sm leading-relaxed text-default"
+                  >
+                    {{ suggestion.note }}
+                  </p>
+                  <ul
+                    v-if="suggestionLines(suggestion).length"
+                    class="mt-2 space-y-1"
+                  >
+                    <li
+                      v-for="line in suggestionLines(suggestion)"
+                      :key="line"
+                      class="text-sm leading-relaxed text-muted"
+                    >
+                      {{ line }}
+                    </li>
+                  </ul>
+                </div>
+                <UButton
+                  icon="i-lucide-x"
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  aria-label="Dismiss this suggestion"
+                  @click="suggester.dismiss(suggestion)"
+                />
+              </div>
+              <UButton
+                color="neutral"
+                variant="subtle"
+                size="sm"
+                label="Add to the recipe"
+                class="mt-3"
+                @click="acceptSuggestion(suggestion)"
+              />
+            </li>
+          </ul>
         </section>
 
         <!-- Notes is notes again: what the method left out, not the method. -->

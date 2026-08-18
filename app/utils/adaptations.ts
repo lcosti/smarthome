@@ -164,3 +164,58 @@ export function audienceLabel(adaptation: Pick<AdaptationLike, 'life_stage' | 'd
   if (stage) return STAGE_LABEL[stage]
   return adaptation.diet_tag ?? ''
 }
+
+export interface SuggestedAdaptation {
+  life_stage: AdaptationStage | null
+  diet_tag: string | null
+  note: string | null
+  ingredient_overrides: { recipe_ingredient_id: string, action: OverrideAction, body: string }[]
+  step_amendments: { recipe_step_id: string, body: string }[]
+}
+
+const OVERRIDE_ACTION_VALUES = OVERRIDE_ACTIONS.map(action => action.value) as string[]
+
+/**
+ * What suggest-adaptations answered, reduced to what is usable: entries with
+ * exactly one audience, overrides with a target and a known action, anything
+ * else dropped. The Edge Function constrains the model with a schema, but the
+ * client revalidates at its own boundary — the bundle and the function deploy
+ * independently, and an undeployed function answers with nothing.
+ */
+export function asSuggestions(value: unknown): SuggestedAdaptation[] {
+  if (!Array.isArray(value)) return []
+  const suggestions: SuggestedAdaptation[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const raw = entry as Record<string, unknown>
+    const life_stage = asAdaptationStage(typeof raw.life_stage === 'string' ? raw.life_stage : null)
+    const diet_tag = typeof raw.diet_tag === 'string' && normaliseTag(raw.diet_tag)
+      ? normaliseTag(raw.diet_tag)
+      : null
+    if ((life_stage === null) === (diet_tag === null)) continue
+
+    const overrides = (Array.isArray(raw.ingredient_overrides) ? raw.ingredient_overrides : [])
+      .filter((o): o is { recipe_ingredient_id: string, action: OverrideAction, body: string } =>
+        typeof o?.recipe_ingredient_id === 'string'
+        && typeof o?.action === 'string' && OVERRIDE_ACTION_VALUES.includes(o.action)
+        && typeof o?.body === 'string'
+        // A swap with no replacement says nothing — the store refuses it too.
+        && (o.action !== 'swap' || o.body.trim() !== ''))
+    const amendments = (Array.isArray(raw.step_amendments) ? raw.step_amendments : [])
+      .filter((a): a is { recipe_step_id: string, body: string } =>
+        typeof a?.recipe_step_id === 'string'
+        && typeof a?.body === 'string' && a.body.trim() !== '')
+    const note = typeof raw.note === 'string' && raw.note.trim() ? raw.note.trim() : null
+
+    // An empty suggestion is the model agreeing the dish already suits them.
+    if (!overrides.length && !amendments.length && !note) continue
+    suggestions.push({
+      life_stage: diet_tag ? null : life_stage,
+      diet_tag,
+      note,
+      ingredient_overrides: overrides,
+      step_amendments: amendments
+    })
+  }
+  return suggestions
+}

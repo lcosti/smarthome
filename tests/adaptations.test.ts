@@ -3,6 +3,7 @@ import {
   adaptationAudienceKey,
   adaptationId,
   asAdaptationStage,
+  asSuggestions,
   audienceLabel,
   householdAudiences,
   matchAdaptations,
@@ -134,5 +135,54 @@ describe('identity', () => {
     expect(asAdaptationStage('baby')).toBe(null)
     expect(asAdaptationStage('teen')).toBe(null)
     expect(asAdaptationStage('weaning')).toBe('weaning')
+  })
+})
+
+describe('asSuggestions', () => {
+  const good = {
+    life_stage: 'weaning',
+    diet_tag: null,
+    note: 'No salt in theirs.',
+    ingredient_overrides: [{ recipe_ingredient_id: 'l1', action: 'omit', body: '' }],
+    step_amendments: [{ recipe_step_id: 's1', body: 'Set their portion aside first.' }]
+  }
+
+  it('keeps a well-formed suggestion as sent', () => {
+    expect(asSuggestions([good])).toEqual([good])
+  })
+
+  it('refuses anything that is not an array, quietly', () => {
+    expect(asSuggestions(undefined)).toEqual([])
+    expect(asSuggestions('suggestions')).toEqual([])
+  })
+
+  it('drops an entry with no audience, or with two', () => {
+    expect(asSuggestions([{ ...good, life_stage: null }])).toEqual([])
+    expect(asSuggestions([{ ...good, diet_tag: 'keto' }])).toEqual([])
+  })
+
+  it('drops a swap with no replacement, but keeps a bare skip', () => {
+    const entry = {
+      ...good,
+      ingredient_overrides: [
+        { recipe_ingredient_id: 'l1', action: 'swap', body: ' ' },
+        { recipe_ingredient_id: 'l2', action: 'omit', body: '' }
+      ]
+    }
+    expect(asSuggestions([entry])[0]!.ingredient_overrides).toEqual([
+      { recipe_ingredient_id: 'l2', action: 'omit', body: '' }
+    ])
+  })
+
+  it('drops an entry with nothing left to say', () => {
+    expect(asSuggestions([{
+      life_stage: 'toddler', diet_tag: null, note: null,
+      ingredient_overrides: [], step_amendments: []
+    }])).toEqual([])
+  })
+
+  it('normalises a diet tag so it lands on the person who holds it', () => {
+    const entry = { ...good, life_stage: null, diet_tag: ' High  Protein ' }
+    expect(asSuggestions([entry])[0]!.diet_tag).toBe('high protein')
   })
 })
