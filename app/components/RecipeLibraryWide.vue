@@ -329,6 +329,13 @@ async function add() {
             class="shrink-0"
           />
 
+          <!-- Same terms again: nothing unless somebody at home currently
+               needs a version of this — see the panel's own docblock. -->
+          <RecipeAdaptationsPanel
+            :recipe-id="detailRecipe?.id ?? null"
+            class="shrink-0"
+          />
+
           <div class="shrink-0">
             <h3 class="text-xs font-medium uppercase tracking-wide text-dimmed">
               Ingredients
