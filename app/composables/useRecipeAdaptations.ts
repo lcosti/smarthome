@@ -12,6 +12,11 @@ export interface AdaptationItemView {
   stepId: string | null
   /** "Swap the Greek yoghurt for coconut yoghurt", "Step 3 — set theirs aside". */
   text: string
+  /**
+   * The same sentence without the "Step n —" locator, for cook mode, where it
+   * is drawn on the step it locates.
+   */
+  bare: string
 }
 
 export interface AdaptationView {
@@ -62,13 +67,8 @@ export function useRecipeAdaptations(recipeId: () => string | null) {
     if (item.kind === 'ingredient') {
       const line = recipes.ingredientById(item.recipe_ingredient_id ?? '')
       if (!line) return null
-      return {
-        id: item.id,
-        kind: 'ingredient',
-        lineId: line.id,
-        stepId: null,
-        text: ingredientOverrideText(item.action, line.name, item.body)
-      }
+      const text = ingredientOverrideText(item.action, line.name, item.body)
+      return { id: item.id, kind: 'ingredient', lineId: line.id, stepId: null, text, bare: text }
     }
     const step = recipes.stepById(item.recipe_step_id ?? '')
     if (!step) return null
@@ -79,7 +79,8 @@ export function useRecipeAdaptations(recipeId: () => string | null) {
       kind: 'step',
       lineId: null,
       stepId: step.id,
-      text: position > 0 ? `Step ${position} — ${item.body}` : item.body
+      text: position > 0 ? `Step ${position} — ${item.body}` : item.body,
+      bare: item.body
     }
   }
 
@@ -103,7 +104,7 @@ function groupTargets(views: AdaptationView[], key: 'lineId' | 'stepId'): Map<st
       const target = item[key]
       if (!target) continue
       if (!map.has(target)) map.set(target, [])
-      map.get(target)!.push({ label: view.label, forWho: view.forWho, text: item.text })
+      map.get(target)!.push({ label: view.label, forWho: view.forWho, text: item.bare })
     }
   }
   return map

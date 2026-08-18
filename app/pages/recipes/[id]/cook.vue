@@ -36,6 +36,18 @@ const recipe = computed(() => recipes.recipeById(id.value))
 const lines = computed(() => recipes.ingredientsFor(id.value))
 const steps = computed(() => recipes.stepsFor(id.value))
 
+/**
+ * Whose version differs tonight, drawn where it applies: a swap on the line
+ * being measured, an amendment on the step being done, and anything untargeted
+ * under the ingredients, to be read before the hob is on. Same matching as the
+ * recipe panels — anyone at home the audience fits — so nothing here needs to
+ * know a date.
+ */
+const adaptations = useRecipeAdaptations(() => id.value)
+const generalNotes = computed(() =>
+  adaptations.matched.value.filter(view => view.note)
+)
+
 const minutes = computed(() => {
   const total = (recipe.value?.prep_minutes ?? 0) + (recipe.value?.cook_minutes ?? 0)
   return total || null
@@ -390,6 +402,23 @@ onUnmounted(() => {
                     :class="checked.has(line.id) ? 'text-dimmed' : 'text-muted'"
                   >{{ line.quantity }}</span>
                 </span>
+
+                <!-- Whose version touches this line — said on the line, so the
+                     swap is read in the same glance as the quantity it changes. -->
+                <span
+                  v-for="entry in adaptations.byLine.value.get(line.id) ?? []"
+                  :key="`${entry.label}:${entry.text}`"
+                  class="mt-1 flex items-baseline gap-1.5"
+                >
+                  <UBadge
+                    variant="subtle"
+                    size="sm"
+                    class="shrink-0"
+                  >
+                    {{ entry.label }}
+                  </UBadge>
+                  <span class="min-w-0 text-sm font-normal text-muted">{{ entry.text }}</span>
+                </span>
               </template>
             </UCheckbox>
           </li>
@@ -401,6 +430,24 @@ onUnmounted(() => {
         >
           No ingredients listed.
         </p>
+
+        <!-- Adaptation notes that name no line and no step: read before the
+             hob is on, which is what this pane is for. -->
+        <div
+          v-if="generalNotes.length"
+          class="shrink-0 space-y-2 px-3 pb-3"
+        >
+          <UAlert
+            v-for="view in generalNotes"
+            :key="view.id"
+            color="primary"
+            variant="subtle"
+            icon="i-lucide-utensils"
+            :title="`${view.label} — ${view.forWho}`"
+            :description="view.note ?? undefined"
+            :ui="{ description: 'text-pretty text-sm leading-relaxed' }"
+          />
+        </div>
 
         <template #footer>
           <span class="text-sm text-muted">Checked off</span>
@@ -579,6 +626,19 @@ onUnmounted(() => {
             icon="i-lucide-lightbulb"
             :description="content.tip"
             :ui="{ description: 'whitespace-pre-line text-pretty text-base leading-[1.45] text-default' }"
+          />
+
+          <!-- What this step does differently for somebody at the table —
+               drawn on the step it amends, exactly when the pan is in hand. -->
+          <UAlert
+            v-for="entry in (currentStep ? adaptations.byStep.value.get(currentStep.id) ?? [] : [])"
+            :key="`${entry.label}:${entry.text}`"
+            color="primary"
+            variant="subtle"
+            icon="i-lucide-utensils"
+            :title="`${entry.label} — ${entry.forWho}`"
+            :description="entry.text"
+            :ui="{ description: 'text-pretty text-base leading-[1.45]' }"
           />
 
           <!--
