@@ -808,6 +808,141 @@ export type Database = {
           },
         ]
       }
+      recipe_adaptation_items: {
+        Row: {
+          action: string | null
+          adaptation_id: string
+          body: string
+          created_at: string
+          deleted_at: string | null
+          household_id: string
+          id: string
+          kind: string
+          recipe_id: string
+          recipe_ingredient_id: string | null
+          recipe_step_id: string | null
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          action?: string | null
+          adaptation_id: string
+          body?: string
+          created_at?: string
+          deleted_at?: string | null
+          household_id: string
+          id: string
+          kind: string
+          recipe_id: string
+          recipe_ingredient_id?: string | null
+          recipe_step_id?: string | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          action?: string | null
+          adaptation_id?: string
+          body?: string
+          created_at?: string
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          kind?: string
+          recipe_id?: string
+          recipe_ingredient_id?: string | null
+          recipe_step_id?: string | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_adaptation_items_adaptation_id_fkey"
+            columns: ["adaptation_id"]
+            isOneToOne: false
+            referencedRelation: "recipe_adaptations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_adaptation_items_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_adaptation_items_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_adaptation_items_recipe_ingredient_id_fkey"
+            columns: ["recipe_ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "recipe_ingredients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_adaptation_items_recipe_step_id_fkey"
+            columns: ["recipe_step_id"]
+            isOneToOne: false
+            referencedRelation: "recipe_steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recipe_adaptations: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          diet_tag: string | null
+          household_id: string
+          id: string
+          life_stage: string | null
+          note: string | null
+          recipe_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          diet_tag?: string | null
+          household_id: string
+          id: string
+          life_stage?: string | null
+          note?: string | null
+          recipe_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          diet_tag?: string | null
+          household_id?: string
+          id?: string
+          life_stage?: string | null
+          note?: string | null
+          recipe_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_adaptations_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_adaptations_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recipe_ingredients: {
         Row: {
           aisle_id: string | null

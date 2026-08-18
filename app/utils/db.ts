@@ -11,6 +11,8 @@ export type AisleRow = Tables['aisles']['Row']
 export type RecipeRow = Tables['recipes']['Row']
 export type RecipeIngredientRow = Tables['recipe_ingredients']['Row']
 export type RecipeStepRow = Tables['recipe_steps']['Row']
+export type RecipeAdaptationRow = Tables['recipe_adaptations']['Row']
+export type RecipeAdaptationItemRow = Tables['recipe_adaptation_items']['Row']
 export type PlanEntryRow = Tables['meal_plan_entries']['Row']
 export type IngredientRow = Tables['ingredients']['Row']
 export type IngredientAliasRow = Tables['ingredient_aliases']['Row']
@@ -53,6 +55,10 @@ export const SYNC_TABLES = {
   recipes: { cache: 'recipes' },
   recipe_ingredients: { cache: 'recipe_ingredients' },
   recipe_steps: { cache: 'recipe_steps' },
+  // After the recipe, its lines and its steps: an adaptation belongs to a
+  // recipe, and its items point at the exact line or step they amend.
+  recipe_adaptations: { cache: 'recipe_adaptations' },
+  recipe_adaptation_items: { cache: 'recipe_adaptation_items' },
   meal_plan_entries: { cache: 'meal_plan_entries' },
   // After the nights it reserves against, so settlement never runs against a
   // half-applied plan on a device's first pull.
@@ -102,6 +108,8 @@ export interface RowOf {
   recipes: RecipeRow
   recipe_ingredients: RecipeIngredientRow
   recipe_steps: RecipeStepRow
+  recipe_adaptations: RecipeAdaptationRow
+  recipe_adaptation_items: RecipeAdaptationItemRow
   meal_plan_entries: PlanEntryRow
   pantry_reservations: PantryReservationRow
   shopping_list_items: ItemRow
@@ -133,6 +141,8 @@ export class AppDatabase extends Dexie {
   recipes!: Table<RecipeRow, string>
   recipe_ingredients!: Table<RecipeIngredientRow, string>
   recipe_steps!: Table<RecipeStepRow, string>
+  recipe_adaptations!: Table<RecipeAdaptationRow, string>
+  recipe_adaptation_items!: Table<RecipeAdaptationItemRow, string>
   meal_plan_entries!: Table<PlanEntryRow, string>
   ingredients!: Table<IngredientRow, string>
   ingredient_aliases!: Table<IngredientAliasRow, string>
@@ -221,6 +231,13 @@ export class AppDatabase extends Dexie {
       calendar_sync_status: 'id',
       chores: 'id',
       chore_completions: 'id'
+    })
+    // v10 adds recipe adaptations. Same terms as every version above — new empty
+    // stores filled on the next pull — and a recipe with no adaptations recorded
+    // derives nothing, so every surface reads exactly as it did before.
+    this.version(10).stores({
+      recipe_adaptations: 'id',
+      recipe_adaptation_items: 'id'
     })
   }
 

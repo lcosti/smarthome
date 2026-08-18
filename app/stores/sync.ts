@@ -21,6 +21,8 @@ import {
   type RecipeIngredientRow,
   type RecipeRow,
   type RecipeStepRow,
+  type RecipeAdaptationRow,
+  type RecipeAdaptationItemRow,
   type RowOf,
   type SyncTable
 } from '../utils/db'
@@ -62,6 +64,8 @@ export const useSyncStore = defineStore('sync', () => {
     recipes: ref(new Map<string, RecipeRow>()),
     recipe_ingredients: ref(new Map<string, RecipeIngredientRow>()),
     recipe_steps: ref(new Map<string, RecipeStepRow>()),
+    recipe_adaptations: ref(new Map<string, RecipeAdaptationRow>()),
+    recipe_adaptation_items: ref(new Map<string, RecipeAdaptationItemRow>()),
     meal_plan_entries: ref(new Map<string, PlanEntryRow>()),
     pantry_reservations: ref(new Map<string, PantryReservationRow>()),
     shopping_list_items: ref(new Map<string, ItemRow>()),
